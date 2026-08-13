@@ -142,12 +142,31 @@ function renderBootCmd() {
 function renderBootState(list) {
   const el = document.getElementById("mpBootState");
   const btn = document.getElementById("mpStart");
-  const ready = list.filter((p) => p.live).length;
+
+  // Readiness is "the bridge has gaze from the phone", NOT "mapped gaze has
+  // arrived". Mapped gaze also needs the four tags inside that player's
+  // scene camera, and the tags are on this very screen — so requiring it
+  // here would wait forever on a condition only starting can satisfy.
+  const ready = list.filter((p) => p.streaming).length;
+
   el.innerHTML = list.map((p) => {
-    const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
-    const txt = p.live ? "streaming gaze" : (p.detail || p.state);
+    let cls, txt;
+    if (p.live) {
+      cls = "live"; txt = "gaze mapped — ready";
+    } else if (p.streaming) {
+      // Connected and streaming, just not framed on the screen yet.
+      const m = p.markers;
+      cls = m ? "warn" : "warn";
+      txt = m != null
+        ? `${m}/4 markers — ${m >= 3 ? "nearly there, hold still" : "look at this screen"}`
+        : "connected — look at this screen";
+    } else {
+      cls = p.state === "offline" ? "err" : "warn";
+      txt = p.detail || p.state;
+    }
     return `<span style="color:${p.color}">${p.label}</span> · port ${p.port} — <span class="mp-state ${cls}">${txt}</span>`;
   }).join("<br>");
+
   btn.disabled = ready === 0;
   btn.textContent = ready === 0 ? "waiting for bridges"
     : ready < list.length ? `start with ${ready} of ${list.length}` : "start";
@@ -160,7 +179,14 @@ function renderPanel(list) {
     `<div class="mp-h">score</div>` +
     list.map((p) => {
       const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
-      const txt = simMode ? "simulated" : p.live ? "live" : (p.detail || p.state);
+      // Mid-game, "not live" almost always means that player has looked away
+      // far enough to lose the markers — so say the marker count rather than
+      // a generic status, which is the difference between "I'm broken" and
+      // "turn back towards the screen".
+      const txt = simMode ? "simulated"
+        : p.live ? "live"
+        : p.streaming && p.markers != null ? `${p.markers}/4 markers`
+        : (p.detail || p.state);
       const lead = scores[p.id] === best && best > 0 ? " mp-lead" : "";
       return `<div class="mp-row">
         <div class="mp-dot" style="background:${p.color}"></div>
@@ -207,9 +233,11 @@ function start(sim) {
     SIM_POINTER_IDS.forEach((pid, i) => {
       if (PLAYERS[i]) byPointer[pid] = PLAYERS[i];
     });
-  } else if (window.Markers) {
-    Markers.show();            // surface tags for the scene cameras
+    // No cameras involved — the tags are just clutter over the piece.
+    if (window.Markers) Markers.hide();
   }
+  // Markers are already showing from load in the live path; the scene
+  // cameras must keep seeing them for the whole session, so nothing to do.
 
   if (window.ControlsHint) {
     ControlsHint.show(
@@ -228,6 +256,12 @@ document.getElementById("mpSim").onclick = () => start(true);
 
 renderBootCmd();
 GazeAggregator.init({ players: PLAYERS });
+
+// Draw the tags DURING the boot card, not after starting. Each player's
+// scene camera has to see them before any gaze can be mapped, so the boot
+// card doubles as the framing step: look at the screen, watch your own
+// marker count climb to 4/4, then start.
+if (window.Markers) Markers.show();
 
 // ?sim skips straight into mouse+arrows, matching ?mouse elsewhere.
 if (new URLSearchParams(location.search).has("sim")) start(true);

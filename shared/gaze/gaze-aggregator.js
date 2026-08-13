@@ -31,6 +31,15 @@
         ...p,
         state: c.state || "connecting",
         detail: c.detail || "",
+        // The bridge has gaze from the phone. This is what "ready to play"
+        // means — NOT that mapped gaze has arrived, which additionally
+        // requires the markers to be on screen and in that player's camera.
+        // Gating readiness on mapped gaze deadlocks: the markers are only
+        // drawn once play starts, so they can never become visible.
+        streaming: c.state === "streaming",
+        // How many of the four tags this player's scene camera can see.
+        markers: typeof c.markers === "number" ? c.markers : null,
+        // Mapped gaze actually flowing.
         live: !!c.at && performance.now() - c.at < STALE_MS,
         x: c.x, y: c.y,
       };
@@ -82,6 +91,7 @@
       if (msg.type === "status") {
         c.state = msg.state;
         c.detail = msg.detail || "";
+        if (msg.markersVisible != null) c.markers = msg.markersVisible;
         emit();
         return;
       }
