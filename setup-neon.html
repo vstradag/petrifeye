@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PetrifEye — Neon setup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="shared/style.css" />
+<link rel="stylesheet" href="shared/gaze/gaze-ui.css" />
+<script src="shared/gaze/markers.js" defer></script>
+<style>
+  body { background:#07080c; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 24px 96px; font-family: var(--gaze-mono); }
+  h1 { font-size: 26px; font-weight: 200; letter-spacing: 0.3em; margin: 0 0 6px; }
+  h1 span { color: var(--gaze-red); }
+  .lede { color:#777; font-size: 12px; letter-spacing: 0.12em; margin: 0 0 32px; line-height:1.7; }
+
+  .progress { display:flex; gap:6px; margin-bottom: 28px; }
+  .pip { flex:1; height:3px; background:#1e2028; }
+  .pip.done { background: var(--gaze-red); }
+  .pip.now  { background:#ff8f8f; }
+
+  .step { border:1px solid #23252c; background:#0b0d12; padding:26px 28px; }
+  .step-n { font-size:10px; letter-spacing:0.34em; color:#6a6a6a; text-transform:uppercase; margin:0 0 10px; }
+  .step h2 { font-size:19px; font-weight:400; margin:0 0 14px; letter-spacing:0.02em; }
+  .step p, .step li { color:#b9b7b3; font-size:13.5px; line-height:1.75; }
+  .step p { margin:0 0 12px; }
+  .step ul, .step ol { margin:0 0 12px; padding-left:20px; }
+  .step li { margin-bottom:7px; }
+  .step strong { color:#fff; font-weight:600; }
+  code { background:#15171d; padding:2px 7px; border-radius:3px; font-size:12.5px; color:#ffb0b0; }
+  pre { background:#15171d; padding:14px 16px; overflow-x:auto; border-left:2px solid var(--gaze-red); margin:0 0 14px; }
+  pre code { background:none; padding:0; color:#d8d6d2; }
+
+  .note { border-left:2px solid #3a3d46; padding:10px 14px; margin:0 0 14px; color:#8d8b88; font-size:12.5px; line-height:1.7; }
+  .note.warn { border-left-color:#b23a3a; color:#d8a5a5; }
+
+  .row { display:flex; gap:12px; align-items:center; margin-top:22px; flex-wrap:wrap; }
+  button { font-family: var(--gaze-mono); cursor:pointer; }
+  .go { padding:13px 34px; font-size:12px; letter-spacing:0.26em; text-transform:uppercase;
+        color:#ffb0b0; background:transparent; border:1px solid var(--gaze-red); }
+  .go:hover { background:rgba(255,59,59,0.14); color:#fff; }
+  .go:disabled { opacity:0.35; cursor:not-allowed; border-color:#444; color:#666; background:none; }
+  .back { padding:13px 18px; font-size:11px; letter-spacing:0.2em; text-transform:uppercase;
+          color:#666; background:none; border:1px solid #23252c; }
+  .back:hover { color:#aaa; border-color:#3a3d46; }
+  .check { padding:11px 20px; font-size:11px; letter-spacing:0.18em; text-transform:uppercase;
+           color:#9fd; background:transparent; border:1px solid #2c5c4c; }
+  .check:hover { background:rgba(60,200,150,0.1); }
+
+  .result { font-size:12px; letter-spacing:0.06em; margin-top:14px; line-height:1.7; white-space:pre-wrap; }
+  .ok   { color:#6ee7a8; }
+  .bad  { color:#ff8080; }
+  .wait { color:#c9a86a; }
+
+  .done-card { text-align:center; padding:52px 28px; border:1px solid var(--gaze-red); background:#0b0d12; }
+  .done-card h2 { font-size:22px; letter-spacing:0.3em; margin:0 0 12px; }
+  .done-card p { color:#999; }
+  a.launch { display:inline-block; margin-top:20px; padding:14px 36px; text-decoration:none;
+             color:#ffb0b0; border:1px solid var(--gaze-red); letter-spacing:0.26em;
+             text-transform:uppercase; font-size:12px; }
+  a.launch:hover { background:rgba(255,59,59,0.14); color:#fff; }
+  .choice { display:flex; gap:12px; flex-wrap:wrap; margin:0 0 16px; }
+  .choice button { flex:1; min-width:220px; text-align:left; padding:16px 18px; background:#0f1117;
+                   border:1px solid #23252c; color:#cfcdc9; font-size:12.5px; line-height:1.6; }
+  .choice button:hover { border-color:var(--gaze-red); }
+  .choice button.sel { border-color:var(--gaze-red); background:rgba(255,59,59,0.08); color:#fff; }
+  .choice b { display:block; margin-bottom:4px; letter-spacing:0.1em; text-transform:uppercase; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NEON <span>SETUP</span></h1>
+  <p class="lede">
+    Connecting Pupil Labs Neon to PetrifEye. Do one step at a time — on the glasses,
+    the Companion phone, or this computer — then press continue.
+  </p>
+  <div class="progress" id="pips"></div>
+  <div id="stage"></div>
+</div>
+
+<script>
+// Each step is { title, html, check? }. `check` adds a live verification
+// button; steps without one are pure "go do this, then continue".
+// Steps that can actually be verified from here ARE verified — a wizard that
+// only ever says "trust me" is how people end up three steps past the thing
+// that silently failed.
+const BRIDGE = location.origin;
+
+const steps = [
+  {
+    title: "Charge and pair the hardware",
+    html: `
+      <p>Before anything software-side, get the physical kit ready:</p>
+      <ul>
+        <li>Plug the <strong>Neon glasses</strong> into the <strong>Companion phone</strong> with the USB-C cable they shipped with. Use that cable — many charge-only cables carry no data.</li>
+        <li>Make sure the phone has <strong>&gt;30% battery</strong>. The scene camera plus RTSP streaming drains it fast.</li>
+        <li>Unlock the phone and leave it unlocked. Android suspends the app's network stack when the screen sleeps.</li>
+      </ul>
+      <div class="note">If Android shows a "Allow Neon Companion to access the USB device?" dialog, tick <em>always</em> and accept.</div>`,
+  },
+  {
+    title: "Open the Neon Companion app",
+    html: `
+      <p>On the phone, open <strong>Neon Companion</strong> and confirm:</p>
+      <ul>
+        <li>The glasses are recognised — you should see a <strong>live scene-camera preview</strong>.</li>
+        <li>Both eye cameras report OK (no red warnings on the status row).</li>
+        <li>Put the glasses on. The preview should show whatever you are facing.</li>
+      </ul>
+      <div class="note warn">If the app says no device is connected, unplug and replug the USB-C cable. This is the single most common failure and it is almost always the cable.</div>`,
+  },
+  {
+    title: "Put both devices on the same network",
+    html: `
+      <p>The bridge finds the phone over the local network, so they must share one:</p>
+      <ul>
+        <li>Connect the phone to the <strong>same Wi-Fi network as this computer</strong>.</li>
+        <li>Avoid public/eduroam-style networks where <em>client isolation</em> blocks device-to-device traffic — that silently breaks discovery. A phone hotspot that this Mac joins works well.</li>
+        <li>Turn <strong>off</strong> mobile data on the phone while testing, so it can't prefer cellular.</li>
+      </ul>
+      <div class="note">In the Companion app, the streaming address is shown under <strong>Settings → Streaming</strong>. Note the IP — you may need it in step 5.</div>`,
+  },
+  {
+    title: "Install the bridge dependencies",
+    html: `
+      <p>The browser cannot read Neon's gaze stream directly — it arrives over RTSP, which no browser supports, and in scene-camera coordinates rather than screen coordinates. A small Python bridge handles both.</p>
+      <div class="note"><strong>Already done for you</strong> — the dependencies are installed in <code>bridge/.venv</code>. Nothing to do here; press continue.</div>
+      <p>For reference, this is what was run (a self-contained venv, so your Anaconda base environment stays untouched):</p>
+      <pre><code>python3 -m venv bridge/.venv
+bridge/.venv/bin/python -m pip install -r bridge/requirements.txt</code></pre>
+      <p>It pulls in <code>pupil-labs-realtime-api</code> (RTSP), <code>real-time-screen-gaze</code> (AprilTag → screen mapping), and <code>aiohttp</code> (serves the app + gaze socket on one origin).</p>`,
+  },
+  {
+    title: "Start the bridge",
+    html: `
+      <p>Stop <code>serve-https.js</code> if it's running — the bridge serves the app itself, on the same port and the same certificate. Then, from the <code>code/</code> folder:</p>
+      <pre><code>bridge/.venv/bin/python bridge/neon_bridge.py</code></pre>
+      <p>It will try to discover the phone automatically. If discovery fails, pass the IP from step 3 directly, and tell it your real screen size — that's the coordinate space gaze gets mapped into:</p>
+      <pre><code>bridge/.venv/bin/python bridge/neon_bridge.py \
+  --address 192.168.1.42 \
+  --screen-width 1920 --screen-height 1080</code></pre>
+      <div class="note">Leave it running. Watch its log — it prints <code>status: connected</code>, then <code>status: streaming</code> once the glasses are live.</div>
+      <div class="note warn">Then open <strong>https://localhost:8443/setup-neon.html</strong> and continue there. Chrome will warn about the self-signed certificate — click <em>Advanced → Proceed to localhost</em>. Because the bridge serves the page and the gaze socket on the <em>same origin</em>, that single click covers both; a WebSocket on an untrusted cert would otherwise fail silently with no prompt.</div>`,
+    check: {
+      label: "Test bridge connection",
+      run: async () => {
+        // The wizard is served BY the bridge in Neon mode, so a live gaze
+        // socket here proves the whole chain the app will use.
+        const r = await probeSocket();
+        if (!r.open) {
+          return { ok: false, text:
+            "No gaze socket at " + BRIDGE + "/gaze\n\n" +
+            "• Is neon_bridge.py running?\n" +
+            "• Are you viewing this page from the bridge (not serve-https.js)?\n" +
+            "  Open https://localhost:8443/setup-neon.html after starting it." };
+        }
+        const s = r.status || {};
+        if (s.state === "streaming") return { ok: true, text: "Bridge live — gaze streaming. " + (s.detail || "") };
+        if (s.state === "connecting") return { ok: null, text:
+          "Bridge reached the phone but no gaze data is flowing yet.\n\n" +
+          "This is the state you get when the Companion app is asleep or the\n" +
+          "glasses are unplugged: the phone answers on its API port while the\n" +
+          "video ports stay closed.\n\n" +
+          "• Wake the phone and bring Neon Companion to the foreground\n" +
+          "• Confirm the live scene preview is showing\n" +
+          "• Re-seat the USB-C cable if not" };
+        if (s.state === "connected") return { ok: null, text: "Bridge reached the phone, waiting for streams…\n" + (s.detail || "") };
+        if (s.state === "searching") return { ok: null, text: "Bridge is up but hasn't found the phone yet.\nCheck step 3 (same network), or restart with --address <phone-ip>." };
+        if (s.state === "error") return { ok: false, text: "Bridge error: " + (s.detail || "unknown") };
+        return { ok: null, text: "Bridge up. State: " + (s.state || "unknown") };
+      },
+    },
+  },
+  {
+    title: "Choose where the AprilTag markers live",
+    html: `
+      <p>Neon is head-mounted: it reports where you're looking inside its own forward camera's view, not where that lands on your monitor. To convert, the scene camera has to <strong>find the screen</strong> — which it does using four AprilTag markers in known positions.</p>
+      <div class="choice" id="marker-choice">
+        <button data-v="screen" class="sel">
+          <b>On screen (default)</b>
+          Four tags drawn in the page's corners. Zero physical setup, works immediately — but they're visible in the piece.
+        </button>
+        <button data-v="printed">
+          <b>Printed around the bezel</b>
+          Print the tags and tape them around the monitor frame. Keeps the artwork clean; needs measuring and a bridge geometry edit.
+        </button>
+      </div>
+      <div id="marker-detail"></div>`,
+    onEnter: () => {
+      const wrap = document.getElementById("marker-choice");
+      const detail = document.getElementById("marker-detail");
+      const render = (v) => {
+        detail.innerHTML = v === "screen"
+          ? `<div class="note">Nothing to do — the app shows the tags automatically when you pick <em>neon glasses</em> on the boot screen. They must stay visible the whole session: the surface is re-solved every frame, which is what keeps mapping correct as you move your head.</div>`
+          : `<div class="note warn">Extra work required. Fetch each tag from <code>${BRIDGE}/markers/0.png</code> … <code>3.png</code>, print them at a known size (10cm+ works well at desk distance), and tape them at the four corners of the monitor. Then edit <code>marker_verts()</code> in <code>bridge/neon_bridge.py</code> so the coordinates match where you actually put them, and call <code>Markers.hide()</code> so the on-screen ones don't compete.</div>`;
+        [...wrap.children].forEach((b) => b.classList.toggle("sel", b.dataset.v === v));
+      };
+      wrap.onclick = (e) => { const b = e.target.closest("button"); if (b) render(b.dataset.v); };
+      render("screen");
+    },
+  },
+  {
+    title: "Frame the screen and check the markers",
+    html: `
+      <p>Wearing the glasses, <strong>sit where you'll actually be during the piece</strong> and look at the centre of the screen.</p>
+      <ul>
+        <li>All four corners of the display must be inside the scene camera's view. If you're too close, the camera can't see all four tags at once and mapping drops out.</li>
+        <li>Avoid strong glare or a reflection across the screen — it washes out the tags.</li>
+        <li>Roughly 60–80cm from a laptop display is a good starting distance.</li>
+      </ul>
+      <div class="note"><strong>The four markers are showing on this page right now</strong> — the black-and-white squares in the corners of your screen. They come from the app, not the phone; this step displays them so you can verify visibility without leaving the wizard.</div>
+      <div class="note"><strong>This step goes fullscreen automatically.</strong> Browser tabs and the address bar shrink the page and push the lower markers out of view — the usual cause of a 2/4 count. Press <code>Esc</code> to leave fullscreen; moving off this step exits it for you.</div>
+      <div class="note">The count below is what the scene camera can actually see. You want <strong>4/4 — "surface locked"</strong>. Three is enough to solve a homography but is noticeably less stable.</div>
+      <div class="note warn">Still short of 4/4? In order: lean back ~20cm, raise screen brightness, kill any window glare behind you, and sit square to the screen. If two stay missing, restart the bridge with a bigger inset so the tags sit further inside the camera's view: <code>--marker-margin 120</code></div>`,
+    showMarkers: true,
+    fullscreen: true,
+    check: {
+      label: "Check marker visibility",
+      run: async () => {
+        const r = await probeSocket();
+        if (!r.open) return { ok: false, text: "Lost the bridge — go back to step 5." };
+        const s = r.status || {};
+        const n = s.markersVisible;
+        if (s.state !== "streaming") return { ok: null, text: "Bridge isn't streaming yet (" + (s.state || "?") + "). Put the glasses on." };
+        if (n === undefined) return { ok: null, text: "Streaming, but no marker count reported yet.\nMake sure you picked on-screen markers and the app tab is open with them visible." };
+        if (n >= 4) return { ok: true, text: "4/4 markers visible — surface locked." };
+        if (n >= 3) return { ok: null, text: n + "/4 visible. Workable but unstable — try sitting back a little." };
+        return { ok: false, text: n + "/4 visible. Move back so the whole screen is in view, and check for glare." };
+      },
+    },
+  },
+  {
+    title: "Launch and verify accuracy",
+    html: `
+      <p>Open the app from the bridge and pick <strong>▸ neon glasses</strong> on the boot screen.</p>
+      <ul>
+        <li>Neon is <strong>calibration-free</strong>, so the nine-point click grid is skipped entirely.</li>
+        <li>You'll still get the five-point <strong>look-only validation sweep</strong> — that measures real accuracy and sets the assist radius. Just look at each dot; don't click.</li>
+        <li>The cinematic ends on a measured <code>MEAN ERROR ±NNNPX</code>. With Neon this should land far below the ~175px a webcam gives.</li>
+      </ul>
+      <div class="note">Press <code>m</code> for mouse, <code>e</code> to resume gaze, <code>t</code> to re-run validation, <code>s</code> for the tuning panel. The gaze-assist slider auto-sizes from the measured error, so a good Neon run makes targeting much tighter than the webcam path.</div>`,
+  },
+];
+
+// ---------------------------------------------------------------- helpers
+// Opens the gaze socket briefly and grabs the first status frame. The bridge
+// sends its current state immediately on connect, so this needs no protocol
+// beyond "connect and listen".
+function probeSocket(timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let ws, done = false;
+    const finish = (v) => { if (done) return; done = true; try { ws && ws.close(); } catch (_) {} resolve(v); };
+    const t = setTimeout(() => finish({ open: false }), timeoutMs);
+    try {
+      ws = new WebSocket((location.protocol === "https:" ? "wss" : "ws") + "://" + location.host + "/gaze");
+    } catch (_) { clearTimeout(t); return finish({ open: false }); }
+    // The wizard draws the markers during step 7, so the bridge must build
+    // its surface from THIS page's viewport — otherwise it assumes marker
+    // positions that don't match where they were actually drawn.
+    ws.onopen = () => {
+      try {
+        ws.send(JSON.stringify({
+          type: "viewport",
+          width: Math.round(window.innerWidth),
+          height: Math.round(window.innerHeight),
+        }));
+      } catch (_) {}
+    };
+    ws.onmessage = (e) => {
+      let m = null;
+      try { m = JSON.parse(e.data); } catch (_) {}
+      if (m && m.type === "status") { clearTimeout(t); finish({ open: true, status: m }); }
+    };
+    ws.onerror = () => { clearTimeout(t); finish({ open: false }); };
+    ws.onclose = () => { clearTimeout(t); finish({ open: false }); };
+  });
+}
+
+// ------------------------------------------------------------------ view
+let i = 0;
+
+// Browser chrome (tabs + address bar) pushes the page down and shrinks it,
+// which walks the bottom markers off the visible area — the single most
+// common reason for a 2/4 count. Fullscreen puts all four tags at the true
+// screen corners.
+//
+// requestFullscreen only works inside a user gesture. render() is called
+// straight from the continue/back click handlers, so the gesture is still
+// live here; on first page load nothing asks for it because step 1 doesn't
+// set the flag.
+function applyFullscreen(step) {
+  const want = !!(step && step.fullscreen);
+  try {
+    if (want && !document.fullscreenElement) {
+      const p = document.documentElement.requestFullscreen?.();
+      if (p && p.catch) p.catch(() => {}); // denied → carry on windowed
+    } else if (!want && document.fullscreenElement) {
+      const p = document.exitFullscreen?.();
+      if (p && p.catch) p.catch(() => {});
+    }
+  } catch (_) { /* unsupported → not fatal */ }
+}
+
+function renderPips() {
+  document.getElementById("pips").innerHTML = steps
+    .map((_, n) => `<div class="pip ${n < i ? "done" : n === i ? "now" : ""}"></div>`)
+    .join("");
+}
+
+function render() {
+  renderPips();
+  const stage = document.getElementById("stage");
+
+  // Markers and fullscreen are properties of the current step, so reset them
+  // on every render rather than trying to track transitions. Without this,
+  // leaving step 7 would leave four tags stuck over the rest of the wizard.
+  if (window.Markers) {
+    window.Markers.hide();
+    if (steps[i] && steps[i].showMarkers) window.Markers.show();
+  }
+  applyFullscreen(steps[i]);
+
+  if (i >= steps.length) {
+    stage.innerHTML = `
+      <div class="done-card">
+        <h2>SETUP COMPLETE</h2>
+        <p>Neon is wired into PetrifEye. Pick "neon glasses" on the boot screen.</p>
+        <a class="launch" href="/">▸ launch petrifeye</a>
+      </div>
+      <div class="row"><button class="back" id="b">← back</button></div>`;
+    document.getElementById("b").onclick = () => { i--; render(); };
+    return;
+  }
+
+  const s = steps[i];
+  stage.innerHTML = `
+    <div class="step">
+      <p class="step-n">step ${i + 1} of ${steps.length}</p>
+      <h2>${s.title}</h2>
+      ${s.html}
+      <div class="row">
+        ${i > 0 ? `<button class="back" id="back">← back</button>` : ""}
+        ${s.check ? `<button class="check" id="check">${s.check.label}</button>` : ""}
+        <button class="go" id="next">continue ▸</button>
+      </div>
+      <div class="result" id="result"></div>
+    </div>`;
+
+  const back = document.getElementById("back");
+  if (back) back.onclick = () => { i--; render(); };
+  document.getElementById("next").onclick = () => { i++; render(); window.scrollTo(0, 0); };
+
+  if (s.check) {
+    const btn = document.getElementById("check");
+    const out = document.getElementById("result");
+    btn.onclick = async () => {
+      btn.disabled = true;
+      out.className = "result wait";
+      out.textContent = "checking…";
+      try {
+        const r = await s.check.run();
+        out.className = "result " + (r.ok === true ? "ok" : r.ok === false ? "bad" : "wait");
+        out.textContent = r.text;
+      } catch (err) {
+        out.className = "result bad";
+        out.textContent = "Check failed: " + err.message;
+      }
+      btn.disabled = false;
+    };
+  }
+
+  if (s.onEnter) s.onEnter();
+}
+
+render();
+</script>
+</body>
+</html>

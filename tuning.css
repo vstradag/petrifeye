@@ -1,0 +1,54 @@
+/* Dev tuning panel — prototype 3 only, not part of the shared gaze pipeline.
+   Docked under WebGazer's own video preview (fixed, top-left, 320x240).
+   z-index sits below .gaze-overlay (1000) — the overlay's scrim is
+   pointer-events: none (see gaze-ui.css) so clicks still reach the panel
+   through it, but the overlay's actual content (calibration dots, idle
+   card) needs to paint ON TOP so it's never hidden behind the panel when
+   a dot happens to land in this corner. */
+.tuning-panel {
+  position: fixed;
+  top: 248px;
+  left: 8px;
+  width: 304px;
+  z-index: 900;
+  padding: 10px 12px;
+  background: rgba(13, 15, 20, 0.85);
+  border: 1px solid #2a2c33;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #eceae6;
+}
+
+.tuning-panel label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.tuning-panel label:last-child { margin-bottom: 0; }
+
+.tuning-panel .tuning-row {
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.8;
+  margin-bottom: 2px;
+}
+
+.tuning-panel input[type="range"] {
+  width: 100%;
+}
+
+.tuning-panel .tuning-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.tuning-panel .tuning-checkbox input {
+  margin: 0;
+}
+
+.tuning-panel-hidden {
+  display: none;
+}

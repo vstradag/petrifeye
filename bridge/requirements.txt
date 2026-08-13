@@ -1,0 +1,36 @@
+# Neon bridge dependencies. Install with:
+#   python3 -m pip install -r bridge/requirements.txt
+#
+# Only needed for the Pupil Labs Neon input. The webcam path (WebGazer) has
+# no dependencies at all — serve-https.js still runs it standalone.
+
+# Talks to the Companion phone: REST, WebSocket status, and the RTSP gaze
+# stream the browser cannot consume itself.
+pupil-labs-realtime-api>=1.9.0
+
+# AprilTag detection + homography that turns scene-camera gaze into screen
+# coordinates. This is the piece with no JavaScript equivalent.
+# NB: installs into the pupil_labs namespace, so the import path is
+# `pupil_labs.real_time_screen_gaze`, not the distribution name.
+real-time-screen-gaze>=1.1.2
+
+# Headless OpenCV: smaller, and no Qt/GUI dependencies for a process that
+# never opens a window.
+#
+# Known, harmless-in-practice noise on macOS: this and PyAV (pulled in by
+# pupil-labs-realtime-api) each bundle their own copy of libavdevice, so the
+# ObjC runtime prints a "Class AVFFrameReceiver is implemented in both..."
+# warning on startup and threatens "mysterious crashes". Both the headless
+# and regular OpenCV builds ship those dylibs, so switching variants does not
+# avoid it. The duplicated classes are AVFoundation *capture-device* classes,
+# and nothing here opens a local capture device — PyAV decodes a network RTSP
+# stream and OpenCV only does AprilTag/image work — so they are never
+# instantiated. Ignore the warning; don't spend time "fixing" it as I did.
+opencv-contrib-python-headless>=4.9,<5
+
+# Serves the app over HTTPS and hosts the gaze WebSocket on the same origin.
+aiohttp>=3.9
+
+# Marker PNG generation for /markers/<id>.png
+pillow>=10.0
+numpy>=1.24

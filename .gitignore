@@ -1,0 +1,16 @@
+# Python venv for the Neon bridge — 395MB of opencv/PyAV/apriltag wheels.
+# Recreate with:
+#   python3 -m venv bridge/.venv
+#   bridge/.venv/bin/python -m pip install -r bridge/requirements.txt
+bridge/.venv/
+__pycache__/
+*.pyc
+
+# Local TLS certificates. Machine-specific and semi-sensitive — regenerate
+# with mkcert, see README.
+.certs/
+
+# Node deps, if any tooling ever needs them
+node_modules/
+
+.DS_Store

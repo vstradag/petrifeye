@@ -1,0 +1,463 @@
+:root {
+  --gaze-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --gaze-red: #ff3b3b;
+  --gaze-red-soft: rgba(255, 59, 59, 0.75);
+}
+
+/* ------------------------------------------------------------- overlay
+   z 1000 — scrim for error cards, and the opaque black stage the boot
+   screen / cinematic / calibration play out on. The tracker's video
+   preview (z 1001, forced below) and the HUD (z 1002) both paint above
+   it. */
+.gaze-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 5, 8, 0.45);
+  /* The scrim itself doesn't intercept clicks — anything underneath (the
+     tuning panel) stays reachable through it. Only the actual interactive
+     pieces (.gaze-boot, .gaze-card) opt back in below. */
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.9s ease;
+}
+
+/* Boot/cinematic state: fully opaque black — the app opens on this. */
+.gaze-overlay-boot {
+  background: #000;
+}
+
+/* Faint CRT scanline texture over the black stage. */
+.gaze-overlay-boot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.025) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.gaze-overlay-fade {
+  opacity: 0;
+}
+
+.gaze-overlay-hidden {
+  display: none;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------- boot screen */
+.gaze-boot {
+  position: relative;
+  z-index: 1; /* above the ::after scanline texture */
+  text-align: center;
+  pointer-events: auto;
+  font-family: var(--gaze-mono);
+}
+
+.gaze-boot-title {
+  margin: 0 0 10px;
+  font-size: 52px;
+  font-weight: 200;
+  letter-spacing: 0.45em;
+  padding-left: 0.45em; /* optically recenter the letterspaced text */
+}
+
+.gaze-boot-title span {
+  color: var(--gaze-red);
+  text-shadow: 0 0 22px var(--gaze-red-soft);
+}
+
+.gaze-boot-sub {
+  margin: 0 0 56px;
+  font-size: 11px;
+  letter-spacing: 0.5em;
+  padding-left: 0.5em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+.gaze-btn-boot {
+  padding: 14px 46px;
+  font-family: var(--gaze-mono);
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: #ffb0b0;
+  background: transparent;
+  border: 1px solid var(--gaze-red);
+  cursor: pointer;
+  animation: gaze-breathe 2.4s ease-in-out infinite;
+}
+
+.gaze-btn-boot:hover {
+  background: rgba(255, 59, 59, 0.14);
+  color: #fff;
+  animation-play-state: paused;
+  box-shadow: 0 0 24px rgba(255, 59, 59, 0.45);
+}
+
+@keyframes gaze-breathe {
+  50% { box-shadow: 0 0 22px rgba(255, 59, 59, 0.35); }
+}
+
+.gaze-boot-choose {
+  margin: 0 0 18px;
+  font-size: 10px;
+  letter-spacing: 0.4em;
+  padding-left: 0.4em;
+  text-transform: uppercase;
+  color: #4a4a4a;
+}
+
+.gaze-source-row {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* Source buttons stack their caption, so the shared .gaze-btn-boot padding
+   is loosened here rather than forked into a second class. */
+.gaze-source-row .gaze-btn-boot {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 210px;
+  padding: 16px 26px;
+}
+
+.gaze-src-note {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7a5555;
+}
+
+.gaze-btn-boot:hover .gaze-src-note { color: #c99; }
+
+.gaze-boot-skip {
+  display: block;
+  margin: 26px auto 0;
+  background: none;
+  border: none;
+  font-family: var(--gaze-mono);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #555;
+  cursor: pointer;
+}
+
+.gaze-boot-skip:hover { color: #999; }
+
+.gaze-boot-status {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: #ffd9d9;
+  text-shadow: 0 0 10px var(--gaze-red-soft);
+}
+
+.gaze-boot-hint {
+  margin: 18px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #666;
+}
+
+.gaze-caret {
+  color: var(--gaze-red);
+  animation: gaze-blink 1s steps(1) infinite;
+}
+
+@keyframes gaze-blink {
+  50% { opacity: 0; }
+}
+
+/* ---------------------------------------------------------- error card */
+.gaze-card {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+  padding: 32px;
+  text-align: center;
+  border: 1px solid #2a2c33;
+  border-radius: 12px;
+  background: #0d0f14;
+  pointer-events: auto;
+}
+
+.gaze-card h2 { margin: 0 0 10px; font-size: 20px; }
+.gaze-card p { margin: 0 0 22px; opacity: 0.75; font-size: 14px; line-height: 1.5; }
+
+.gaze-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 12px 20px;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid #b23a3a;
+  background: #b23a3a;
+  color: #fff;
+  cursor: pointer;
+}
+
+.gaze-btn:hover { background: #c94848; }
+
+.gaze-btn-ghost {
+  background: transparent;
+  border-color: #2a2c33;
+  color: #eceae6;
+}
+
+.gaze-btn-ghost:hover { border-color: #666; }
+
+/* ----------------------------------------------------------------- HUD
+   z 1002 — sits ABOVE the tracker's video preview (1001), so scan chrome
+   and calibration dots stay visible over the full-screen face. Click-
+   transparent except the dots themselves. */
+.gaze-hud {
+  position: fixed;
+  inset: 0;
+  z-index: 1002;
+  pointer-events: none;
+  font-family: var(--gaze-mono);
+}
+
+.gaze-hud-corner {
+  position: fixed;
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--gaze-red-soft);
+  filter: drop-shadow(0 0 6px rgba(255, 59, 59, 0.5));
+  transition: all 1.1s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+
+.gaze-tl { top: 20px; left: 20px; border-right: none; border-bottom: none; }
+.gaze-tr { top: 20px; right: 20px; border-left: none; border-bottom: none; }
+.gaze-bl { bottom: 20px; left: 20px; border-right: none; border-top: none; }
+.gaze-br { bottom: 20px; right: 20px; border-left: none; border-top: none; }
+
+/* Zoom phase: brackets close in around the eye band at screen centre. */
+.gaze-hud-tight .gaze-tl { top: 32%; left: 22%; }
+.gaze-hud-tight .gaze-tr { top: 32%; right: 22%; }
+.gaze-hud-tight .gaze-bl { bottom: 32%; left: 22%; }
+.gaze-hud-tight .gaze-br { bottom: 32%; right: 22%; }
+
+.gaze-scanline {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: -2%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 80, 80, 0.9), transparent);
+  box-shadow: 0 0 18px 4px rgba(255, 59, 59, 0.35);
+  animation: gaze-scan 2.6s linear infinite;
+}
+
+@keyframes gaze-scan {
+  from { top: -2%; }
+  to { top: 102%; }
+}
+
+.gaze-hud-status {
+  position: fixed;
+  bottom: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #ffd9d9;
+  text-shadow: 0 0 10px var(--gaze-red-soft);
+}
+
+/* ---------------------------------------------------- calibration dots
+   --p drives the progress annulus below. Registering it as a typed custom
+   property is what lets the validation sweep ANIMATE the fill in CSS (an
+   unregistered custom property is just a string and can't be interpolated);
+   the click calibration keeps setting it discretely from JS. */
+@property --p {
+  syntax: "<number>";
+  initial-value: 0;
+  inherits: false;
+}
+
+.gaze-dot {
+  position: fixed;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* Progress annulus — fills one quarter-turn per click via --p (0..1). */
+.gaze-dot-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--gaze-red) calc(var(--p, 0) * 1turn),
+    rgba(255, 59, 59, 0.18) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+}
+
+.gaze-dot-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--gaze-red);
+  box-shadow: 0 0 14px rgba(255, 59, 59, 0.9);
+  animation: gaze-core-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes gaze-core-pulse {
+  50% { transform: scale(1.5); }
+}
+
+/* Validation sweep: look-only, so it must not accept clicks (a click would
+   also feed WebGazer a training sample and corrupt the held-out set the
+   whole measurement depends on). The ring fills itself over the node's
+   duration instead of per click. */
+.gaze-dot-passive {
+  pointer-events: none;
+  cursor: default;
+}
+
+.gaze-dot-passive .gaze-dot-ring {
+  animation: gaze-ring-fill var(--fill-ms, 1500ms) linear forwards;
+}
+
+@keyframes gaze-ring-fill {
+  from { --p: 0; }
+  to { --p: 1; }
+}
+
+/* ---------------------------------------------------- completion flash */
+.gaze-complete {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gaze-complete {
+  flex-direction: column;
+}
+
+.gaze-complete-sub {
+  margin: 14px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.35em;
+  padding-left: 0.35em;
+  text-transform: uppercase;
+  color: #ff8f8f;
+  opacity: 0.85;
+  animation: gaze-flash-in 0.7s ease-out;
+}
+
+.gaze-complete-text {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.5em;
+  padding-left: 0.5em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 26px var(--gaze-red);
+  animation: gaze-flash-in 0.5s ease-out;
+}
+
+@keyframes gaze-flash-in {
+  from { opacity: 0; transform: scale(1.3); }
+}
+
+.gaze-complete-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 2px solid var(--gaze-red-soft);
+  animation: gaze-ring-out 1.2s ease-out forwards;
+}
+
+@keyframes gaze-ring-out {
+  to { transform: scale(90); opacity: 0; }
+}
+
+/* ------------------------------------------- AprilTag surface markers
+   Above everything (including the boot stage) because the scene camera has
+   to see them continuously for gaze mapping to hold — if the black boot
+   overlay covered them the surface would drop out exactly when the visitor
+   is being told to look around. Never interactive. */
+.gaze-markers {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  pointer-events: none;
+}
+
+.gaze-markers-hidden { display: none; }
+
+.gaze-marker {
+  position: fixed;
+  /* Crisp edges matter: the detector is looking for hard black/white
+     squares, and smooth upscaling blurs the bit boundaries enough to hurt
+     detection at distance. */
+  image-rendering: pixelated;
+  background: #fff;
+}
+
+/* --------------------------------------------------- tracker's preview
+   WebGazer injects its own video preview/face-overlay elements with no
+   z-index of their own (z-index: auto), so without this they'd sit BELOW
+   .gaze-overlay's black stage (z 1000) in the stacking order. 1001 puts
+   the feed above the stage but below the HUD chrome (1002). Picked by
+   WebGazer's own element IDs since we don't control their markup. */
+#webgazerVideoContainer,
+#webgazerFaceOverlay,
+#webgazerFaceFeedbackBox,
+#webgazerGazeDot {
+  z-index: 1001 !important;
+}
+
+/* The cinematic drives the container purely with transforms (fullscreen
+   cover → eye zoom → corner dock), all computed against a fixed top-left
+   origin. It fades in from black once positioned, and every transform
+   change after that first paint glides. TRAVEL timings in
+   gaze-controller.js are matched to this transition duration. */
+#webgazerVideoContainer {
+  transform-origin: 0 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  opacity: 0;
+}
+
+#webgazerVideoContainer.gaze-preview-live {
+  opacity: 1;
+  transition: opacity 1s ease, transform 1.6s cubic-bezier(0.22, 0.9, 0.3, 1);
+}
