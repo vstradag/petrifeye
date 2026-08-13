@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MEDUSA multiplayer — petrify blobs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+  <link rel="stylesheet" href="../shared/style.css" />
+  <link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+  <link rel="stylesheet" href="../tuning.css" />
+  <style>
+    .mp-score-board {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 900;
+      font-family: var(--gaze-mono);
+      background: rgba(8, 9, 14, 0.9);
+      border: 1px solid #23252c;
+      padding: 14px;
+      min-width: 240px;
+    }
+
+    .mp-player-score {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .mp-player-score:last-child { margin-bottom: 0; }
+
+    .mp-color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .mp-name {
+      color: #e8e6e2;
+      font-weight: 600;
+      min-width: 80px;
+    }
+
+    .mp-count {
+      color: #8d8b88;
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Multiple cursors, one per player. */
+    .mp-cursor {
+      position: fixed;
+      width: 28px;
+      height: 28px;
+      margin: -14px 0 0 -14px;
+      pointer-events: none;
+      z-index: 1001;
+      font-weight: 700;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="../shared/tracking.js"></script>
+  <script src="../shared/dwell.js"></script>
+  <script src="../shared/attention.js"></script>
+  <script src="../shared/fur-field.js"></script>
+  <script src="../shared/gaze/markers.js"></script>
+  <script src="../shared/gaze/gaze-aggregator.js"></script>
+  <script src="../shared/controls-hint.js"></script>
+
+  <script>
+    const PLAYERS = [
+      {
+        id: 0,
+        label: "P1",
+        port: 8443,
+        color: "#ff6b6b", // red
+      },
+      {
+        id: 1,
+        label: "P2",
+        port: 8444,
+        color: "#4ecdc4", // teal
+      },
+      // Add more players here if needed:
+      // { id: 2, label: "P3", port: 8445, color: "#ffe66d" },
+      // { id: 3, label: "P4", port: 8446, color: "#95e1d3" },
+    ];
+
+    const DWELL_SECONDS = 2.0;
+    const BLOB_RADIUS = 23;
+    const ASSIST_RADIUS = 130;
+    const HUE_STONE = 0;
+    const HUE_ALIVE = 185;
+
+    let W, H;
+    let blobs = [];
+    let scores = {};
+    let simModes = {};
+    let gazes = [];
+    let cursorElements = {};
+
+    // HUD state
+    let overlay = null;
+    let hasBooted = false;
+
+    function buildBlobs() {
+      blobs = [];
+      for (let i = 0; i < 9; i++) {
+        const x = (W / 10) * (1 + ((i % 3) * 2.5));
+        const y = (H / 10) * (2 + (Math.floor(i / 3) * 2.5));
+        blobs.push({
+          x,
+          y,
+          petrified: false,
+          petrifiedBy: null,
+          petrifiedAt: 0,
+          hue: HUE_ALIVE,
+        });
+      }
+    }
+
+    function initScores() {
+      PLAYERS.forEach((p) => {
+        scores[p.id] = 0;
+        simModes[p.id] = "mouse";
+      });
+    }
+
+    function createCursorElement(playerId, color) {
+      if (cursorElements[playerId]) return;
+      const el = document.createElement("div");
+      el.className = "mp-cursor";
+      el.style.color = color;
+      el.textContent = PLAYERS.find((p) => p.id === playerId).label;
+      document.body.appendChild(el);
+      cursorElements[playerId] = el;
+    }
+
+    function updateCursorPosition(playerId, x, y, color) {
+      if (!cursorElements[playerId]) createCursorElement(playerId, color);
+      const el = cursorElements[playerId];
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+    }
+
+    function updateScoreBoard() {
+      let html = "";
+      PLAYERS.forEach((p) => {
+        html += `
+          <div class="mp-player-score">
+            <div class="mp-color-dot" style="background: ${p.color}"></div>
+            <div class="mp-name">${p.label}</div>
+            <div class="mp-count">${scores[p.id]}</div>
+          </div>
+        `;
+      });
+      document.querySelector(".mp-score-board").innerHTML = html;
+    }
+
+    // Simulated gaze for testing without the bridges.
+    function simulateGaze() {
+      if (!hasBooted) return;
+      PLAYERS.forEach((p) => {
+        const idx = p.id;
+        if (simModes[idx] === "mouse") {
+          // Move toward mouse
+          const target = {
+            x: mouseX || W / 2,
+            y: mouseY || H / 2,
+          };
+          if (!gazes[idx]) gazes[idx] = { x: W / 2, y: H / 2 };
+          gazes[idx].x += (target.x - gazes[idx].x) * 0.08;
+          gazes[idx].y += (target.y - gazes[idx].y) * 0.08;
+        }
+      });
+    }
+
+    window.setup = function () {
+      const c = createCanvas(windowWidth, windowHeight);
+      c.parent("root");
+      W = width;
+      H = height;
+
+      buildBlobs();
+      initScores();
+
+      // Create score board
+      const board = document.createElement("div");
+      board.className = "mp-score-board";
+      board.innerHTML = "<div>connecting...</div>";
+      document.body.appendChild(board);
+      updateScoreBoard();
+
+      // Initialize gaze aggregator for multiple players
+      GazeAggregator.init({ players: PLAYERS });
+      GazeAggregator.on((samples) => {
+        gazes = [];
+        samples.forEach((s) => {
+          if (s.x !== undefined && s.y !== undefined) {
+            gazes[s.playerId] = s;
+            updateCursorPosition(s.playerId, s.x, s.y, s.color);
+          }
+        });
+      });
+
+      // Fallback to simulated gaze when no real data
+      window.addEventListener("gaze-aggregator-status", (e) => {
+        const detail = e.detail;
+        // Could show connection status here
+      });
+
+      colorMode(HSB, 360, 100, 100, 1);
+      noStroke();
+
+      if (window.ControlsHint) {
+        ControlsHint.show(
+          [
+            { keys: "mouse ↕", does: "player 1 position" },
+            { keys: "f / l", does: "player 1 freeze/lively" },
+            { keys: "r", does: "reset" },
+          ],
+          "medusa multiplayer"
+        );
+      }
+
+      hasBooted = true;
+    };
+
+    window.draw = function () {
+      background(18, 8, 8);
+      fill(185, 8, 32);
+      textAlign(CENTER, CENTER);
+      textFont("SF Mono", 11);
+
+      // Simulate gaze if no real data yet (testing)
+      if (gazes.length === 0) {
+        simulateGaze();
+      }
+
+      // Process dwell for each player
+      PLAYERS.forEach((p) => {
+        const gaze = gazes[p.id];
+        if (!gaze) return;
+
+        blobs.forEach((blob) => {
+          if (blob.petrified) return;
+
+          const d = dist(gaze.x, gaze.y, blob.x, blob.y);
+          const assists = blobs.filter(
+            (b) => !b.petrified && dist(gaze.x, gaze.y, b.x, b.y) < ASSIST_RADIUS
+          );
+
+          // Dwell only counts if this blob is the nearest (winner-take-all).
+          if (
+            assists.length > 0 &&
+            assists.reduce((a, b) => (a.d < b.d ? a : b)) === blob
+          ) {
+            blob.dwell = (blob.dwell || 0) + deltaTime / 1000;
+            if (blob.dwell >= DWELL_SECONDS) {
+              blob.petrified = true;
+              blob.petrifiedBy = p.id;
+              blob.petrifiedAt = frameCount;
+              scores[p.id]++;
+              blob.dwell = 0;
+            }
+          } else {
+            blob.dwell = Math.max(0, (blob.dwell || 0) - deltaTime / 1000 * 0.5);
+          }
+        });
+      });
+
+      // Draw blobs
+      blobs.forEach((blob) => {
+        const progress = blob.dwell ? Math.min(1, blob.dwell / DWELL_SECONDS) : 0;
+        const targetHue = blob.petrified ? HUE_STONE : HUE_ALIVE;
+        blob.hue += (targetHue - blob.hue) * 0.1;
+
+        fill(blob.hue, 40, 65);
+        ellipse(blob.x, blob.y, BLOB_RADIUS * 2);
+
+        // Dwell progress ring
+        if (progress > 0 && !blob.petrified) {
+          stroke(185, 60, 80);
+          strokeWeight(3);
+          noFill();
+          arc(blob.x, blob.y, BLOB_RADIUS * 2.6, BLOB_RADIUS * 2.6, -PI / 2, -PI / 2 + PI * 2 * progress);
+          noStroke();
+        }
+      });
+
+      // Draw player cursors (already positioned by updateCursorPosition)
+      // but we also draw a small target here for reference
+      PLAYERS.forEach((p) => {
+        const g = gazes[p.id];
+        if (!g) return;
+        fill(0);
+        // Cursor ring
+        stroke(p.color);
+        strokeWeight(2);
+        noFill();
+        ellipse(g.x, g.y, 36);
+        noStroke();
+      });
+
+      updateScoreBoard();
+    };
+
+    window.keyPressed = function () {
+      const k = (key || "").toLowerCase();
+      if (k === "r") {
+        blobs.forEach((b) => (b.petrified = false));
+        initScores();
+        updateScoreBoard();
+      }
+      if (k === "f") simModes[0] = simModes[0] === "frozen" ? "mouse" : "frozen";
+      if (k === "l") simModes[0] = simModes[0] === "lively" ? "mouse" : "lively";
+    };
+
+    window.windowResized = function () {
+      if (hasBooted) {
+        resizeCanvas(windowWidth, windowHeight);
+        W = width;
+        H = height;
+      }
+    };
+  </script>
+</body>
+</html>

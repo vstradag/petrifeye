@@ -46,7 +46,7 @@
 
   <div class="grid">
     <a class="game" href="games/medusa.html">
-      <div class="tag">01 · gaze dwell</div>
+      <div class="tag">01 · single player · gaze dwell</div>
       <div class="title">MEDUSA</div>
       <p class="desc">
         Blob-eyes drift across a fur field. Stare at one for two seconds and it
@@ -54,6 +54,19 @@
       </p>
       <div class="ctrl">
         <div><b>look</b> at a blob to petrify it</div>
+      </div>
+    </a>
+
+    <a class="game" href="games/medusa-multiplayer.html">
+      <div class="tag">01b · multiplayer · gaze dwell</div>
+      <div class="title">MEDUSA (2+ players)</div>
+      <p class="desc">
+        Two or more players, each with their own Neon glasses. Compete to petrify
+        blobs faster. Scores tracked per player in real time.
+      </p>
+      <div class="ctrl">
+        <div><b>requires:</b> 2+ Neon devices on separate bridge ports</div>
+        <div><b>each player</b> petrifies for their own score</div>
       </div>
     </a>
 
@@ -86,10 +99,9 @@
   </div>
 
   <p class="foot">
-    Webcam works out of the box. For Pupil Labs Neon, run the bridge and see
-    <a href="setup-neon.html">setup-neon.html</a>.<br />
-    Each experience asks which tracker to use on launch — or skip straight to
-    one with <code>?src=neon</code> / <code>?src=webgazer</code>.
+    <b style="color: #7a5555">Gaze input:</b> Webcam works out of the box. For Pupil Labs Neon, run the bridge and see
+    <a href="setup-neon.html">setup-neon.html</a>. Each single-player experience asks which tracker to use on launch.<br />
+    <b style="color: #7a5555">Multiplayer:</b> MEDUSA (2+ players) requires multiple Neon devices, each on its own bridge port (8443, 8444, etc.).
   </p>
 
   <p class="foot" style="margin-top:18px">
@@ -98,6 +110,7 @@
     entirely, or press <code>m</code> at any time. <code>h</code> toggles the
     control legend.<br />
     <a href="games/medusa.html?mouse">medusa ?mouse</a> ·
+    <a href="games/medusa-multiplayer.html">medusa-mp (simulated 2p)</a> ·
     <a href="games/platformer.html?mouse">oculus run ?mouse</a> ·
     <a href="games/flower.html?mouse">anemone ?mouse</a>
   </p>
