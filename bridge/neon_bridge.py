@@ -118,6 +118,67 @@ CERT_DIR = ROOT / ".certs"
 MARKER_IDS = [0, 1, 2, 3]
 
 
+async def scan_for_device(port: int, timeout: float = 0.35):
+    """Find the Companion by sweeping the local /24 for its API port.
+
+    mDNS is the documented way to discover the phone, but it fails often
+    enough to matter: it is multicast, and plenty of networks drop that. On
+    this project's own hotspot the bridge repeatedly failed to discover a
+    phone whose port 8080 was wide open and pingable.
+
+    This is a fallback, not a replacement — it only sweeps the machine's own
+    /24, and only confirms a host by asking it for /api/status, so a random
+    web server on :8080 can't be mistaken for a Neon.
+    """
+    import socket
+    from contextlib import closing
+
+    # Local address on the interface that reaches the outside world. No
+    # traffic is actually sent by connect() on a UDP socket.
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as s:
+        try:
+            s.connect(("8.8.8.8", 80))
+            local = s.getsockname()[0]
+        except OSError:
+            return None
+    if not local or local.startswith("127."):
+        return None
+    prefix = local.rsplit(".", 1)[0]
+
+    async def probe(host):
+        try:
+            fut = asyncio.open_connection(host, port)
+            reader, writer = await asyncio.wait_for(fut, timeout=timeout)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return host
+        except Exception:
+            return None
+
+    hosts = [f"{prefix}.{i}" for i in range(1, 255) if f"{prefix}.{i}" != local]
+    log.info("mDNS found nothing — sweeping %s.0/24 for port %d", prefix, port)
+    open_hosts = [h for h in await asyncio.gather(*(probe(h) for h in hosts)) if h]
+
+    # Confirm it really is a Companion before handing it to the device client.
+    for host in open_hosts:
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(f"http://{host}:{port}/api/status",
+                                    timeout=aiohttp.ClientTimeout(total=2)) as r:
+                    if r.status == 200 and "Phone" in (await r.text()):
+                        log.info("found Companion at %s", host)
+                        return host
+        except Exception:
+            continue
+    if open_hosts:
+        log.info("hosts with :%d open but no Neon API: %s", port, ", ".join(open_hosts))
+    return None
+
+
 class StreamRestart(Exception):
     """Raised by the watchdog to force a full device reconnect.
 
@@ -198,12 +259,26 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
             else:
                 await hub.set_status("searching", "looking for the Companion device on this network")
                 async with Network() as network:
-                    dev_info = await network.wait_for_new_device(timeout_seconds=30)
+                    dev_info = await network.wait_for_new_device(timeout_seconds=15)
+
                 if dev_info is None:
-                    await hub.set_status("searching", "no device found — retrying")
-                    await asyncio.sleep(3)
-                    continue
-                dev = Device.from_discovered_device(dev_info)
+                    # mDNS is multicast and plenty of networks drop it, so fall
+                    # back to sweeping our own subnet before giving up.
+                    found = await scan_for_device(port)
+                    if found:
+                        dev = Device(address=found, port=port)
+                    else:
+                        await hub.set_status(
+                            "searching",
+                            "no Companion found. On eduroam or another campus "
+                            "network this will never work — devices are isolated "
+                            "from each other. Use the phone's hotspot or a "
+                            "dedicated router.",
+                        )
+                        await asyncio.sleep(3)
+                        continue
+                else:
+                    dev = Device.from_discovered_device(dev_info)
 
             async with dev:
                 status = await dev.get_status()
@@ -567,7 +642,32 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                 continue
             await hub.send({"type": "blink"})
 
-    await asyncio.gather(watchdog(), pump_gaze(), pump_scene(), pump_blinks())
+    # NOT asyncio.gather: it propagates the first exception but leaves the
+    # sibling coroutines running. When the watchdog raised StreamRestart, the
+    # RTSP pumps survived and kept retrying forever inside run_loop=True, so
+    # every reconnect cycle abandoned another pair of readers — 992 retry
+    # attempts across 3 restarts in one session, all fighting for the same
+    # ports. Own the tasks so they can actually be torn down.
+    tasks = [
+        asyncio.create_task(c, name=n)
+        for n, c in (
+            ("watchdog", watchdog()),
+            ("gaze", pump_gaze()),
+            ("scene", pump_scene()),
+            ("blinks", pump_blinks()),
+        )
+    ]
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for t in done:
+            if not t.cancelled() and t.exception():
+                raise t.exception()
+    finally:
+        for t in tasks:
+            t.cancel()
+        # Wait for the cancellations to land before returning, otherwise the
+        # next connection attempt races the dying readers.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # --------------------------------------------------------------------------
