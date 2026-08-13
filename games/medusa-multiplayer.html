@@ -119,9 +119,16 @@ PLAYERS.forEach((p) => (scores[p.id] = 0));
 let started = false;
 let simMode = false;
 
-// pointerId ("player-0") -> player, for attributing a petrification.
+// pointerId -> player, for attributing a petrification.
+//
+// Live play uses the aggregator's ids ("player-0"). The mouse/keyboard
+// stand-in comes from Tracking, which names its pointers "mouse" and "sim2",
+// so those need aliases too — without them a simulated petrification is
+// reported under an id nothing recognises and nobody is credited, which
+// looks exactly like a broken scoreboard.
 const byPointer = {};
 PLAYERS.forEach((p) => (byPointer[`player-${p.id}`] = p));
+const SIM_POINTER_IDS = ["mouse", "sim2"];
 
 // ---------------------------------------------------------------- boot card
 function renderBootCmd() {
@@ -196,6 +203,10 @@ function start(sim) {
     GazeAggregator.setPublishing(false);
     Tracking.releaseExternal();
     if (!Tracking.isSimSecondEnabled()) Tracking.toggleSimSecondPointer();
+    // Credit the stand-in pointers to the first N players, in order.
+    SIM_POINTER_IDS.forEach((pid, i) => {
+      if (PLAYERS[i]) byPointer[pid] = PLAYERS[i];
+    });
   } else if (window.Markers) {
     Markers.show();            // surface tags for the scene cameras
   }
