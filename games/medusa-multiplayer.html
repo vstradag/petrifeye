@@ -1,341 +1,201 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>MEDUSA multiplayer — petrify blobs</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
-  <link rel="stylesheet" href="../shared/style.css" />
-  <link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
-  <link rel="stylesheet" href="../tuning.css" />
-  <style>
-    .mp-score-board {
-      position: fixed;
-      top: 14px;
-      left: 14px;
-      z-index: 900;
-      font-family: var(--gaze-mono);
-      background: rgba(8, 9, 14, 0.9);
-      border: 1px solid #23252c;
-      padding: 14px;
-      min-width: 240px;
-    }
+<meta charset="utf-8" />
+<title>MEDUSA — multiplayer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<link rel="stylesheet" href="../tuning.css" />
+<style>
+  /* Scoreboard + connection state. One row per player, always visible:
+     during a showing it is the score, and while setting up it is the only
+     honest indicator of whether each bridge is actually feeding gaze. */
+  .mp-panel {
+    position: fixed; top: 14px; left: 14px; z-index: 950;
+    font-family: var(--gaze-mono); background: rgba(8,9,14,.86);
+    border: 1px solid #23252c; padding: 13px 15px; min-width: 268px;
+  }
+  .mp-h { font-size:9px; letter-spacing:.3em; text-transform:uppercase;
+          color:#6a6a6a; margin-bottom:11px; }
+  .mp-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .mp-row:last-child { margin-bottom:0; }
+  .mp-dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .mp-name { font-size:12px; color:#e8e6e2; min-width:26px; }
+  .mp-state { font-size:10px; color:#6f6d6a; flex:1; }
+  .mp-state.live { color:#5fd39a; }
+  .mp-state.warn { color:#d8a657; }
+  .mp-state.err  { color:#c26060; }
+  .mp-score { font-size:19px; color:#e8e6e2; font-variant-numeric:tabular-nums;
+              min-width:26px; text-align:right; }
+  .mp-lead { color:#fff; text-shadow:0 0 12px rgba(255,255,255,.45); }
 
-    .mp-player-score {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 10px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .mp-player-score:last-child { margin-bottom: 0; }
-
-    .mp-color-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .mp-name {
-      color: #e8e6e2;
-      font-weight: 600;
-      min-width: 80px;
-    }
-
-    .mp-count {
-      color: #8d8b88;
-      margin-left: auto;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Multiple cursors, one per player. */
-    .mp-cursor {
-      position: fixed;
-      width: 28px;
-      height: 28px;
-      margin: -14px 0 0 -14px;
-      pointer-events: none;
-      z-index: 1001;
-      font-weight: 700;
-      font-size: 11px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
-      opacity: 0.8;
-    }
-  </style>
+  /* Full-screen setup card, shown until every bridge is streaming. Without
+     it a missing bridge just looks like a black screen. */
+  .mp-boot {
+    position: fixed; inset:0; z-index:1200; background:#000;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--gaze-mono); text-align:center;
+  }
+  .mp-boot.hidden { display:none; }
+  .mp-boot-inner { max-width: 620px; padding: 30px; }
+  .mp-boot h1 { font-size:30px; font-weight:200; letter-spacing:.34em;
+                margin:0 0 8px; color:#e8e6e2; }
+  .mp-boot h1 span { color:var(--gaze-red); }
+  .mp-boot .sub { font-size:10px; letter-spacing:.38em; text-transform:uppercase;
+                  color:#6a6a6a; margin:0 0 30px; }
+  .mp-boot pre { text-align:left; background:#0b0d12; border:1px solid #23252c;
+                 padding:14px 16px; font-size:11.5px; line-height:1.85;
+                 color:#9a9895; overflow-x:auto; margin:0 0 18px; }
+  .mp-boot pre b { color:#c98f8f; font-weight:600; }
+  .mp-boot .note { font-size:11.5px; line-height:1.8; color:#8d8b88; margin:0 0 18px; }
+  .mp-btn { font-family:var(--gaze-mono); font-size:11px; letter-spacing:.3em;
+            text-transform:uppercase; color:#ffb0b0; background:transparent;
+            border:1px solid var(--gaze-red); padding:12px 30px; cursor:pointer; }
+  .mp-btn:hover { background:rgba(255,59,59,.14); color:#fff; }
+  .mp-btn.ghost { border-color:#2a2c33; color:#9a9895; margin-left:10px; }
+  .mp-btn.ghost:hover { border-color:#666; background:transparent; }
+</style>
 </head>
 <body>
-  <div id="root"></div>
 
-  <script src="../shared/tracking.js"></script>
-  <script src="../shared/dwell.js"></script>
-  <script src="../shared/attention.js"></script>
-  <script src="../shared/fur-field.js"></script>
-  <script src="../shared/gaze/markers.js"></script>
-  <script src="../shared/gaze/gaze-aggregator.js"></script>
-  <script src="../shared/controls-hint.js"></script>
+<div class="mp-boot" id="mpBoot">
+  <div class="mp-boot-inner">
+    <h1>MEDUSA <span>MULTIPLAYER</span></h1>
+    <p class="sub">one bridge per pair of glasses</p>
+    <pre id="mpBootCmd"></pre>
+    <p class="note" id="mpBootState">checking bridges…</p>
+    <button class="mp-btn" id="mpStart" disabled>waiting for bridges</button>
+    <button class="mp-btn ghost" id="mpSim">test with mouse + arrows</button>
+  </div>
+</div>
 
-  <script>
-    const PLAYERS = [
-      {
-        id: 0,
-        label: "P1",
-        port: 8443,
-        color: "#ff6b6b", // red
-      },
-      {
-        id: 1,
-        label: "P2",
-        port: 8444,
-        color: "#4ecdc4", // teal
-      },
-      // Add more players here if needed:
-      // { id: 2, label: "P3", port: 8445, color: "#ffe66d" },
-      // { id: 3, label: "P4", port: 8446, color: "#95e1d3" },
-    ];
+<div class="mp-panel" id="mpPanel" style="display:none"></div>
 
-    const DWELL_SECONDS = 2.0;
-    const BLOB_RADIUS = 23;
-    const ASSIST_RADIUS = 130;
-    const HUE_STONE = 0;
-    const HUE_ALIVE = 185;
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/dwell.js"></script>
+<script src="../shared/attention.js"></script>
+<script src="../shared/fur-field.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/gaze-aggregator.js"></script>
+<script src="../shared/controls-hint.js"></script>
 
-    let W, H;
-    let blobs = [];
-    let scores = {};
-    let simModes = {};
-    let gazes = [];
-    let cursorElements = {};
+<script>
+// Add a player by adding a row: each needs its own bridge on its own port.
+const PLAYERS = [
+  { id: 0, label: "P1", port: 8443, color: "#ff5f5f" },
+  { id: 1, label: "P2", port: 8444, color: "#4ecdc4" },
+];
 
-    // HUD state
-    let overlay = null;
-    let hasBooted = false;
+const scores = {};
+PLAYERS.forEach((p) => (scores[p.id] = 0));
+let started = false;
+let simMode = false;
 
-    function buildBlobs() {
-      blobs = [];
-      for (let i = 0; i < 9; i++) {
-        const x = (W / 10) * (1 + ((i % 3) * 2.5));
-        const y = (H / 10) * (2 + (Math.floor(i / 3) * 2.5));
-        blobs.push({
-          x,
-          y,
-          petrified: false,
-          petrifiedBy: null,
-          petrifiedAt: 0,
-          hue: HUE_ALIVE,
-        });
-      }
-    }
+// pointerId ("player-0") -> player, for attributing a petrification.
+const byPointer = {};
+PLAYERS.forEach((p) => (byPointer[`player-${p.id}`] = p));
 
-    function initScores() {
-      PLAYERS.forEach((p) => {
-        scores[p.id] = 0;
-        simModes[p.id] = "mouse";
-      });
-    }
+// ---------------------------------------------------------------- boot card
+function renderBootCmd() {
+  const lines = PLAYERS.map(
+    (p) => `<b>#</b> ${p.label}\nbridge/.venv/bin/python bridge/neon_bridge.py --port ${p.port} --address &lt;phone-${p.id + 1}-ip&gt;`
+  ).join("\n\n");
+  document.getElementById("mpBootCmd").innerHTML =
+    `<b># from the code/ folder, one per player, each in its own terminal</b>\n\n${lines}`;
+}
 
-    function createCursorElement(playerId, color) {
-      if (cursorElements[playerId]) return;
-      const el = document.createElement("div");
-      el.className = "mp-cursor";
-      el.style.color = color;
-      el.textContent = PLAYERS.find((p) => p.id === playerId).label;
-      document.body.appendChild(el);
-      cursorElements[playerId] = el;
-    }
+function renderBootState(list) {
+  const el = document.getElementById("mpBootState");
+  const btn = document.getElementById("mpStart");
+  const ready = list.filter((p) => p.live).length;
+  el.innerHTML = list.map((p) => {
+    const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
+    const txt = p.live ? "streaming gaze" : (p.detail || p.state);
+    return `<span style="color:${p.color}">${p.label}</span> · port ${p.port} — <span class="mp-state ${cls}">${txt}</span>`;
+  }).join("<br>");
+  btn.disabled = ready === 0;
+  btn.textContent = ready === 0 ? "waiting for bridges"
+    : ready < list.length ? `start with ${ready} of ${list.length}` : "start";
+}
 
-    function updateCursorPosition(playerId, x, y, color) {
-      if (!cursorElements[playerId]) createCursorElement(playerId, color);
-      const el = cursorElements[playerId];
-      el.style.left = x + "px";
-      el.style.top = y + "px";
-    }
+// ---------------------------------------------------------------- scoreboard
+function renderPanel(list) {
+  const best = Math.max(...Object.values(scores));
+  document.getElementById("mpPanel").innerHTML =
+    `<div class="mp-h">score</div>` +
+    list.map((p) => {
+      const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
+      const txt = simMode ? "simulated" : p.live ? "live" : (p.detail || p.state);
+      const lead = scores[p.id] === best && best > 0 ? " mp-lead" : "";
+      return `<div class="mp-row">
+        <div class="mp-dot" style="background:${p.color}"></div>
+        <div class="mp-name" style="color:${p.color}">${p.label}</div>
+        <div class="mp-state ${cls}">${txt}</div>
+        <div class="mp-score${lead}">${scores[p.id]}</div>
+      </div>`;
+    }).join("");
+}
 
-    function updateScoreBoard() {
-      let html = "";
-      PLAYERS.forEach((p) => {
-        html += `
-          <div class="mp-player-score">
-            <div class="mp-color-dot" style="background: ${p.color}"></div>
-            <div class="mp-name">${p.label}</div>
-            <div class="mp-count">${scores[p.id]}</div>
-          </div>
-        `;
-      });
-      document.querySelector(".mp-score-board").innerHTML = html;
-    }
+let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
+window.addEventListener("gaze-players", (e) => {
+  lastList = e.detail;
+  if (started) renderPanel(lastList); else renderBootState(lastList);
+});
 
-    // Simulated gaze for testing without the bridges.
-    function simulateGaze() {
-      if (!hasBooted) return;
-      PLAYERS.forEach((p) => {
-        const idx = p.id;
-        if (simModes[idx] === "mouse") {
-          // Move toward mouse
-          const target = {
-            x: mouseX || W / 2,
-            y: mouseY || H / 2,
-          };
-          if (!gazes[idx]) gazes[idx] = { x: W / 2, y: H / 2 };
-          gazes[idx].x += (target.x - gazes[idx].x) * 0.08;
-          gazes[idx].y += (target.y - gazes[idx].y) * 0.08;
-        }
-      });
-    }
+// Score attribution: sketch.js forwards the winning pointer to petrify(),
+// which reports it here. No game logic is duplicated.
+window.addEventListener("blob-petrified", (e) => {
+  const p = byPointer[e.detail.pointerId];
+  if (!p) return;              // unattributed (single-pointer / programmatic)
+  scores[p.id] += 1;
+  renderPanel(lastList);
+});
 
-    window.setup = function () {
-      const c = createCanvas(windowWidth, windowHeight);
-      c.parent("root");
-      W = width;
-      H = height;
+// ---------------------------------------------------------------- start
+function start(sim) {
+  if (started) return;
+  started = true;
+  simMode = !!sim;
+  document.getElementById("mpBoot").classList.add("hidden");
+  document.getElementById("mpPanel").style.display = "";
+  renderPanel(lastList);
 
-      buildBlobs();
-      initScores();
+  if (sim) {
+    // Tracking already ships a second pointer driven by the arrow keys,
+    // built for exactly this: exercising multi-pointer dwell with one mouse.
+    // The aggregator has to stop publishing first — it would otherwise keep
+    // pushing an empty external-pointer list over the top of the mouse.
+    GazeAggregator.setPublishing(false);
+    Tracking.releaseExternal();
+    if (!Tracking.isSimSecondEnabled()) Tracking.toggleSimSecondPointer();
+  } else if (window.Markers) {
+    Markers.show();            // surface tags for the scene cameras
+  }
 
-      // Create score board
-      const board = document.createElement("div");
-      board.className = "mp-score-board";
-      board.innerHTML = "<div>connecting...</div>";
-      document.body.appendChild(board);
-      updateScoreBoard();
+  if (window.ControlsHint) {
+    ControlsHint.show(
+      sim
+        ? [{ keys: "mouse", does: "P1" }, { keys: "arrows", does: "P2" },
+           { keys: "r", does: "reset blobs" }]
+        : [{ keys: "look", does: "petrify a blob for your colour" },
+           { keys: "r", does: "reset blobs" }],
+      "medusa multiplayer"
+    );
+  }
+}
 
-      // Initialize gaze aggregator for multiple players
-      GazeAggregator.init({ players: PLAYERS });
-      GazeAggregator.on((samples) => {
-        gazes = [];
-        samples.forEach((s) => {
-          if (s.x !== undefined && s.y !== undefined) {
-            gazes[s.playerId] = s;
-            updateCursorPosition(s.playerId, s.x, s.y, s.color);
-          }
-        });
-      });
+document.getElementById("mpStart").onclick = () => start(false);
+document.getElementById("mpSim").onclick = () => start(true);
 
-      // Fallback to simulated gaze when no real data
-      window.addEventListener("gaze-aggregator-status", (e) => {
-        const detail = e.detail;
-        // Could show connection status here
-      });
+renderBootCmd();
+GazeAggregator.init({ players: PLAYERS });
 
-      colorMode(HSB, 360, 100, 100, 1);
-      noStroke();
+// ?sim skips straight into mouse+arrows, matching ?mouse elsewhere.
+if (new URLSearchParams(location.search).has("sim")) start(true);
+</script>
 
-      if (window.ControlsHint) {
-        ControlsHint.show(
-          [
-            { keys: "mouse ↕", does: "player 1 position" },
-            { keys: "f / l", does: "player 1 freeze/lively" },
-            { keys: "r", does: "reset" },
-          ],
-          "medusa multiplayer"
-        );
-      }
-
-      hasBooted = true;
-    };
-
-    window.draw = function () {
-      background(18, 8, 8);
-      fill(185, 8, 32);
-      textAlign(CENTER, CENTER);
-      textFont("SF Mono", 11);
-
-      // Simulate gaze if no real data yet (testing)
-      if (gazes.length === 0) {
-        simulateGaze();
-      }
-
-      // Process dwell for each player
-      PLAYERS.forEach((p) => {
-        const gaze = gazes[p.id];
-        if (!gaze) return;
-
-        blobs.forEach((blob) => {
-          if (blob.petrified) return;
-
-          const d = dist(gaze.x, gaze.y, blob.x, blob.y);
-          const assists = blobs.filter(
-            (b) => !b.petrified && dist(gaze.x, gaze.y, b.x, b.y) < ASSIST_RADIUS
-          );
-
-          // Dwell only counts if this blob is the nearest (winner-take-all).
-          if (
-            assists.length > 0 &&
-            assists.reduce((a, b) => (a.d < b.d ? a : b)) === blob
-          ) {
-            blob.dwell = (blob.dwell || 0) + deltaTime / 1000;
-            if (blob.dwell >= DWELL_SECONDS) {
-              blob.petrified = true;
-              blob.petrifiedBy = p.id;
-              blob.petrifiedAt = frameCount;
-              scores[p.id]++;
-              blob.dwell = 0;
-            }
-          } else {
-            blob.dwell = Math.max(0, (blob.dwell || 0) - deltaTime / 1000 * 0.5);
-          }
-        });
-      });
-
-      // Draw blobs
-      blobs.forEach((blob) => {
-        const progress = blob.dwell ? Math.min(1, blob.dwell / DWELL_SECONDS) : 0;
-        const targetHue = blob.petrified ? HUE_STONE : HUE_ALIVE;
-        blob.hue += (targetHue - blob.hue) * 0.1;
-
-        fill(blob.hue, 40, 65);
-        ellipse(blob.x, blob.y, BLOB_RADIUS * 2);
-
-        // Dwell progress ring
-        if (progress > 0 && !blob.petrified) {
-          stroke(185, 60, 80);
-          strokeWeight(3);
-          noFill();
-          arc(blob.x, blob.y, BLOB_RADIUS * 2.6, BLOB_RADIUS * 2.6, -PI / 2, -PI / 2 + PI * 2 * progress);
-          noStroke();
-        }
-      });
-
-      // Draw player cursors (already positioned by updateCursorPosition)
-      // but we also draw a small target here for reference
-      PLAYERS.forEach((p) => {
-        const g = gazes[p.id];
-        if (!g) return;
-        fill(0);
-        // Cursor ring
-        stroke(p.color);
-        strokeWeight(2);
-        noFill();
-        ellipse(g.x, g.y, 36);
-        noStroke();
-      });
-
-      updateScoreBoard();
-    };
-
-    window.keyPressed = function () {
-      const k = (key || "").toLowerCase();
-      if (k === "r") {
-        blobs.forEach((b) => (b.petrified = false));
-        initScores();
-        updateScoreBoard();
-      }
-      if (k === "f") simModes[0] = simModes[0] === "frozen" ? "mouse" : "frozen";
-      if (k === "l") simModes[0] = simModes[0] === "lively" ? "mouse" : "lively";
-    };
-
-    window.windowResized = function () {
-      if (hasBooted) {
-        resizeCanvas(windowWidth, windowHeight);
-        W = width;
-        H = height;
-      }
-    };
-  </script>
+<script src="../sketch.js"></script>
 </body>
 </html>

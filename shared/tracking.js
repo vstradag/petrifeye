@@ -55,6 +55,15 @@
 
       if (state.simSecondEnabled) {
         const speed = 4;
+        // Self-heal the start position. toggleSimSecondPointer() seeds it
+        // from width/height, which are undefined if the toggle happens
+        // before p5 has made the canvas (a page that enables the sim pointer
+        // from its own inline script does exactly that) — leaving the
+        // pointer at NaN, invisible and unable to hit anything.
+        if (!Number.isFinite(state.simSecondPos.x) || !Number.isFinite(state.simSecondPos.y)) {
+          state.simSecondPos.x = (w.width || 0) * 0.25;
+          state.simSecondPos.y = (w.height || 0) * 0.5;
+        }
         if (w.keyIsDown(w.LEFT_ARROW)) state.simSecondPos.x -= speed;
         if (w.keyIsDown(w.RIGHT_ARROW)) state.simSecondPos.x += speed;
         if (w.keyIsDown(w.UP_ARROW)) state.simSecondPos.y -= speed;

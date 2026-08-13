@@ -342,7 +342,9 @@ class Blob {
       // instead of "is the pointer inside me?" is what makes a 40px target
       // reachable with a ~175px-accurate signal.
       hitTest: (ptr) => !this.petrified && focus.get(ptr.id) === this.id,
-      onComplete: () => this.petrify(),
+      // The winning pointer is forwarded so multiplayer can attribute the
+      // kill. Single player ignores it — one pointer, nobody to credit.
+      onComplete: (ptr) => this.petrify(ptr),
     });
   }
 
@@ -416,11 +418,17 @@ class Blob {
     return this.radius * 0.42;
   }
 
-  petrify() {
+  petrify(ptr) {
     if (this.petrified) return;
     this.petrified = true;
     this.petrifiedElapsed = 0;
     this.vel.mult(0);
+    // Who did it. Null in single player (and if a blob is petrified
+    // programmatically); multiplayer reads this to keep score.
+    this.petrifiedBy = ptr ? ptr.id : null;
+    window.dispatchEvent(new CustomEvent("blob-petrified", {
+      detail: { blobId: this.id, pointerId: this.petrifiedBy },
+    }));
     if (fur) fur.ruffle(this.pos.x, this.pos.y);
 
     const tex = random(stoneImages);
@@ -446,6 +454,7 @@ class Blob {
   unpetrify() {
     if (!this.petrified) return;
     this.petrified = false;
+    this.petrifiedBy = null;
     this.stoneImg = null;
     this.vel = p5.Vector.random2D().mult(random(0.3, 0.8));
     this.dwell.reset();
