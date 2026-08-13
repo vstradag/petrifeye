@@ -449,9 +449,36 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     if gaze_url != gaze_sensor.url:
         log.info("gaze stream (audio stripped): %s", gaze_url)
 
+    # Pupil diameter rides on the gaze stream (the datum is an
+    # EyestateGazeData variant) whenever "Compute eye state" is enabled on the
+    # phone. Forwarded separately from mapped gaze because the flower game
+    # needs ONLY this — no markers, no surface, no calibration — so it must
+    # not be coupled to the scene pump.
+    last_pupil_sent = 0.0
+    PUPIL_HZ = 30.0   # 200Hz raw is far more than any animation needs
+
     async def pump_gaze():
+        nonlocal last_pupil_sent
         async for datum in receive_gaze_data(gaze_url, run_loop=True):
             state["last_gaze"] = time.monotonic()
+
+            left = getattr(datum, "pupil_diameter_left", None)
+            right = getattr(datum, "pupil_diameter_right", None)
+            if left is not None or right is not None:
+                now_p = time.monotonic()
+                if now_p - last_pupil_sent >= 1.0 / PUPIL_HZ:
+                    last_pupil_sent = now_p
+                    vals = [v for v in (left, right) if v is not None and v == v and v > 0]
+                    if vals:
+                        await hub.send({
+                            "type": "pupil",
+                            "left": float(left) if left is not None else None,
+                            "right": float(right) if right is not None else None,
+                            # Mean of whatever is valid: one eye can drop out
+                            # (blink, occlusion) and the animation shouldn't lurch.
+                            "mm": sum(vals) / len(vals),
+                            "worn": bool(getattr(datum, "worn", True)),
+                        })
             # Unmapped fallback: treat scene-camera normalised position as a
             # direct screen fraction. Crude and only sane if the head stays
             # put, but it keeps the piece playable without markers.

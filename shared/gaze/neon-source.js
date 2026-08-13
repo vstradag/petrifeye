@@ -149,6 +149,12 @@
         return;
       }
 
+      // Pupil diameter in mm. Requires "Compute eye state" on the phone.
+      if (msg.type === "pupil") {
+        window.dispatchEvent(new CustomEvent("neon-pupil", { detail: msg }));
+        return;
+      }
+
       if (msg.type === "gaze") {
         if (paused || !sampleCb) return;
         // worn === false means the glasses are off the face. Feeding those
