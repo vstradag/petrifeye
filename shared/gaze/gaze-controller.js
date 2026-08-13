@@ -650,11 +650,23 @@
     hud.className = "gaze-hud";
     document.body.appendChild(hud);
 
+    const params = new URLSearchParams(location.search);
+
+    // ?mouse (or ?src=mouse) drops straight into cursor control with no boot
+    // screen at all. Unlike the tracker paths this needs no user gesture —
+    // no camera, no fullscreen — so it can start on load. Exists because
+    // clicking through calibration on every reload makes iterating on a
+    // game's behaviour miserable.
+    if (params.has("mouse") || params.get("src") === "mouse") {
+      pauseToMouse();
+      return;
+    }
+
     // ?src=neon / ?src=webgazer preselects the tracker, so the launcher can
     // send a visitor straight into a game. Still requires their click on the
     // boot screen: fullscreen and getUserMedia both need a user gesture, so
     // auto-starting here would fail silently on the first load.
-    const wanted = new URLSearchParams(location.search).get("src");
+    const wanted = params.get("src");
     if (wanted && (window.GazeSources || {})[wanted]) {
       showBootConfirm(wanted);
       return;

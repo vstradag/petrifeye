@@ -50,6 +50,12 @@
   let vitality = 1.0;
   let lastSampleAt = 0;
   let haveData = false;
+  // Tracked separately from lastSampleAt so a caller can ask "is REAL hardware
+  // feeding me?" without its own simulated samples answering yes. A game that
+  // gates its mouse fallback on available() otherwise silences itself the
+  // moment it feeds one value, then resumes only when that sample goes stale
+  // — a 0.5Hz control that looks like a frozen flower.
+  let lastNeonAt = 0;
 
   function prune(now) {
     while (history.length && now - history[0].t > WINDOW_MS) history.shift();
@@ -108,18 +114,24 @@
     start() {
       window.addEventListener("neon-pupil", (e) => {
         const mm = e.detail && e.detail.mm;
-        if (typeof mm === "number" && mm > 0 && e.detail.worn !== false) push(mm);
+        if (typeof mm === "number" && mm > 0 && e.detail.worn !== false) {
+          lastNeonAt = performance.now();
+          push(mm);
+        }
       });
     },
     // Manual injection, for the keyboard/mouse stand-in and for tests.
     feed: push,
     dilation: () => dilation,
     vitality: () => vitality,
+    // Any data at all, simulated included — use for "is the display meaningful".
     available: () => haveData && performance.now() - lastSampleAt < 2000,
+    // REAL glasses only. Use this to decide whether to run a fallback.
+    neonLive: () => lastNeonAt > 0 && performance.now() - lastNeonAt < 2000,
     lastMm: () => (history.length ? history[history.length - 1].mm : null),
     reset() {
       history.length = 0; dilation = 0.5; vitality = 1; haveData = false;
-      lastSampleAt = 0; rangeLo = null; rangeHi = null;
+      lastSampleAt = 0; lastNeonAt = 0; rangeLo = null; rangeHi = null;
     },
   };
 })();

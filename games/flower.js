@@ -21,7 +21,14 @@
 
   // Simulated pupil for mouse/keyboard play. Neon overrides this the moment
   // real samples arrive.
-  let simMm = 4.0, simTarget = 4.0;
+  //
+  // Mouse height alone couples the two signals: to make the pupil VARY you
+  // must also change its SIZE, so you can't hold it wide and static — which
+  // is exactly the case worth testing. Hence explicit modes.
+  //   "mouse"  size follows the cursor (moving it = varying = alive)
+  //   "frozen" size pinned exactly — the wilt case, at whatever width
+  //   "lively" size held but breathing — the recovery case
+  let simMm = 4.0, simTarget = 4.0, simMode = "mouse";
 
   function lerp(a, b, k) { return a + (b - a) * k; }
 
@@ -51,6 +58,24 @@
     if (window.Pupil) Pupil.start();
     colorMode(HSB, 360, 100, 100, 1);
     noStroke();
+
+    if (window.ControlsHint) {
+      ControlsHint.show([
+        { keys: "mouse ↕", does: "pupil size (moving = alive)" },
+        { keys: "f", does: "freeze pupil → wilt" },
+        { keys: "l", does: "hold width, keep varying → revive" },
+        { keys: "r", does: "reset" },
+      ], "anemone");
+    }
+  };
+
+  window.keyPressed = function () {
+    const k = (key || "").toLowerCase();
+    // Freeze/lively pin the CURRENT width so the two signals can be varied
+    // independently — the whole point of the mechanic.
+    if (k === "f") simMode = simMode === "frozen" ? "mouse" : "frozen";
+    if (k === "l") simMode = simMode === "lively" ? "mouse" : "lively";
+    if (k === "r") { if (window.Pupil) Pupil.reset(); simMode = "mouse"; }
   };
 
   window.windowResized = function () {
@@ -213,13 +238,21 @@
 
     // --- signal ---------------------------------------------------------
     if (window.Tracking) Tracking.update();
-    const live = window.Pupil && Pupil.available();
+    const live = window.Pupil && Pupil.neonLive();
     if (!live && window.Pupil) {
-      // Stand-in so the piece is playable and testable without the glasses:
-      // mouse height drives simulated pupil size.
-      simTarget = 2.5 + (1 - mouseY / Math.max(1, height)) * 4.5;
-      simMm = lerp(simMm, simTarget, 0.08);
-      Pupil.feed(simMm);
+      if (simMode === "mouse") {
+        simTarget = 2.5 + (1 - mouseY / Math.max(1, height)) * 4.5;
+        simMm = lerp(simMm, simTarget, 0.08);
+        Pupil.feed(simMm);
+      } else if (simMode === "frozen") {
+        // Exactly the same value every frame — the wilt case.
+        Pupil.feed(simMm);
+      } else {
+        // Held at the same average width but genuinely varying, so vitality
+        // recovers without the width changing. Amplitude sits well above the
+        // static threshold in pupil.js.
+        Pupil.feed(simMm + Math.sin(t * 9) * 0.45);
+      }
     }
     const openness = window.Pupil ? Pupil.dilation() : 0.5;
     const vitality = window.Pupil ? Pupil.vitality() : 1;
@@ -286,8 +319,9 @@
     textSize(11);
     textAlign(LEFT, TOP);
     const mm = window.Pupil && Pupil.lastMm();
+    const src = live ? "neon" : `simulated · ${simMode}`;
     text(
-      `PUPIL   ${mm ? mm.toFixed(2) + " mm" : "--"}   ${live ? "neon" : "simulated (move the mouse)"}\n` +
+      `PUPIL   ${mm ? mm.toFixed(2) + " mm" : "--"}   ${src}\n` +
       `BLOOM   ${(openness * 100).toFixed(0)}%\n` +
       `VITALITY ${(vitality * 100).toFixed(0)}%`,
       pad, pad

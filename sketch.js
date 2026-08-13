@@ -69,6 +69,16 @@ function setup() {
   fur = new FurField({ width, height });
   attention = new AttentionArbiter({ captureRadius: GAZE_ASSIST_RADIUS });
   initTuningPanel();
+
+  if (window.ControlsHint) {
+    ControlsHint.show([
+      { keys: "look / mouse", does: "stare to petrify" },
+      { keys: "s", does: "tuning panel" },
+      { keys: "f", does: "fur background" },
+      { keys: "r", does: "reset stones" },
+      { keys: "t", does: "recalibrate" },
+    ], "medusa");
+  }
   initAccuracyListener();
 }
 

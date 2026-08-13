@@ -409,6 +409,54 @@
   to { transform: scale(90); opacity: 0; }
 }
 
+/* --------------------------------------------------- controls legend
+   Below the gaze overlay (1000+) but above game canvases. */
+.controls-hint {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 900;
+  font-family: var(--gaze-mono);
+  background: rgba(8, 9, 14, 0.82);
+  border: 1px solid #23252c;
+  padding: 12px 14px;
+  min-width: 190px;
+  pointer-events: none;
+  transition: opacity 0.35s;
+}
+
+.controls-hint.ch-hidden { opacity: 0; }
+
+.ch-title {
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #6a6a6a;
+  margin-bottom: 9px;
+}
+
+.ch-title span { color: #3e4048; }
+
+.ch-row {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.9;
+  color: #8d8b88;
+}
+
+.ch-row b {
+  color: #c98f8f;
+  font-weight: 600;
+  min-width: 62px;
+}
+
+.ch-sep {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #1c1e24;
+}
+
 /* ------------------------------------------- AprilTag surface markers
    Above everything (including the boot stage) because the scene camera has
    to see them continuously for gaze mapping to hold — if the black boot

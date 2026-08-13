@@ -196,6 +196,16 @@
   // game then so the player isn't dodging obstacles behind a boot screen.
   function begin() {
     if (window.GazeActions) GazeActions.start();
+    if (window.ControlsHint) {
+      ControlsHint.show([
+        { keys: "look up", does: "jump" },
+        { keys: "look down", does: "duck" },
+        { keys: "blink", does: "shoot" },
+        { keys: "↑ / space", does: "jump (keys)" },
+        { keys: "↓", does: "duck (keys)" },
+        { keys: "x", does: "shoot (keys)" },
+      ], "oculus run");
+    }
     // Kaplay swallows exceptions thrown inside a scene body and leaves a
     // blank canvas with nothing in the console, which is a miserable way to
     // debug. Surface them.
