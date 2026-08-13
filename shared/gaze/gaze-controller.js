@@ -276,6 +276,25 @@
   }
 
   // ------------------------------------------------------------------ boot
+  // One-button boot for when the tracker was already chosen via ?src=.
+  function showBootConfirm(key) {
+    const src = window.GazeSources[key];
+    overlay.className = "gaze-overlay gaze-overlay-boot";
+    overlay.innerHTML = `
+      <div class="gaze-boot">
+        <h1 class="gaze-boot-title">PETRIF<span>EYE</span></h1>
+        <p class="gaze-boot-sub">${src.label || src.name}</p>
+        <div class="gaze-source-row">
+          <button class="gaze-btn-boot" id="gaze-go">▸ initiate</button>
+        </div>
+        <button class="gaze-boot-skip" id="gaze-other">choose a different input</button>
+        <button class="gaze-boot-skip" id="gaze-skip">bypass — cursor mode</button>
+      </div>`;
+    overlay.querySelector("#gaze-go").onclick = () => beginCinematic(key);
+    overlay.querySelector("#gaze-other").onclick = showBoot;
+    overlay.querySelector("#gaze-skip").onclick = pauseToMouse;
+  }
+
   function showBoot() {
     overlay.className = "gaze-overlay gaze-overlay-boot";
     const sources = window.GazeSources || {};
@@ -605,6 +624,12 @@
   function hideOverlay() {
     overlay.innerHTML = "";
     overlay.className = "gaze-overlay gaze-overlay-hidden";
+    // The boot screen is gone and input is live — the moment a game should
+    // actually start. Medusa doesn't care (it renders continuously behind the
+    // overlay), but the platformer must not run while the player is looking
+    // at calibration dots. The flag covers listeners that attach late.
+    window.__gazeReady = true;
+    window.dispatchEvent(new CustomEvent("gaze-ready"));
   }
 
   document.addEventListener("keydown", (e) => {
@@ -624,6 +649,16 @@
     hud = document.createElement("div");
     hud.className = "gaze-hud";
     document.body.appendChild(hud);
+
+    // ?src=neon / ?src=webgazer preselects the tracker, so the launcher can
+    // send a visitor straight into a game. Still requires their click on the
+    // boot screen: fullscreen and getUserMedia both need a user gesture, so
+    // auto-starting here would fail silently on the first load.
+    const wanted = new URLSearchParams(location.search).get("src");
+    if (wanted && (window.GazeSources || {})[wanted]) {
+      showBootConfirm(wanted);
+      return;
+    }
     showBoot();
   });
 })();

@@ -141,6 +141,14 @@
         return;
       }
 
+      // Discrete blink, used as "shoot" by the platformer. Re-broadcast as a
+      // DOM event so gaze-actions.js can consume it without knowing anything
+      // about this transport.
+      if (msg.type === "blink") {
+        window.dispatchEvent(new CustomEvent("neon-blink", { detail: msg }));
+        return;
+      }
+
       if (msg.type === "gaze") {
         if (paused || !sampleCb) return;
         // worn === false means the glasses are off the face. Feeding those

@@ -2,45 +2,82 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>PetrifEye — real gaze-tracking prototype</title>
+<title>PETRIFEYE — select experience</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="shared/style.css" />
 <link rel="stylesheet" href="shared/gaze/gaze-ui.css" />
-<link rel="stylesheet" href="tuning.css" />
-<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
-<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+<style>
+  /* Deliberately does NOT load the gaze stack. The launcher is chosen with a
+     mouse before any tracker is running; booting the camera here would mean
+     calibrating just to read a menu. Each game boots its own input. */
+  body { background:#07080c; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  .wrap { max-width: 940px; padding: 40px 24px; font-family: var(--gaze-mono); width:100%; }
+
+  h1 { font-size: 40px; font-weight: 200; letter-spacing: 0.32em; margin: 0 0 8px; text-align:center; color:#e8e6e2; }
+  h1 span { color: var(--gaze-red); text-shadow: 0 0 26px rgba(255,59,59,.55); }
+  .lede { text-align:center; color:#6a6a6a; font-size:11px; letter-spacing:0.34em;
+          text-transform:uppercase; margin:0 0 52px; }
+
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:20px; }
+
+  a.game { display:block; text-decoration:none; border:1px solid #23252c; background:#0b0d12;
+           padding:26px 26px 22px; transition: border-color .18s, background .18s, transform .18s; }
+  a.game:hover { border-color: var(--gaze-red); background:rgba(255,59,59,.06); transform: translateY(-2px); }
+  a.game.soon { opacity:.42; pointer-events:none; }
+
+  .tag { font-size:9px; letter-spacing:0.3em; text-transform:uppercase; color:#6a6a6a; }
+  .title { font-size:22px; letter-spacing:0.16em; color:#e8e6e2; margin:10px 0 12px; }
+  a.game:hover .title { color:#fff; }
+  .desc { font-size:12.5px; line-height:1.75; color:#8d8b88; margin:0 0 18px; }
+
+  .ctrl { border-top:1px solid #1c1e24; padding-top:14px; display:flex; flex-wrap:wrap; gap:8px 18px; }
+  .ctrl div { font-size:11px; color:#7a7876; letter-spacing:0.06em; }
+  .ctrl b { color:#c98f8f; font-weight:600; }
+
+  .foot { margin-top:44px; text-align:center; color:#4a4a4a; font-size:11px; line-height:2; }
+  .foot a { color:#7a5555; }
+  .foot code { color:#9a7070; }
+</style>
 </head>
 <body>
-<div class="tuning-panel" id="tuning-panel">
-  <label>
-    <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
-    <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
-  </label>
-  <label>
-    <div class="tuning-row"><span>max eye size</span><span id="tv-max">46px</span></div>
-    <input type="range" id="slider-max-radius" min="10" max="120" value="46" step="1" />
-  </label>
-  <label>
-    <div class="tuning-row"><span>dwell to petrify</span><span id="tv-dwell">2.0s</span></div>
-    <input type="range" id="slider-dwell" min="0.3" max="5" value="2" step="0.1" />
-  </label>
-  <label>
-    <div class="tuning-row"><span>gaze assist</span><span id="tv-assist">170px</span></div>
-    <input type="range" id="slider-assist" min="0" max="320" value="170" step="5" />
-  </label>
-  <label class="tuning-checkbox">
-    <input type="checkbox" id="toggle-fur" />
-    <span>fur background (f)</span>
-  </label>
+<div class="wrap">
+  <h1>PETRIF<span>EYE</span></h1>
+  <p class="lede">select experience</p>
+
+  <div class="grid">
+    <a class="game" href="games/medusa.html">
+      <div class="tag">01 · gaze dwell</div>
+      <div class="title">MEDUSA</div>
+      <p class="desc">
+        Blob-eyes drift across a fur field. Stare at one for two seconds and it
+        turns to stone.
+      </p>
+      <div class="ctrl">
+        <div><b>look</b> at a blob to petrify it</div>
+      </div>
+    </a>
+
+    <a class="game" href="games/platformer.html">
+      <div class="tag">02 · gaze gestures</div>
+      <div class="title">OCULUS RUN</div>
+      <p class="desc">
+        A side-scrolling platformer driven entirely by your eyes. Look up to
+        jump, down to duck, blink to shoot.
+      </p>
+      <div class="ctrl">
+        <div><b>look up</b> jump</div>
+        <div><b>look down</b> duck</div>
+        <div><b>blink</b> shoot</div>
+      </div>
+    </a>
+  </div>
+
+  <p class="foot">
+    Webcam works out of the box. For Pupil Labs Neon, run the bridge and see
+    <a href="setup-neon.html">setup-neon.html</a>.<br />
+    Each experience asks which tracker to use on launch — or skip straight to
+    one with <code>?src=neon</code> / <code>?src=webgazer</code>.
+  </p>
 </div>
-<script src="shared/tracking.js"></script>
-<script src="shared/dwell.js"></script>
-<script src="shared/attention.js"></script>
-<script src="shared/fur-field.js"></script>
-<script src="shared/gaze/markers.js"></script>
-<script src="shared/gaze/webgazer-source.js"></script>
-<script src="shared/gaze/neon-source.js"></script>
-<script src="shared/gaze/gaze-controller.js"></script>
-<script src="sketch.js"></script>
 </body>
 </html>

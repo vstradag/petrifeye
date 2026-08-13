@@ -223,7 +223,20 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
                     await asyncio.sleep(3)
                     continue
 
-                await stream(gaze_sensor, scene_sensor, mapper, screen_w, screen_h)
+                # Blinks drive "shoot" in the platformer. This stream is gated
+                # by "Compute fixations" in the Companion app, so it is often
+                # absent — treated as optional, and the browser is told so it
+                # can fall back to the keyboard rather than silently ignoring
+                # a control the player was told about.
+                eye_events_sensor = status.direct_eye_events_sensor()
+                if eye_events_sensor and eye_events_sensor.connected:
+                    log.info("eye-events stream available — blink detection on")
+                else:
+                    log.info("no eye-events stream — blinks unavailable "
+                             "(enable 'Compute fixations' in the Companion app)")
+
+                await stream(gaze_sensor, scene_sensor, eye_events_sensor,
+                             mapper, screen_w, screen_h)
 
         except asyncio.CancelledError:
             raise
@@ -331,8 +344,13 @@ def marker_verts(w: int, h: int):
     return verts
 
 
-async def stream(gaze_sensor, scene_sensor, mapper, screen_w, screen_h):
-    from pupil_labs.realtime_api import receive_gaze_data, receive_video_frames
+async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
+                 screen_w, screen_h):
+    from pupil_labs.realtime_api import (
+        receive_gaze_data, receive_video_frames, receive_eye_events_data,
+    )
+
+    blinks_on = bool(eye_events_sensor and eye_events_sensor.connected)
 
     # Surface geometry follows the browser's real viewport. Rebuilt whenever
     # it changes (first report, window resize, fullscreen toggle) so the
@@ -407,6 +425,7 @@ async def stream(gaze_sensor, scene_sensor, mapper, screen_w, screen_h):
                         "streaming", detail,
                         surfaceOk=bool(mapper),
                         markersVisible=(m if mapper and m >= 0 else None),
+                        blinkAvailable=blinks_on,
                     )
             else:
                 if state["last_gaze"] == 0:
@@ -510,7 +529,18 @@ async def stream(gaze_sensor, scene_sensor, mapper, screen_w, screen_h):
                     "worn": bool(getattr(datum, "worn", True)),
                 })
 
-    await asyncio.gather(watchdog(), pump_gaze(), pump_scene())
+    async def pump_blinks():
+        if not blinks_on:
+            return
+        # The eye-events stream carries fixations too; only blinks matter here.
+        async for ev in receive_eye_events_data(
+            strip_audio(eye_events_sensor.url), run_loop=True
+        ):
+            if type(ev).__name__ != "BlinkEventData":
+                continue
+            await hub.send({"type": "blink"})
+
+    await asyncio.gather(watchdog(), pump_gaze(), pump_scene(), pump_blinks())
 
 
 # --------------------------------------------------------------------------

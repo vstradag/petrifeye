@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PetrifEye — real gaze-tracking prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<link rel="stylesheet" href="../tuning.css" />
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+</head>
+<body>
+<div class="tuning-panel" id="tuning-panel">
+  <label>
+    <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
+    <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>max eye size</span><span id="tv-max">46px</span></div>
+    <input type="range" id="slider-max-radius" min="10" max="120" value="46" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>dwell to petrify</span><span id="tv-dwell">2.0s</span></div>
+    <input type="range" id="slider-dwell" min="0.3" max="5" value="2" step="0.1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>gaze assist</span><span id="tv-assist">170px</span></div>
+    <input type="range" id="slider-assist" min="0" max="320" value="170" step="5" />
+  </label>
+  <label class="tuning-checkbox">
+    <input type="checkbox" id="toggle-fur" />
+    <span>fur background (f)</span>
+  </label>
+</div>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/dwell.js"></script>
+<script src="../shared/attention.js"></script>
+<script src="../shared/fur-field.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
+<script src="../shared/gaze/neon-source.js"></script>
+<script src="../shared/gaze/gaze-actions.js"></script>
+<script src="../shared/gaze/gaze-controller.js"></script>
+<script src="../sketch.js"></script>
+</body>
+</html>

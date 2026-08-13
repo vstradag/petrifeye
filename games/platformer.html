@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OCULUS RUN — gaze platformer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<style>
+  body { margin:0; background:#08090e; overflow:hidden; }
+  #game { display:block; width:100vw; height:100vh; }
+  /* Above the canvas, below the gaze overlay (which sits at 1000+). */
+  .back { position:fixed; left:14px; bottom:12px; z-index:900; font-family:var(--gaze-mono);
+          font-size:10px; letter-spacing:0.24em; text-transform:uppercase;
+          color:#5a5a5a; text-decoration:none; }
+  .back:hover { color:#c98f8f; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<a class="back" href="../index.html">← experiences</a>
+
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+<script src="../vendor/kaplay.js"></script>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
+<script src="../shared/gaze/neon-source.js"></script>
+<script src="../shared/gaze/gaze-actions.js"></script>
+<script src="../shared/gaze/gaze-controller.js"></script>
+<script src="platformer.js"></script>
+</body>
+</html>

@@ -36,13 +36,13 @@ const MOUSE_ASSIST_RADIUS = 0; // a mouse is genuinely pixel-accurate — no ass
 const UNFREEZE_SECONDS = 10;
 const NUM_BLOBS = 9;
 const STONE_PATHS = [
-  "textures/stone_1.jpeg",
-  "textures/stone_2.jpeg",
-  "textures/stone_3.jpeg",
-  "textures/stone_4.jpeg",
-  "textures/stone_5.jpeg",
-  "textures/stone_6.jpeg",
-  "textures/stone_7.jpeg",
+  "/textures/stone_1.jpeg",
+  "/textures/stone_2.jpeg",
+  "/textures/stone_3.jpeg",
+  "/textures/stone_4.jpeg",
+  "/textures/stone_5.jpeg",
+  "/textures/stone_6.jpeg",
+  "/textures/stone_7.jpeg",
 ];
 
 let stoneImages = [];
