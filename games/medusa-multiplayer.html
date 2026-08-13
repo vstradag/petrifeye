@@ -72,6 +72,32 @@
 
 <div class="mp-panel" id="mpPanel" style="display:none"></div>
 
+<!-- Same tuning panel as single player (press s). Assist radius matters more
+     here, not less: two pointers competing over the same blobs is exactly
+     when capture radius and dwell need tuning. -->
+<div class="tuning-panel" id="tuning-panel">
+  <label>
+    <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
+    <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>max eye size</span><span id="tv-max">46px</span></div>
+    <input type="range" id="slider-max-radius" min="10" max="120" value="46" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>dwell to petrify</span><span id="tv-dwell">2.0s</span></div>
+    <input type="range" id="slider-dwell" min="0.3" max="5" value="2" step="0.1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>gaze assist</span><span id="tv-assist">170px</span></div>
+    <input type="range" id="slider-assist" min="0" max="320" value="170" step="5" />
+  </label>
+  <label class="tuning-checkbox">
+    <input type="checkbox" id="toggle-fur" />
+    <span>fur background (f)</span>
+  </label>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
 <script src="../shared/tracking.js"></script>
 <script src="../shared/dwell.js"></script>

@@ -594,6 +594,13 @@ function initTuningPanel() {
   const dwellLabel = document.getElementById("tv-dwell");
   const assistLabel = document.getElementById("tv-assist");
 
+  // The panel is optional chrome, not part of the piece. A page that embeds
+  // this sketch without the tuning markup used to die here on a null
+  // addEventListener — inside setup(), so the whole sketch never started and
+  // the page rendered as an unexplained black screen. Absent panel, absent
+  // controls, everything else runs.
+  if (!minSlider || !maxSlider || !dwellSlider || !assistSlider || !furToggle) return;
+
   furToggle.addEventListener("change", () => setFurEnabled(furToggle.checked));
 
   function remapRadii(oldMin, oldMax, newMin, newMax) {
