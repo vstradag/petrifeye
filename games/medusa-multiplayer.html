@@ -213,10 +213,25 @@ window.addEventListener("blob-petrified", (e) => {
 });
 
 // ---------------------------------------------------------------- start
+// Fullscreen must be requested inside a user gesture, so this only works
+// when called straight from the START click — which is also the right
+// moment: the tags jump to the true screen corners, making the tracked
+// surface as large as the display allows, and browser chrome stops eating
+// vertical space. The aggregator re-reports the viewport on
+// fullscreenchange, so every bridge rebuilds its surface at the new size.
+function goFullscreen() {
+  try {
+    if (document.fullscreenElement) return;
+    const p = document.documentElement.requestFullscreen?.();
+    if (p && p.catch) p.catch(() => {}); // denied → play windowed
+  } catch (_) { /* unsupported → not fatal */ }
+}
+
 function start(sim) {
   if (started) return;
   started = true;
   simMode = !!sim;
+  goFullscreen();
   document.getElementById("mpBoot").classList.add("hidden");
   document.getElementById("mpPanel").style.display = "";
   renderPanel(lastList);

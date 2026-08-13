@@ -50,6 +50,41 @@
     window.dispatchEvent(new CustomEvent("gaze-players", { detail: snapshot() }));
   }
 
+  // Tell EVERY bridge the viewport it should map gaze into.
+  //
+  // Each bridge builds its surface from the marker positions this page
+  // reports, so a bridge that never hears the real size falls back to its
+  // command-line default (1920x1080) and stretches every coordinate — on a
+  // 1512x982 Retina viewport that is ~1.27x horizontally. Single player
+  // solved this in neon-source.js; multiplayer needs it per socket, and it
+  // matters most exactly when entering fullscreen, which is the largest
+  // viewport change that ever happens.
+  function sendViewport() {
+    const payload = JSON.stringify({
+      type: "viewport",
+      width: Math.round(window.innerWidth),
+      height: Math.round(window.innerHeight),
+    });
+    for (const p of players) {
+      const ws = (conn[p.id] || {}).ws;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  }
+
+  // Debounced: resize fires continuously while a window is dragged and each
+  // report rebuilds a surface on every bridge.
+  let resizeTimer = null;
+  function watchViewport() {
+    const bump = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(sendViewport, 250);
+    };
+    window.addEventListener("resize", bump);
+    // Fullscreen transitions animate; the final size is only correct once
+    // the change event has fired and the frame has settled.
+    document.addEventListener("fullscreenchange", () => setTimeout(sendViewport, 120));
+  }
+
   // Republish every live player as a pointer. Pointers that have gone stale
   // are omitted rather than frozen in place: DwellTarget drops accumulated
   // progress for a pointer that disappears, which is the correct behaviour
@@ -80,8 +115,14 @@
       setTimeout(() => connect(p), RECONNECT_MS);
       return;
     }
-    conn[p.id] = { ...(conn[p.id] || {}), ws, state: "connecting", detail: `port ${p.port}` };
+    conn[p.id] = { ...(conn[p.id] || {}), ws, state: "connecting", detail: "connecting…" };
     emit();
+
+    // Report the viewport immediately on open — before any gaze arrives, so
+    // the very first mapped sample already uses the right coordinate space.
+    // Also re-sent here on every reconnect, since a bridge that restarted
+    // has forgotten it.
+    ws.onopen = () => sendViewport();
 
     ws.onmessage = (e) => {
       let msg;
@@ -134,6 +175,7 @@
         pointerId: `player-${p.id != null ? p.id : i}`,
       }));
       players.forEach(connect);
+      watchViewport();
       emit();
       // Republish on a timer as well as on message, so pointers that go stale
       // are withdrawn even when no new samples are arriving at all.
