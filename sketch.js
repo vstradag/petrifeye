@@ -124,7 +124,12 @@ function windowResized() {
 function draw() {
   background(8, 10, 16);
   const dt = deltaTime / 1000;
-  const pointers = Tracking.update();
+  // Filter + lead before anything reads a position, so the arbiter, the
+  // dwell timers and the fur all see the same settled pointer rather than
+  // each reacting to raw jitter in its own way.
+  const pointers = window.GazeAssist
+    ? GazeAssist.process(Tracking.update(), dt)
+    : Tracking.update();
 
   // Hole radius has to match the body's actual visible size (this.radius —
   // what blobShapePoints uses to draw it), not the smaller eyeRadius(). It
@@ -177,13 +182,23 @@ function draw() {
   // visitor is actually trying to petrify.
   const gazeMode = pointers.some((p) => p.id === "gaze");
   attention.captureRadius = gazeMode ? GAZE_ASSIST_RADIUS : MOUSE_ASSIST_RADIUS;
-  focus = attention.resolve(
-    pointers,
-    blobs.filter((b) => !b.petrified).map((b) => ({ id: b.id, x: b.pos.x, y: b.pos.y, radius: b.radius }))
-  );
+  const live = blobs
+    .filter((b) => !b.petrified)
+    .map((b) => ({ id: b.id, x: b.pos.x, y: b.pos.y, radius: b.radius }));
 
-  for (const b of blobs) b.dwell.update(pointers, dt);
-  for (const b of blobs) b.display(pointers);
+  focus = attention.resolve(pointers, live);
+
+  // Settle the pointer onto whatever it just locked. Deliberately AFTER
+  // arbitration and not fed back into it: the arbiter keeps judging the
+  // unmagnetised position, so the pull can never talk the lock into staying.
+  // Selection stickiness is the arbiter's switchMargin/releaseFactor; this
+  // is only what the visitor sees and dwells with.
+  const assisted = window.GazeAssist
+    ? GazeAssist.magnetize(pointers, focus, live, (t) => attention.reach(t))
+    : pointers;
+
+  for (const b of blobs) b.dwell.update(assisted, dt);
+  for (const b of blobs) b.display(assisted);
 
   // Whatever fur happens to droop over a socket's rim on its own — no
   // special push, just its ordinary length and sway — redraws in front of
@@ -191,8 +206,8 @@ function draw() {
   // "growing into the fur" instead of a clean disc or a buried one.
   if (furEnabled) fur.displayOverlap(holes);
 
-  drawPointerMarkers(pointers);
-  drawHUD(pointers);
+  drawPointerMarkers(assisted);
+  drawHUD(assisted);
 }
 
 // Hard collision pass so blobs bounce off each other (not just the canvas

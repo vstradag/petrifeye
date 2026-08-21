@@ -130,12 +130,26 @@
     <input type="checkbox" id="toggle-target" checked />
     <span>show gaze target (g)</span>
   </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-assist" checked />
+    <span>motion assist (a)</span>
+  </label>
+  <label>
+    <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
+    <select id="select-profile">
+      <option value="">auto (per input)</option>
+      <option value="mouse">mouse — precise</option>
+      <option value="neon">neon glasses</option>
+      <option value="webgazer">webcam — worst case</option>
+    </select>
+  </label>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
 <script src="../shared/tracking.js"></script>
 <script src="../shared/dwell.js"></script>
 <script src="../shared/attention.js"></script>
+<script src="../shared/gaze/gaze-assist.js"></script>
 <script src="../shared/fur-field.js"></script>
 <script src="../shared/gaze/markers.js"></script>
 <script src="../shared/gaze/gaze-aggregator.js"></script>
@@ -263,8 +277,26 @@ document.getElementById("mpGear").onclick = () => {
 };
 document.getElementById("toggle-target").onchange = (e) => setTargetVisible(e.target.checked);
 
+function setAssist(on) {
+  if (window.GazeAssist) GazeAssist.setEnabled(on);
+  const box = document.getElementById("toggle-assist");
+  if (box) box.checked = !!on;
+}
+
+document.getElementById("toggle-assist").onchange = (e) => setAssist(e.target.checked);
+
+// Preview how another input will feel while testing with a cursor. A mouse
+// is pixel-accurate, so it cannot show you whether the assist is strong
+// enough for gaze — this forces the gaze profiles onto it.
+document.getElementById("select-profile").onchange = (e) => {
+  const v = e.target.value;
+  if (window.GazeAssist) GazeAssist.useProfile(v || null);
+  document.getElementById("tv-profile").textContent = v || "auto";
+};
+
 window.addEventListener("keydown", (e) => {
   if (e.key === "g" || e.key === "G") setTargetVisible(!window.PetrifEyeShow.pointerMarker);
+  if (e.key === "a" || e.key === "A") setAssist(!GazeAssist.isEnabled());
 });
 
 let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
