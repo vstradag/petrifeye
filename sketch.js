@@ -124,12 +124,10 @@ function windowResized() {
 function draw() {
   background(8, 10, 16);
   const dt = deltaTime / 1000;
-  // Filter + lead before anything reads a position, so the arbiter, the
-  // dwell timers and the fur all see the same settled pointer rather than
-  // each reacting to raw jitter in its own way.
-  const pointers = window.GazeAssist
-    ? GazeAssist.process(Tracking.update(), dt)
-    : Tracking.update();
+  // Already filtered and lead-corrected inside Tracking.update(), so every
+  // consumer sees the same settled pointer. Filtering again here would stack
+  // two adaptive filters and reintroduce the lag the tuning removed.
+  const pointers = Tracking.update();
 
   // Hole radius has to match the body's actual visible size (this.radius —
   // what blobShapePoints uses to draw it), not the smaller eyeRadius(). It

@@ -22,6 +22,7 @@
     externalPointers: null,
     simSecondEnabled: false,
     simSecondPos: { x: 0, y: 0 },
+    lastUpdateAt: 0,
   };
 
   function clamp(v, lo, hi) {
@@ -45,9 +46,30 @@
     },
 
     // Call once per frame from draw().
+    //
+    // Filtering happens HERE rather than in each game, because Tracking is
+    // the single place every consumer gets pointers from. OCULUS RUN reads
+    // them through GazeActions to decide an up/neutral/down zone, and raw
+    // jitter across a zone boundary makes the character flap between jumping
+    // and ducking — the same noise problem as Medusa, in a game that never
+    // touches a pointer position directly.
+    //
+    // Some games call update() more than once per frame (platformer.js does,
+    // from two different hooks). Re-running an adaptive filter on the same
+    // instant would advance its clock with dt~0 and corrupt the velocity
+    // estimate, so a repeat call within the same frame returns the previous
+    // result untouched.
     update() {
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const dt = state.lastUpdateAt ? (now - state.lastUpdateAt) / 1000 : 1 / 60;
+      if (dt < 0.002 && state.pointers.length) return state.pointers;
+      state.lastUpdateAt = now;
+
+      const assist = (pts) =>
+        window.GazeAssist ? window.GazeAssist.process(pts, dt) : pts;
+
       if (state.mode === "external" && state.externalPointers) {
-        state.pointers = state.externalPointers;
+        state.pointers = assist(state.externalPointers);
         return state.pointers;
       }
 
@@ -73,7 +95,7 @@
         pts.push({ id: "sim2", x: state.simSecondPos.x, y: state.simSecondPos.y });
       }
 
-      state.pointers = pts;
+      state.pointers = assist(pts);
       return state.pointers;
     },
 

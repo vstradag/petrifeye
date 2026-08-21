@@ -701,6 +701,32 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
 
 # --------------------------------------------------------------------------
 # Web server (static app + gaze socket, one origin)
+
+
+@web.middleware
+async def no_cache(request, handler):
+    """Never let a browser hold on to a copy of the app.
+
+    add_static() sends no Cache-Control at all, only Etag/Last-Modified, so
+    Chrome is free to reuse a heuristically-cached copy WITHOUT revalidating.
+    Only "/" was marked no-store, which meant the launcher was always fresh
+    while every game page and every script under it could be minutes or hours
+    stale — an edit lands on disk, the server serves it correctly, and the
+    browser still shows the old one. Hard to spot because the served bytes
+    are provably right.
+
+    It matters beyond development too: an installation machine should run
+    whatever is on disk after a restart, not whatever it cached last week.
+    """
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        exc.headers["Cache-Control"] = "no-store"
+        raise
+    # WebSocket responses have no mutable headers by this point.
+    if not isinstance(response, web.WebSocketResponse):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
 # --------------------------------------------------------------------------
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20)
@@ -781,7 +807,7 @@ async def layout_handler(_req):
 
 
 def build_app():
-    app = web.Application()
+    app = web.Application(middlewares=[no_cache])
     app.router.add_get("/gaze", ws_handler)
     app.router.add_get("/markers/layout.json", layout_handler)
     app.router.add_get("/markers/{mid}.png", markers_handler)
