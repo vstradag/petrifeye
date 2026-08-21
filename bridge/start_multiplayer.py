@@ -30,6 +30,26 @@ PYTHON = os.path.join(HERE, ".venv", "bin", "python")
 BRIDGE = os.path.join(HERE, "neon_bridge.py")
 
 
+def classify(net):
+    """Say whether a network can plausibly carry device-to-device traffic.
+
+    Returns (verdict, reason). "no" means do not bother scanning: the
+    failure will not look like a network problem, it will look like the
+    phones being absent, which is the confusion this exists to prevent.
+    """
+    cgnat = ipaddress.ip_network("100.64.0.0/10")
+    if net.subnet_of(cgnat):
+        return ("no", "carrier-grade NAT (100.64.0.0/10) — a shared provider "
+                      "network, clients cannot reach each other")
+    if net.num_addresses > 4096:
+        return ("no", f"{net.num_addresses:,} addresses — an institutional "
+                      "network; these isolate clients from each other")
+    if net.num_addresses > 1024:
+        return ("maybe", f"{net.num_addresses:,} addresses — large enough that "
+                         "client isolation is likely")
+    return ("yes", "")
+
+
 def local_networks():
     """Every private IPv4 network this machine is actually on.
 
@@ -64,9 +84,11 @@ def local_networks():
             net = ipaddress.ip_network(f"{addr}/{bits}", strict=False)
         except (ValueError, IndexError):
             continue
-        if not net.is_private or net.num_addresses > 1024:
-            # Huge subnets are campus-style networks, which isolate clients
-            # and cannot work anyway; not worth a multi-thousand-host sweep.
+        # CGNAT (100.64/10) is NOT in ipaddress's is_private set, so it has to
+        # be admitted here and judged by classify() — otherwise the interface
+        # the machine is actually on gets silently skipped and the report says
+        # "no network" rather than "this network cannot work".
+        if not (net.is_private or net.subnet_of(ipaddress.ip_network("100.64.0.0/10"))):
             continue
         nets.append((addr, net))
     return nets
@@ -128,9 +150,30 @@ async def discover():
 
     mine = {addr for addr, _ in nets}
     hosts = []
+    usable = 0
     for addr, net in nets:
+        verdict, reason = classify(net)
+        if verdict == "no":
+            print(f"SKIPPING {net} ({addr}) — {reason}")
+            continue
+        if verdict == "maybe":
+            print(f"warning: {net} — {reason}")
+        usable += 1
         print(f"scanning {net} (this machine is {addr} there)…")
         hosts += [str(h) for h in net.hosts() if str(h) not in mine]
+
+    if not usable:
+        print("\nEvery network this machine is on is a managed/provider network.\n"
+              "Being on the same Wi-Fi name is not enough — these deliberately\n"
+              "stop devices reaching each other, so no amount of retrying will\n"
+              "help. Turn on the Companion phone's hotspot and join it from\n"
+              "this Mac (it shares mobile data, so you keep internet), or use a\n"
+              "dedicated router — which needs no internet connection at all.",
+              file=sys.stderr)
+        # None, not [] — the caller's generic "check you're on the same
+        # network" advice is wrong here and would only muddy a diagnosis
+        # that is already certain.
+        return None
 
     open_hosts = [h for h in await asyncio.gather(*(_port_open(h) for h in hosts)) if h]
     if not open_hosts:
@@ -159,6 +202,8 @@ def main():
     else:
         devices = asyncio.run(discover())
 
+    if devices is None:
+        return 1        # discover() already explained exactly what is wrong
     if not devices:
         print("\nNo Neon Companion found on this network.\n"
               "  · The Mac and the phones must be on the SAME network.\n"
