@@ -45,6 +45,10 @@ const Show = (window.PetrifEyeShow = Object.assign(
     pointerMarker: true,   // the ring marking where each pointer is looking
     markerDiameter: 44,    // px. Big enough to find at a glance across a room.
     markerColor: [57, 255, 20], // neon green — reads on both fur and stone
+    // The fur field is the body of the piece; without it the blobs float on
+    // flat black and it reads as an empty screen rather than a work. Off by
+    // default only because it was originally a debug toggle.
+    fur: false,
   },
   window.PetrifEyeShow || {}
 ));
@@ -61,7 +65,7 @@ const STONE_PATHS = [
 let stoneImages = [];
 let blobs = [];
 let fur;
-let furEnabled = false;
+let furEnabled = Show.fur;
 let attention;
 // pointerId -> blobId for this frame. Each Blob's dwell hitTest reads this
 // rather than doing its own distance check, so exactly one blob can be
@@ -622,6 +626,11 @@ function initTuningPanel() {
   // controls, everything else runs.
   if (!minSlider || !maxSlider || !dwellSlider || !assistSlider || !furToggle) return;
 
+  // Reflect the real state before wiring the handler. The checkbox was never
+  // initialised from furEnabled, so the panel could sit unticked while the
+  // fur was drawing (or the reverse) — and then the first click "toggled" it
+  // to the value it already had, appearing to do nothing.
+  furToggle.checked = furEnabled;
   furToggle.addEventListener("change", () => setFurEnabled(furToggle.checked));
 
   function remapRadii(oldMin, oldMax, newMin, newMax) {

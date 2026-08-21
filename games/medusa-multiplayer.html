@@ -147,6 +147,10 @@ window.PetrifEyeShow = {
   pointerMarker: true,
   markerDiameter: 44,
   markerColor: [57, 255, 20],
+  // On for a showing. Nine small blobs on flat black look like an empty
+  // screen; the fur is what makes it read as the piece. Measured at 6.4ms
+  // a frame fullscreen, so it costs nothing worth saving.
+  fur: true,
 };
 
 // Add a player by adding a row: each needs its own bridge on its own port.
