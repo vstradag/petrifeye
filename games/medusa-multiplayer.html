@@ -84,19 +84,50 @@
   .mp-btn:hover { background:rgba(255,59,59,.14); color:#fff; }
   .mp-btn.ghost { border-color:#2a2c33; color:#9a9895; margin-left:10px; }
   .mp-btn.ghost:hover { border-color:#666; background:transparent; }
+
+  /* Per-player input choice on the boot card. */
+  .mp-srcs { display:flex; flex-direction:column; gap:9px; margin:0 0 20px; }
+  .mp-src { display:flex; align-items:center; gap:12px; justify-content:center;
+            font-size:12px; }
+  .mp-src select { font-family:var(--gaze-mono); font-size:11px;
+                   background:#0b0d12; color:#c9c7c4; border:1px solid #2a2c33;
+                   padding:5px 8px; }
+  .mp-src .who { min-width:26px; font-weight:600; letter-spacing:.1em; }
+  .mp-src .st { font-size:10.5px; color:#6f6d6a; min-width:210px; text-align:left; }
+  .mp-src .st.live { color:#5fd39a; }
+  .mp-src .st.warn { color:#d8a657; }
+  .mp-src .st.err  { color:#c26060; }
+
+  /* Calibration overlay for the webcam player. */
+  .mp-cal { position:fixed; inset:0; z-index:1300; background:#000; display:none; }
+  .mp-cal.on { display:block; }
+  .mp-cal-msg { position:fixed; left:50%; bottom:46px; transform:translateX(-50%);
+                font-family:var(--gaze-mono); font-size:12px; letter-spacing:.3em;
+                text-transform:uppercase; color:#ffd9d9; text-align:center; }
+  .mp-cal-dot { position:fixed; width:46px; height:46px; margin:-23px 0 0 -23px;
+                border-radius:50%; border:2px solid var(--gaze-red);
+                background:rgba(255,59,59,.16); cursor:pointer; }
+  .mp-cal-dot span { position:absolute; inset:0; display:flex; align-items:center;
+                     justify-content:center; font-family:var(--gaze-mono);
+                     font-size:13px; color:#ffd9d9; }
 </style>
 </head>
 <body>
 
 <div class="mp-boot" id="mpBoot">
-  <div class="mp-boot-inner">
+  <div class="mp-boot-inner" id="mpBootInner">
     <h1>MEDUSA <span>MULTIPLAYER</span></h1>
     <p class="sub">one bridge per pair of glasses</p>
+    <div class="mp-srcs" id="mpSrcs"></div>
     <pre id="mpBootCmd"></pre>
     <p class="note" id="mpBootState">checking bridges…</p>
     <button class="mp-btn" id="mpStart" disabled>waiting for bridges</button>
     <button class="mp-btn ghost" id="mpSim">test with mouse + arrows</button>
   </div>
+</div>
+
+<div class="mp-cal" id="mpCal">
+  <p class="mp-cal-msg" id="mpCalMsg"></p>
 </div>
 
 <div class="mp-panel" id="mpPanel" style="display:none"></div>
@@ -146,12 +177,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
 <script src="../shared/tracking.js"></script>
 <script src="../shared/dwell.js"></script>
 <script src="../shared/attention.js"></script>
 <script src="../shared/gaze/gaze-assist.js"></script>
 <script src="../shared/fur-field.js"></script>
 <script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
 <script src="../shared/gaze/gaze-aggregator.js"></script>
 <script src="../shared/controls-hint.js"></script>
 
@@ -194,11 +227,97 @@ const SIM_POINTER_IDS = ["mouse", "sim2"];
 
 // ---------------------------------------------------------------- boot card
 function renderBootCmd() {
-  const lines = PLAYERS.map(
-    (p) => `<b>#</b> ${p.label}\nbridge/.venv/bin/python bridge/neon_bridge.py --port ${p.port} --address &lt;phone-${p.id + 1}-ip&gt;`
+  const neon = GazeAggregator.players().filter((p) => p.source === "neon");
+  const box = document.getElementById("mpBootCmd");
+  if (!neon.length) { box.style.display = "none"; return; }
+  box.style.display = "";
+  const lines = neon.map(
+    (p) => `<b>#</b> ${p.label}\nbridge/.venv/bin/python bridge/neon_bridge.py --port ${p.port} --address &lt;phone-ip&gt;`
   ).join("\n\n");
   document.getElementById("mpBootCmd").innerHTML =
     `<b># from the code/ folder, one per player, each in its own terminal</b>\n\n${lines}`;
+}
+
+// ------------------------------------------------- per-player input choice
+// WebGazer is one camera watching one face, so it yields exactly ONE pointer
+// no matter how many people are in front of it. At most one player can be on
+// webcam; the rest need their own glasses and their own bridge.
+function renderSources(list) {
+  const webcamTaken = list.some((p) => p.source === "webcam");
+  document.getElementById("mpSrcs").innerHTML = list.map((p) => {
+    const camOpt = (p.source === "webcam" || !webcamTaken)
+      ? `<option value="webcam"${p.source === "webcam" ? " selected" : ""}>webcam (WebGazer)</option>`
+      : `<option value="webcam" disabled>webcam — taken by another player</option>`;
+    const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
+    const st = p.live ? "ready"
+      : p.source === "webcam" ? (p.detail || p.state)
+      : p.streaming && p.markers != null ? `${p.markers}/4 markers`
+      : (p.detail || p.state);
+    return `<div class="mp-src">
+      <span class="who" style="color:${p.color}">${p.label}</span>
+      <select data-player="${p.id}">
+        <option value="neon"${p.source === "neon" ? " selected" : ""}>neon glasses · port ${p.port}</option>
+        ${camOpt}
+      </select>
+      <span class="st ${cls}">${st}</span>
+    </div>`;
+  }).join("");
+
+  document.getElementById("mpSrcs").querySelectorAll("select").forEach((sel) => {
+    sel.onchange = (e) => {
+      GazeAggregator.setSource(Number(e.target.dataset.player), e.target.value);
+      calibratedWebcam = false;   // a new camera player must calibrate again
+    };
+  });
+}
+
+// ------------------------------------------------------ webcam calibration
+// WebGazer's ridge regression is untrained until it has seen clicks paired
+// with gaze, so without this the webcam player's pointer is meaningless.
+// Single player gets this from gaze-controller, which owns its whole page;
+// this is the compact equivalent for a page that does not hand over control.
+let calibratedWebcam = false;
+const CAL_COLS = 3, CAL_ROWS = 3, CAL_CLICKS = 4;
+
+function runWebcamCalibration() {
+  return new Promise((resolve) => {
+    const layer = document.getElementById("mpCal");
+    const msg = document.getElementById("mpCalMsg");
+    layer.classList.add("on");
+    const pts = [];
+    for (let r = 0; r < CAL_ROWS; r++)
+      for (let c = 0; c < CAL_COLS; c++)
+        pts.push({ fx: (c + 0.5) / CAL_COLS, fy: (r + 0.5) / CAL_ROWS });
+
+    let i = 0;
+    const showPoint = () => {
+      layer.querySelectorAll(".mp-cal-dot").forEach((d) => d.remove());
+      if (i >= pts.length) {
+        layer.classList.remove("on");
+        calibratedWebcam = true;
+        resolve();
+        return;
+      }
+      let clicks = 0;
+      const dot = document.createElement("button");
+      dot.className = "mp-cal-dot";
+      dot.style.left = `${pts[i].fx * 100}%`;
+      dot.style.top = `${pts[i].fy * 100}%`;
+      dot.innerHTML = `<span>${CAL_CLICKS}</span>`;
+      dot.onclick = (ev) => {
+        // Feed WebGazer the SCREEN position actually clicked, paired with
+        // whatever its model currently predicts — that pairing is the
+        // training signal.
+        GazeAggregator.recordCalibrationClick(ev.clientX, ev.clientY);
+        clicks += 1;
+        dot.querySelector("span").textContent = String(CAL_CLICKS - clicks);
+        if (clicks >= CAL_CLICKS) { i += 1; showPoint(); }
+      };
+      layer.appendChild(dot);
+      msg.textContent = `look at the dot and click it — point ${i + 1} of ${pts.length}`;
+    };
+    showPoint();
+  });
 }
 
 function renderBootState(list) {
@@ -302,7 +421,8 @@ window.addEventListener("keydown", (e) => {
 let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
 window.addEventListener("gaze-players", (e) => {
   lastList = e.detail;
-  if (started) renderPanel(lastList); else renderBootState(lastList);
+  if (started) { renderPanel(lastList); }
+  else { renderSources(lastList); renderBootState(lastList); renderBootCmd(); }
 });
 
 // Score attribution: sketch.js forwards the winning pointer to petrify(),
@@ -371,7 +491,17 @@ function start(sim) {
   }
 }
 
-document.getElementById("mpStart").onclick = () => start(false);
+document.getElementById("mpStart").onclick = async () => {
+  const cam = GazeAggregator.webcamPlayer();
+  if (cam && !calibratedWebcam) {
+    // Hide the card first: the dots must be clicked against the empty stage,
+    // not on top of the setup text.
+    document.getElementById("mpBootInner").style.visibility = "hidden";
+    await runWebcamCalibration();
+    document.getElementById("mpBootInner").style.visibility = "";
+  }
+  start(false);
+};
 document.getElementById("mpSim").onclick = () => start(true);
 
 renderBootCmd();

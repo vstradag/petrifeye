@@ -29,6 +29,7 @@
       const c = conn[p.id] || {};
       return {
         ...p,
+        source: p.source,
         state: c.state || "connecting",
         detail: c.detail || "",
         // The bridge has gaze from the phone. This is what "ready to play"
@@ -106,7 +107,44 @@
     Tracking.setExternalPointers(pointers);
   }
 
+  // A webcam player. WebGazer produces exactly ONE pointer per browser — one
+  // camera, one face — so at most one player can use it, and it cannot be a
+  // second "bridge". It joins here instead, writing into the same conn slot
+  // a socket would, so publish() stays the single place pointers are handed
+  // to Tracking. Two publishers would silently overwrite each other.
+  //
+  // webgazer-source delivers samples by callback and does NOT touch Tracking
+  // itself (gaze-controller does that in single player), which is what makes
+  // this possible without the two fighting.
+  async function connectWebcam(p) {
+    const src = (window.GazeSources || {}).webgazer;
+    if (!src) {
+      conn[p.id] = { state: "offline", detail: "webgazer.js not loaded" };
+      emit();
+      return;
+    }
+    conn[p.id] = { state: "connecting", detail: "starting camera…" };
+    emit();
+    try {
+      await src.start((sample) => {
+        const c = conn[p.id];
+        if (!c || !sample) return;
+        c.x = sample.x;
+        c.y = sample.y;
+        c.at = performance.now();
+        if (c.state !== "streaming") { c.state = "streaming"; c.detail = ""; emit(); }
+        publish();
+      });
+      conn[p.id].state = "streaming";
+      conn[p.id].detail = "";
+    } catch (err) {
+      conn[p.id] = { state: "offline", detail: (err && err.message) || "camera failed" };
+    }
+    emit();
+  }
+
   function connect(p) {
+    if (p.source === "webcam") return connectWebcam(p);
     const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.hostname}:${p.port}/gaze`;
     let ws;
     try {
@@ -169,6 +207,7 @@
   window.GazeAggregator = {
     init(config) {
       players = config.players.map((p, i) => ({
+        source: "neon",     // "neon" (own bridge) | "webcam" (shared WebGazer)
         ...p,
         // Stable, distinct pointer id — this is what DwellTarget keys on and
         // what onComplete(ptr) reports back, so it IS the score attribution.
@@ -184,6 +223,31 @@
 
     players: () => snapshot(),
     pointerIdFor: (id) => `player-${id}`,
+
+    // Change one player's input and reconnect just that player. Used by the
+    // boot card so a webcam/Neon choice does not require a page reload.
+    setSource(playerId, source) {
+      const p = players.find((x) => x.id === playerId);
+      if (!p || p.source === source) return;
+      const old = conn[p.id];
+      if (old && old.ws) { old.ws.onclose = null; old.ws.close(); }
+      if (p.source === "webcam") {
+        const src = (window.GazeSources || {}).webgazer;
+        if (src && src.stop) { try { src.stop(); } catch (_) {} }
+      }
+      p.source = source;
+      delete conn[p.id];
+      connect(p);
+      emit();
+    },
+
+    // The webcam player, if any. Its calibration is the caller's business —
+    // WebGazer's ridge regression is untrained until someone clicks targets.
+    webcamPlayer: () => players.find((p) => p.source === "webcam") || null,
+    recordCalibrationClick(x, y) {
+      const src = (window.GazeSources || {}).webgazer;
+      if (src && src.recordCalibrationClick) src.recordCalibrationClick(x, y);
+    },
 
     // Hand the pointer channel to a mouse/keyboard stand-in (or take it
     // back). Sockets stay connected either way, so the panel keeps showing
