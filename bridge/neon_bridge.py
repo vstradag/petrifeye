@@ -524,6 +524,27 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     if gaze_url != gaze_sensor.url:
         log.info("gaze stream (audio stripped): %s", gaze_url)
 
+    # Last good surface solve, shared by both pumps.
+    #
+    # This is what lets gaze be mapped WITHOUT waiting for a scene frame.
+    # Gaze used to be emitted from pump_scene, so its rate was the scene
+    # camera's ~30fps and every sample queued behind H.264 decode plus
+    # AprilTag detection on a 1600x1200 frame — tens of milliseconds of
+    # latency on a signal that arrives at 200Hz, and growing whenever
+    # detection ran slower than the frame interval.
+    #
+    # The two signals change at completely different speeds: the surface only
+    # moves when the head does, gaze moves constantly. So the scene pump now
+    # only maintains this homography, and the gaze pump maps through whatever
+    # is currently cached.
+    held = {"locations": None, "at": 0.0}
+    hold_seconds = SURFACE_HOLD_MS / 1000.0
+
+    # Emitting all 200Hz would flood the socket for no visible benefit — the
+    # page renders at 60. This is still ~4x the old scene-locked rate.
+    last_gaze_sent = 0.0
+    GAZE_HZ = 120.0
+
     # Pupil diameter rides on the gaze stream (the datum is an
     # EyestateGazeData variant) whenever "Compute eye state" is enabled on the
     # phone. Forwarded separately from mapped gaze because the flower game
@@ -568,23 +589,46 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             else:
                 hub.latest_gaze = datum
 
+                # Map and emit HERE, at the gaze stream's own rate, using the
+                # most recent surface solve — rather than waiting for the next
+                # scene frame to be decoded and searched for markers.
+                now_g = time.monotonic()
+                if now_g - last_gaze_sent < 1.0 / GAZE_HZ:
+                    continue
+                surface, screen_vw, screen_vh = current_surface()
+                if surface is None or not held["locations"]:
+                    continue
+                if now_g - held["at"] > hold_seconds:
+                    continue  # solve too stale to trust
+
+                mapper._surface_locations = dict(held["locations"])
+                result = mapper.process_gaze(datum)
+                if result is None:
+                    continue
+                for surf_gaze in result.mapped_gaze.get(surface.uid, []):
+                    # MarkerMappedGaze.x/y are normalised 0..1 across the
+                    # surface, origin BOTTOM-left; the page's is top-left.
+                    last_gaze_sent = now_g
+                    await hub.send({
+                        "type": "gaze",
+                        "x": float(surf_gaze.x) * screen_vw,
+                        "y": (1.0 - float(surf_gaze.y)) * screen_vh,
+                        "worn": bool(getattr(datum, "worn", True)),
+                    })
+
     async def pump_scene():
         if mapper is None:
             return
-        # Last successful surface solve, reused while the markers are not
-        # visible (see SURFACE HOLD below).
-        held = {"locations": None, "at": 0.0}
-        hold_seconds = SURFACE_HOLD_MS / 1000.0
         async for frame in receive_video_frames(scene_url, run_loop=True):
-            datum = getattr(hub, "latest_gaze", None)
-            if datum is None:
-                continue
-            surface, screen_vw, screen_vh = current_surface()
-            if surface is None:
+            # No gaze datum or surface needed here any more: this pump's only
+            # job is to keep `held` current. Waiting on a gaze sample before
+            # locating the surface would also have meant the very first solve
+            # could not happen until gaze was already flowing.
+            if current_surface()[0] is None:
                 continue
 
             # Split rather than process_frame(): scene and gaze are processed
-            # separately so a cached surface can be re-injected between them.
+            # separately so the cached surface can be re-injected between them.
             #
             # Pass the VideoFrame OBJECT, not a pixel array — process_scene
             # unwraps it itself (`frame.bgr_pixels`, else `frame.bgr_buffer()`).
@@ -612,24 +656,9 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             if any(v is not None for v in locations.values()):
                 held["locations"] = dict(locations)
                 held["at"] = now
-            elif held["locations"] and (now - held["at"]) <= hold_seconds:
-                mapper._surface_locations = dict(held["locations"])
-            else:
-                continue  # nothing fresh and nothing recent enough to trust
-
-            result = mapper.process_gaze(datum)
-            if result is None:
-                continue
-
-            for surf_gaze in result.mapped_gaze.get(surface.uid, []):
-                # MarkerMappedGaze.x/y are normalised 0..1 across the surface,
-                # origin BOTTOM-left; the page's origin is top-left.
-                await hub.send({
-                    "type": "gaze",
-                    "x": float(surf_gaze.x) * screen_vw,
-                    "y": (1.0 - float(surf_gaze.y)) * screen_vh,
-                    "worn": bool(getattr(datum, "worn", True)),
-                })
+            # Nothing else to do: this pump's only job is keeping `held`
+            # current. The gaze pump does the mapping and the emitting, at
+            # its own much higher rate.
 
     async def pump_blinks():
         if not blinks_on:
