@@ -11,24 +11,50 @@
   /* Scoreboard + connection state. One row per player, always visible:
      during a showing it is the score, and while setting up it is the only
      honest indicator of whether each bridge is actually feeding gaze. */
+  /* Scoreboard, top CENTRE — the neutral spot between two competing players,
+     and it reads as part of the piece rather than a debug overlay. */
   .mp-panel {
-    position: fixed; top: 14px; left: 14px; z-index: 950;
-    font-family: var(--gaze-mono); background: rgba(8,9,14,.86);
-    border: 1px solid #23252c; padding: 13px 15px; min-width: 268px;
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 950; display: flex; gap: 26px; align-items: center;
+    font-family: var(--gaze-mono); background: rgba(8,9,14,.72);
+    border: 1px solid #23252c; padding: 10px 22px;
   }
-  .mp-h { font-size:9px; letter-spacing:.3em; text-transform:uppercase;
-          color:#6a6a6a; margin-bottom:11px; }
-  .mp-row { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
-  .mp-row:last-child { margin-bottom:0; }
+  .mp-row { display:flex; align-items:center; gap:9px; }
   .mp-dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
-  .mp-name { font-size:12px; color:#e8e6e2; min-width:26px; }
-  .mp-state { font-size:10px; color:#6f6d6a; flex:1; }
+  .mp-name { font-size:12px; letter-spacing:.12em; }
+  .mp-state { font-size:10px; color:#6f6d6a; }
   .mp-state.live { color:#5fd39a; }
   .mp-state.warn { color:#d8a657; }
   .mp-state.err  { color:#c26060; }
-  .mp-score { font-size:19px; color:#e8e6e2; font-variant-numeric:tabular-nums;
-              min-width:26px; text-align:right; }
-  .mp-lead { color:#fff; text-shadow:0 0 12px rgba(255,255,255,.45); }
+  .mp-score { font-size:24px; color:#e8e6e2; font-variant-numeric:tabular-nums;
+              min-width:24px; text-align:right; font-weight:200; }
+  .mp-lead { color:#fff; text-shadow:0 0 14px rgba(255,255,255,.5); }
+  /* Connection state is setup information, not part of the show. It only
+     appears if a player actually drops mid-game, where it explains a dead
+     pointer instead of leaving it a mystery. */
+  .mp-row .mp-state:empty { display:none; }
+
+  /* ------------------------------------------------ settings, top-right
+     Deliberately faint: reachable if someone needs it, invisible enough
+     that nobody looks at it instead of the piece. */
+  .mp-gear {
+    position: fixed; top: 12px; right: 12px; z-index: 960;
+    width: 30px; height: 30px; padding: 0;
+    background: transparent; border: 1px solid #23252c; border-radius: 50%;
+    color: #4a4c52; font-size: 14px; line-height: 1; cursor: pointer;
+    opacity: .28; transition: opacity .2s, color .2s, border-color .2s;
+  }
+  .mp-gear:hover { opacity: 1; color: #c98f8f; border-color: #4a3030; }
+
+  /* The tuning panel is repositioned under the gear rather than left at its
+     single-player spot, so opening it does not cover the scoreboard. */
+  .tuning-panel { top: 52px !important; left: auto !important; right: 12px !important; }
+
+  .mp-toggle-row {
+    display:flex; align-items:center; gap:8px;
+    margin-top:10px; padding-top:10px; border-top:1px solid #2a2c33;
+    font-size:11px; color:#9a9895; cursor:pointer;
+  }
 
   /* Full-screen setup card, shown until every bridge is streaming. Without
      it a missing bridge just looks like a black screen. */
@@ -71,11 +97,12 @@
 </div>
 
 <div class="mp-panel" id="mpPanel" style="display:none"></div>
+<button class="mp-gear" id="mpGear" title="settings (s)" style="display:none">&#9881;</button>
 
-<!-- Same tuning panel as single player (press s). Assist radius matters more
-     here, not less: two pointers competing over the same blobs is exactly
-     when capture radius and dwell need tuning. -->
-<div class="tuning-panel" id="tuning-panel">
+<!-- Same tuning panel as single player. Hidden by default here: during a
+     showing these are backstage controls, not part of the work. Opened from
+     the gear, or with s. -->
+<div class="tuning-panel tuning-panel-hidden" id="tuning-panel">
   <label>
     <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
     <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
@@ -96,6 +123,10 @@
     <input type="checkbox" id="toggle-fur" />
     <span>fur background (f)</span>
   </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-target" checked />
+    <span>show gaze target (g)</span>
+  </label>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
@@ -108,6 +139,16 @@
 <script src="../shared/controls-hint.js"></script>
 
 <script>
+// Presentation. Read by sketch.js when it loads (below), so it must be set
+// here, before that script tag. Diagnostics off: during a showing the
+// bottom-left readout and the pointer id labels are backstage information.
+window.PetrifEyeShow = {
+  hud: false,
+  pointerMarker: true,
+  markerDiameter: 44,
+  markerColor: [57, 255, 20],
+};
+
 // Add a player by adding a row: each needs its own bridge on its own port.
 const PLAYERS = [
   { id: 0, label: "P1", port: 8443, color: "#ff5f5f" },
@@ -176,17 +217,17 @@ function renderBootState(list) {
 function renderPanel(list) {
   const best = Math.max(...Object.values(scores));
   document.getElementById("mpPanel").innerHTML =
-    `<div class="mp-h">score</div>` +
     list.map((p) => {
-      const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
-      // Mid-game, "not live" almost always means that player has looked away
-      // far enough to lose the markers — so say the marker count rather than
-      // a generic status, which is the difference between "I'm broken" and
-      // "turn back towards the screen".
-      const txt = simMode ? "simulated"
-        : p.live ? "live"
+      const cls = p.state === "offline" ? "err" : "warn";
+      // Say NOTHING while a player is playing normally — a permanent "live"
+      // label is just clutter on the work. Speak up only when something is
+      // wrong, and then say the marker count rather than a generic status:
+      // that is the difference between "I'm broken" and "turn back towards
+      // the screen".
+      const txt = (simMode || p.live) ? ""
         : p.streaming && p.markers != null ? `${p.markers}/4 markers`
-        : (p.detail || p.state);
+        : p.streaming ? "look at the screen"
+        : "disconnected";
       const lead = scores[p.id] === best && best > 0 ? " mp-lead" : "";
       return `<div class="mp-row">
         <div class="mp-dot" style="background:${p.color}"></div>
@@ -196,6 +237,28 @@ function renderPanel(list) {
       </div>`;
     }).join("");
 }
+
+// ------------------------------------------------------------- chrome
+function setTuningVisible(on) {
+  const panel = document.getElementById("tuning-panel");
+  if (panel) panel.classList.toggle("tuning-panel-hidden", !on);
+}
+
+function setTargetVisible(on) {
+  window.PetrifEyeShow.pointerMarker = !!on;
+  const box = document.getElementById("toggle-target");
+  if (box) box.checked = !!on;
+}
+
+document.getElementById("mpGear").onclick = () => {
+  const panel = document.getElementById("tuning-panel");
+  setTuningVisible(panel.classList.contains("tuning-panel-hidden"));
+};
+document.getElementById("toggle-target").onchange = (e) => setTargetVisible(e.target.checked);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "g" || e.key === "G") setTargetVisible(!window.PetrifEyeShow.pointerMarker);
+});
 
 let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
 window.addEventListener("gaze-players", (e) => {
@@ -234,6 +297,7 @@ function start(sim) {
   goFullscreen();
   document.getElementById("mpBoot").classList.add("hidden");
   document.getElementById("mpPanel").style.display = "";
+  document.getElementById("mpGear").style.display = "";
   renderPanel(lastList);
 
   if (sim) {
@@ -254,13 +318,15 @@ function start(sim) {
   // Markers are already showing from load in the live path; the scene
   // cameras must keep seeing them for the whole session, so nothing to do.
 
-  if (window.ControlsHint) {
+  // The control legend is shown only when testing with mouse and keyboard,
+  // where the bindings are not discoverable. With glasses on there is
+  // nothing to learn — you look at a blob — so it would be pure clutter over
+  // the work. It is still reachable with h.
+  if (sim && window.ControlsHint) {
     ControlsHint.show(
-      sim
-        ? [{ keys: "mouse", does: "P1" }, { keys: "arrows", does: "P2" },
-           { keys: "r", does: "reset blobs" }]
-        : [{ keys: "look", does: "petrify a blob for your colour" },
-           { keys: "r", does: "reset blobs" }],
+      [{ keys: "mouse", does: "P1" }, { keys: "arrows", does: "P2" },
+       { keys: "g", does: "gaze target on/off" },
+       { keys: "r", does: "reset blobs" }],
       "medusa multiplayer"
     );
   }

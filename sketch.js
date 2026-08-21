@@ -35,6 +35,19 @@ let GAZE_ASSIST_RADIUS = 170;
 const MOUSE_ASSIST_RADIUS = 0; // a mouse is genuinely pixel-accurate — no assist
 const UNFREEZE_SECONDS = 10;
 const NUM_BLOBS = 9;
+
+// Presentation chrome, separate from the piece itself. A page sets
+// window.PetrifEyeShow BEFORE this script loads to run clean for an
+// audience; the defaults here keep the developer view unchanged.
+const Show = (window.PetrifEyeShow = Object.assign(
+  {
+    hud: true,             // bottom-left diagnostics + pointer id labels
+    pointerMarker: true,   // the ring marking where each pointer is looking
+    markerDiameter: 44,    // px. Big enough to find at a glance across a room.
+    markerColor: [57, 255, 20], // neon green — reads on both fur and stone
+  },
+  window.PetrifEyeShow || {}
+));
 const STONE_PATHS = [
   "/textures/stone_1.jpeg",
   "/textures/stone_2.jpeg",
@@ -220,21 +233,28 @@ function resolveCollisions(blobs) {
 }
 
 function drawPointerMarkers(pointers) {
+  if (!Show.pointerMarker) return;
+  const d = Show.markerDiameter;
+  const arm = d * 0.64;               // crosshair arms, proportional to the ring
+  const [r, g, b] = Show.markerColor;
   push();
   strokeWeight(2.5);
   for (const p of pointers) {
     if (p.id === "mouse") continue; // the OS cursor already marks this one
     noFill();
-    stroke(90, 200, 255);
-    circle(p.x, p.y, 22);
-    line(p.x - 14, p.y, p.x + 14, p.y);
-    line(p.x, p.y - 14, p.x, p.y + 14);
+    stroke(r, g, b);
+    circle(p.x, p.y, d);
+    line(p.x - arm, p.y, p.x + arm, p.y);
+    line(p.x, p.y - arm, p.x, p.y + arm);
     noStroke();
-    fill(90, 200, 255);
-    circle(p.x, p.y, 6); // bright center dot — the crosshair alone reads faint at a glance
-    textSize(11);
-    textFont("monospace");
-    text(p.id, p.x + 14, p.y - 14);
+    fill(r, g, b);
+    circle(p.x, p.y, d * 0.14); // centre dot — the crosshair alone reads faint
+    // The id label is a diagnostic, not part of the piece.
+    if (Show.hud) {
+      textSize(11);
+      textFont("monospace");
+      text(p.id, p.x + arm, p.y - arm);
+    }
   }
   pop();
 }
@@ -561,6 +581,7 @@ class Blob {
 }
 
 function drawHUD(pointers) {
+  if (!Show.hud) return;
   push();
   fill(255, 180);
   noStroke();
