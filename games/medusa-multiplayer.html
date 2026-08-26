@@ -37,8 +37,21 @@
   /* ------------------------------------------------ settings, top-right
      Deliberately faint: reachable if someone needs it, invisible enough
      that nobody looks at it instead of the piece. */
+  /* BOTTOM CENTRE, not the top-right corner it used to sit in.
+     The four AprilTags are 300px squares inset 24px into each CORNER, on a
+     layer at z-index 1100 — so the old top-right gear was rendered
+     underneath an opaque white tag and simply could not be seen. (The tag
+     layer is pointer-events:none, so it was still clickable; it was
+     invisible, which amounts to the same thing.)
+     The horizontal centre is the one band that is marker-free at ANY
+     height, because tags only ever occupy ~324px in from the left and
+     right edges. Centring horizontally is what guarantees no overlap —
+     which matters in both directions: a gear ON a tag would occlude it and
+     break detection for that corner. */
   .mp-gear {
-    position: fixed; top: 12px; right: 12px; z-index: 960;
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    top: auto; right: auto;
+    z-index: 1150;              /* above the marker layer (1100) */
     width: 32px; height: 32px; padding: 0;
     background: rgba(8,9,14,.6); border: 1px solid #3a3c42; border-radius: 50%;
     color: #9a9895; font-size: 15px; line-height: 1; cursor: pointer;
@@ -49,9 +62,17 @@
   }
   .mp-gear:hover { opacity: 1; color: #ffb0b0; border-color: #7a3030; }
 
-  /* The tuning panel is repositioned under the gear rather than left at its
-     single-player spot, so opening it does not cover the scoreboard. */
-  .tuning-panel { top: 52px !important; left: auto !important; right: 12px !important; }
+  /* Opens straight up from the gear, and horizontally centred for the same
+     reason the gear is: centring is what keeps it clear of the corner tags
+     no matter how tall the panel grows or how small the window gets. */
+  .tuning-panel {
+    top: auto !important;
+    bottom: 56px !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%);
+    z-index: 1150 !important;
+  }
 
   .mp-toggle-row {
     display:flex; align-items:center; gap:8px;
