@@ -73,6 +73,21 @@
       img.width = SIZE;
       img.height = SIZE;
       Object.assign(img.style, corners[i]);
+
+      // Click any tag to get them out of the way. The parent layer is
+      // pointer-events:none so gameplay clicks pass through it; re-enabling
+      // it on the tag itself makes only the tag clickable, which is the
+      // point — the tags ARE the thing in the way, so they are the most
+      // obvious thing to click to dismiss.
+      //
+      // Dismissing them stops gaze mapping once the cached surface expires
+      // (SURFACE_HOLD_MS, 2.5s by default), so this is for looking at the
+      // piece uncovered, not for playing. The title says so.
+      img.style.pointerEvents = "auto";
+      img.style.cursor = "pointer";
+      img.title = "click to hide the tracking markers (gaze stops ~2.5s later)";
+      img.addEventListener("click", () => window.Markers.hide());
+
       layer.appendChild(img);
     });
     document.body.appendChild(layer);
@@ -108,14 +123,26 @@
     setVisible(true);
   }
 
+  // Announced so any UI showing a markers toggle stays in step, whether the
+  // change came from that UI or from clicking a tag directly.
+  function announce() {
+    window.dispatchEvent(new CustomEvent("markers-visibility", {
+      detail: { shown: wanted },
+    }));
+  }
+
   window.Markers = {
     show() {
       wanted = true;
       applyMode();
       // If the layout lands after this call the mode may change, so re-apply.
       layoutReady.then(() => { if (wanted) applyMode(); });
+      announce();
     },
-    hide() { wanted = false; stopFlashing(); setVisible(false); },
+    hide() { wanted = false; stopFlashing(); setVisible(false); announce(); },
+    // Whether the tags are WANTED, not whether a flash cycle happens to have
+    // them dark this instant — a checkbox must not blink at 1.8s intervals.
+    get shown() { return wanted; },
     get size() { return SIZE; },
     get margin() { return MARGIN; },
     get mode() { return MODE; },

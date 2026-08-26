@@ -186,6 +186,10 @@
     <input type="checkbox" id="toggle-assist" checked />
     <span>motion assist (a)</span>
   </label>
+  <label class="mp-toggle-row" title="Tags must be on screen for gaze to map. Hiding them stops tracking once the cached surface expires.">
+    <input type="checkbox" id="toggle-markers" checked />
+    <span>screen markers (m)</span>
+  </label>
   <label>
     <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
     <select id="select-profile">
@@ -425,6 +429,20 @@ function setAssist(on) {
 
 document.getElementById("toggle-assist").onchange = (e) => setAssist(e.target.checked);
 
+function setMarkers(on) {
+  if (!window.Markers) return;
+  on ? Markers.show() : Markers.hide();
+}
+
+document.getElementById("toggle-markers").onchange = (e) => setMarkers(e.target.checked);
+
+// Markers announce their own state, so clicking a tag to dismiss it leaves
+// this checkbox correct without the two having to know about each other.
+window.addEventListener("markers-visibility", (e) => {
+  const box = document.getElementById("toggle-markers");
+  if (box) box.checked = !!e.detail.shown;
+});
+
 // Preview how another input will feel while testing with a cursor. A mouse
 // is pixel-accurate, so it cannot show you whether the assist is strong
 // enough for gaze — this forces the gaze profiles onto it.
@@ -437,6 +455,7 @@ document.getElementById("select-profile").onchange = (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "g" || e.key === "G") setTargetVisible(!window.PetrifEyeShow.pointerMarker);
   if (e.key === "a" || e.key === "A") setAssist(!GazeAssist.isEnabled());
+  if (e.key === "m" || e.key === "M") setMarkers(!(window.Markers && Markers.shown));
 });
 
 let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
