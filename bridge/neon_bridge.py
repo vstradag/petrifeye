@@ -582,6 +582,20 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                             "mm": sum(vals) / len(vals),
                             "worn": bool(getattr(datum, "worn", True)),
                         })
+                    else:
+                        # BOTH eyes gone (closed, or fully occluded): the
+                        # tracker reports NaN/0 for each. Silence here is
+                        # wrong — the page cannot tell "eyes shut" from
+                        # "stream died" and just freezes on the last value.
+                        # Closed eyes are a SIGNAL (ANEMONE snaps the flower
+                        # shut on it), so say so explicitly, at the same
+                        # cadence real samples would arrive.
+                        await hub.send({
+                            "type": "pupil",
+                            "mm": None,
+                            "closed": True,
+                            "worn": bool(getattr(datum, "worn", True)),
+                        })
             # Unmapped fallback: treat scene-camera normalised position as a
             # direct screen fraction. Crude and only sane if the head stays
             # put, but it keeps the piece playable without markers.

@@ -42,8 +42,28 @@
   // range the recent samples no longer contain. It snaps outward instantly
   // and relaxes inward slowly.
   const RELAX_PER_SEC = 0.06;  // mm/s the envelope creeps back in
-  const MIN_SPAN = 0.9;        // mm, floor so noise can't fill the range
+  // Floor on the envelope span. This is the SENSITIVITY knob: dilation is
+  // "position within the span", so the floor sets how much a small change
+  // moves the flower. At 0.9mm a visitor whose pupils genuinely range only
+  // ~0.4mm under steady room light could never move the petals past the
+  // middle — half the expressive range was unreachable. 0.5mm keeps tiny
+  // real variations visible while still sitting well above measurement
+  // noise (~0.02-0.05mm on Neon) and hippus (~0.05mm), which the vitality
+  // signal's own STATIC_MM threshold continues to filter separately.
+  const MIN_SPAN = 0.5;        // mm
   let rangeLo = null, rangeHi = null;
+
+  // ---- eyes-closed handling -------------------------------------------
+  // When both lids are down the tracker reports no valid diameter at all —
+  // there is no "0mm" sample, just absence — so the bridge marks those
+  // ticks closed:true and this collapses the bloom quickly. The grace
+  // period is what separates a BLINK from closing your eyes: blinks last
+  // ~100-300ms and should pass invisibly (they already do for the range
+  // logic, which simply skips invalid samples), while a deliberate closure
+  // reads as intent and the flower should answer it near-instantly.
+  const CLOSED_GRACE_MS = 250;   // longer than a blink, shorter than intent
+  const CLOSE_EASE = 0.45;       // per closed tick at ~30Hz -> shut in ~150ms
+  let closedSince = 0;           // 0 = eyes open (or no signal either way)
 
   const history = [];        // {t, mm}
   let dilation = 0.5;
@@ -69,6 +89,7 @@
 
   function push(mm) {
     const now = performance.now();
+    closedSince = 0;   // a valid diameter means the eyes are open
     const dt = lastSampleAt ? Math.min(1, (now - lastSampleAt) / 1000) : 0;
     haveData = true;
     lastSampleAt = now;
@@ -113,15 +134,53 @@
   window.Pupil = {
     start() {
       window.addEventListener("neon-pupil", (e) => {
-        const mm = e.detail && e.detail.mm;
-        if (typeof mm === "number" && mm > 0 && e.detail.worn !== false) {
-          lastNeonAt = performance.now();
+        const d = e.detail || {};
+        const now = performance.now();
+
+        if (d.closed && d.worn !== false) {
+          // Closed eyes are LIVE data, not signal loss — the glasses are on
+          // a face and reporting. Refreshing lastNeonAt here matters: the
+          // flower game falls back to its mouse sim when neonLive() goes
+          // false, so without this, holding your eyes shut for 2s handed
+          // control to the simulator, which promptly reopened the flower.
+          lastNeonAt = now;
+          haveData = true;
+          lastSampleAt = now;
+          if (!closedSince) closedSince = now;
+          if (now - closedSince >= CLOSED_GRACE_MS) {
+            // Past blink territory: this is deliberate. Snap shut — much
+            // faster than the ordinary ease, so it reads as the flower
+            // reacting to you, not drifting.
+            dilation += (0 - dilation) * CLOSE_EASE;
+          }
+          return;
+        }
+
+        const mm = d.mm;
+        if (typeof mm === "number" && mm > 0 && d.worn !== false) {
+          closedSince = 0;   // eyes open again; normal ease reopens the bloom
+          lastNeonAt = now;
           push(mm);
         }
       });
     },
     // Manual injection, for the keyboard/mouse stand-in and for tests.
     feed: push,
+    // Sim-side twin of the bridge's closed:true ticks, so the eyes-shut
+    // behaviour can be exercised without glasses. Same grace, same snap.
+    // Does NOT touch lastNeonAt: the simulator must never look like live
+    // hardware, or the fallback logic would fight itself.
+    feedClosed() {
+      const now = performance.now();
+      haveData = true;
+      lastSampleAt = now;
+      if (!closedSince) closedSince = now;
+      if (now - closedSince >= CLOSED_GRACE_MS) {
+        dilation += (0 - dilation) * CLOSE_EASE;
+      }
+    },
+    // Eyes currently held shut (past the blink grace)?
+    closed: () => closedSince > 0 && performance.now() - closedSince >= CLOSED_GRACE_MS,
     dilation: () => dilation,
     vitality: () => vitality,
     // Any data at all, simulated included — use for "is the display meaningful".
@@ -132,6 +191,7 @@
     reset() {
       history.length = 0; dilation = 0.5; vitality = 1; haveData = false;
       lastSampleAt = 0; lastNeonAt = 0; rangeLo = null; rangeHi = null;
+      closedSince = 0;
     },
   };
 })();

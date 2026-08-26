@@ -62,6 +62,7 @@
     if (window.ControlsHint) {
       ControlsHint.show([
         { keys: "mouse ↕", does: "pupil size (moving = alive)" },
+        { keys: "hold c", does: "eyes closed → flower shuts" },
         { keys: "f", does: "freeze pupil → wilt" },
         { keys: "l", does: "hold width, keep varying → revive" },
         { keys: "r", does: "reset" },
@@ -240,7 +241,9 @@
     if (window.Tracking) Tracking.update();
     const live = window.Pupil && Pupil.neonLive();
     if (!live && window.Pupil) {
-      if (simMode === "mouse") {
+      if (keyIsDown(67) /* c — simulate eyes closed */) {
+        Pupil.feedClosed();
+      } else if (simMode === "mouse") {
         simTarget = 2.5 + (1 - mouseY / Math.max(1, height)) * 4.5;
         simMm = lerp(simMm, simTarget, 0.08);
         Pupil.feed(simMm);

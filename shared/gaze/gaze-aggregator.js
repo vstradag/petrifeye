@@ -76,12 +76,25 @@
   // change — a bridge left on the old figure keeps solving against corners
   // the tags no longer occupy, and skews that player's gaze with no error
   // anywhere. Sent to all sockets for the same reason the viewport is.
-  function sendMarkerSize(px) {
+  function sendMarkerSizeNow(px) {
     const payload = JSON.stringify({ type: "markerSize", size: Math.round(px) });
     for (const p of players) {
       const ws = (conn[p.id] || {}).ws;
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
+  }
+
+  // Debounced for the same reason the viewport is, and it matters MORE here.
+  // A slider fires oninput on every pixel of travel, and each size change
+  // makes the bridge clear_surfaces() and add_surface() again — so dragging
+  // rebuilt the surface dozens of times a second, throwing away the mapper's
+  // detection state on every frame and leaving it no chance to lock on. The
+  // tags resize on screen immediately (that stays responsive); only the
+  // bridge sync waits for the drag to settle.
+  let markerSizeTimer = null;
+  function sendMarkerSize(px) {
+    clearTimeout(markerSizeTimer);
+    markerSizeTimer = setTimeout(() => sendMarkerSizeNow(px), 220);
   }
 
   // Debounced: resize fires continuously while a window is dragged and each
@@ -176,7 +189,9 @@
     // both, and either one being stale skews the mapping silently.
     ws.onopen = () => {
       sendViewport();
-      if (window.Markers) sendMarkerSize(Markers.size);
+      // Immediate, not debounced: a bridge that just connected has the
+      // default size and must be corrected before it maps anything.
+      if (window.Markers) sendMarkerSizeNow(Markers.size);
     };
 
     ws.onmessage = (e) => {
