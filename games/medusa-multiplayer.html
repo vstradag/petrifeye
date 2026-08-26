@@ -201,6 +201,10 @@
     <input type="checkbox" id="toggle-markers" checked />
     <span>screen markers (m)</span>
   </label>
+  <label title="Smaller frees screen space but shortens detection range — the tag must still span ~25-30px in the scene camera. On a big screen it can go much smaller than on a laptop.">
+    <div class="tuning-row"><span>marker size</span><span id="tv-marker">300px</span></div>
+    <input type="range" id="slider-marker" min="80" max="600" value="300" step="10" />
+  </label>
   <label>
     <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
     <select id="select-profile">
@@ -470,6 +474,28 @@ function setMarkers(on) {
 }
 
 document.getElementById("toggle-markers").onchange = (e) => setMarkers(e.target.checked);
+
+// Marker size. Routed through the aggregator rather than Markers directly,
+// so the tags and every bridge's surface geometry always move together.
+const markerSlider = document.getElementById("slider-marker");
+const markerReadout = document.getElementById("tv-marker");
+
+function showMarkerSize(px) {
+  markerReadout.textContent = `${px}px`;
+  if (Number(markerSlider.value) !== px) markerSlider.value = px;
+}
+
+markerSlider.oninput = (e) => {
+  const applied = GazeAggregator.setMarkerSize(Number(e.target.value));
+  if (applied) showMarkerSize(applied);
+};
+
+// The real starting value comes from the bridge's layout.json, not from the
+// slider's markup — the bridge may have been launched with --marker-size.
+window.addEventListener("markers-size", (e) => showMarkerSize(e.detail.size));
+window.addEventListener("load", () => {
+  if (window.Markers && Markers.size) showMarkerSize(Markers.size);
+});
 
 // Markers announce their own state, so clicking a tag to dismiss it leaves
 // this checkbox correct without the two having to know about each other.

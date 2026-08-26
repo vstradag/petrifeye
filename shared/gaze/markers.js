@@ -143,6 +143,25 @@
     // Whether the tags are WANTED, not whether a flash cycle happens to have
     // them dark this instant — a checkbox must not blink at 1.8s intervals.
     get shown() { return wanted; },
+
+    // Resize the tags on screen. The BRIDGE must be told too — it derives the
+    // surface corners from this same figure — which the caller does by
+    // sending {type:"markerSize"}. Changing only one side is the dangerous
+    // case: nothing errors, every mapped coordinate just quietly skews.
+    setSize(px) {
+      const n = Math.round(px);
+      if (!(n >= 60 && n <= 1200) || n === SIZE) return SIZE;
+      SIZE = n;
+      if (layer) {
+        for (const img of layer.querySelectorAll(".gaze-marker")) {
+          img.width = SIZE;
+          img.height = SIZE;
+        }
+      }
+      window.dispatchEvent(new CustomEvent("markers-size", { detail: { size: SIZE } }));
+      return SIZE;
+    },
+
     get size() { return SIZE; },
     get margin() { return MARGIN; },
     get mode() { return MODE; },

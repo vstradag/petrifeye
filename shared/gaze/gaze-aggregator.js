@@ -72,6 +72,18 @@
     }
   }
 
+  // Marker size is surface geometry, so EVERY bridge has to hear about a
+  // change — a bridge left on the old figure keeps solving against corners
+  // the tags no longer occupy, and skews that player's gaze with no error
+  // anywhere. Sent to all sockets for the same reason the viewport is.
+  function sendMarkerSize(px) {
+    const payload = JSON.stringify({ type: "markerSize", size: Math.round(px) });
+    for (const p of players) {
+      const ws = (conn[p.id] || {}).ws;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
+  }
+
   // Debounced: resize fires continuously while a window is dragged and each
   // report rebuilds a surface on every bridge.
   let resizeTimer = null;
@@ -160,7 +172,12 @@
     // the very first mapped sample already uses the right coordinate space.
     // Also re-sent here on every reconnect, since a bridge that restarted
     // has forgotten it.
-    ws.onopen = () => sendViewport();
+    // Viewport AND marker size on open: a bridge that restarted has forgotten
+    // both, and either one being stale skews the mapping silently.
+    ws.onopen = () => {
+      sendViewport();
+      if (window.Markers) sendMarkerSize(Markers.size);
+    };
 
     ws.onmessage = (e) => {
       let msg;
@@ -223,6 +240,17 @@
 
     players: () => snapshot(),
     pointerIdFor: (id) => `player-${id}`,
+
+    // Resize the on-screen tags and keep every bridge's surface in step.
+    // Single entry point on purpose: doing one without the other is the
+    // silent-skew failure, so callers should never touch Markers.setSize
+    // directly.
+    setMarkerSize(px) {
+      if (!window.Markers) return null;
+      const applied = Markers.setSize(px);
+      sendMarkerSize(applied);
+      return applied;
+    },
 
     // Change one player's input and reconnect just that player. Used by the
     // boot card so a webcam/Neon choice does not require a page reload.

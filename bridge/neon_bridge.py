@@ -434,11 +434,18 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
 
     def current_surface():
         vw, vh = hub.viewport or (screen_w, screen_h)
-        if surf["w"] != vw or surf["h"] != vh:
+        # Marker SIZE is part of the surface geometry, not just its looks:
+        # marker_verts() places the tag corners from it. If the page resizes
+        # its tags and this keeps the old figure, the mapper goes on solving
+        # against corners that are no longer where the tags are — every
+        # coordinate skews, and nothing reports an error. So a size change
+        # has to invalidate the surface exactly like a viewport change does.
+        if surf["w"] != vw or surf["h"] != vh or surf.get("size") != IMG_SIZE:
             if mapper:
                 mapper.clear_surfaces()
                 surf["obj"] = mapper.add_surface(marker_verts(vw, vh), (vw, vh))
             surf["w"], surf["h"] = vw, vh
+            surf["size"] = IMG_SIZE
             log.info("surface rebuilt for %dx%d (markers %dpx @ %dpx inset)",
                      vw, vh, IMG_SIZE, IMG_MARGIN)
         return surf["obj"], surf["w"], surf["h"]
@@ -729,6 +736,8 @@ async def no_cache(request, handler):
     return response
 # --------------------------------------------------------------------------
 async def ws_handler(request):
+    # Rebound live from the browser's marker-size control below.
+    global IMG_SIZE
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
     hub.add(ws)
@@ -751,6 +760,23 @@ async def ws_handler(request):
                         if hub.viewport != (w, h):
                             log.info("browser viewport: %dx%d CSS px", w, h)
                         hub.viewport = (w, h)
+                elif payload.get("type") == "markerSize":
+                    # The page has resized its tags; match it so marker_verts()
+                    # keeps describing where the tags actually are. The surface
+                    # rebuilds on the next current_surface() call, which also
+                    # re-solves the homography.
+                    #
+                    # Bounded for the same reason the viewport is: a nonsense
+                    # value here does not crash anything, it silently skews
+                    # every mapped coordinate. Floor of 60px because the tag
+                    # must still span ~25-30px in the scene image to be found
+                    # at all; a smaller tag is not "less intrusive", it is
+                    # undetectable.
+                    s = int(payload.get("size", 0))
+                    if 60 <= s <= 1200 and IMG_SIZE != s:
+                        log.info("marker size %dpx -> %dpx (surface will rebuild)",
+                                 IMG_SIZE, s)
+                        IMG_SIZE = s
     finally:
         hub.discard(ws)
         log.info("browser disconnected (%d left)", len(hub.clients))
