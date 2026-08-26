@@ -52,15 +52,26 @@
     position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
     top: auto; right: auto;
     z-index: 1150;              /* above the marker layer (1100) */
-    width: 32px; height: 32px; padding: 0;
-    background: rgba(8,9,14,.6); border: 1px solid #3a3c42; border-radius: 50%;
-    color: #9a9895; font-size: 15px; line-height: 1; cursor: pointer;
-    /* Muted, but it has to be FINDABLE. At .28 on #4a4c52 this resolved to
-       about rgb(21,21,23) against the near-black field — present in the DOM,
-       invisible to the eye. */
-    opacity: .5; transition: opacity .2s, color .2s, border-color .2s;
+    width: 38px; height: 38px; padding: 0;
+    background: rgba(10,12,18,.88);
+    border: 1px solid #7a7c85; border-radius: 50%;
+    color: #f0eee9; font-size: 18px; line-height: 1; cursor: pointer;
+
+    /* Opaque and high-contrast, because chasing "discreet" through CONTRAST
+       cost this button its entire purpose twice: first at opacity .28, then
+       again at .5 — both times present in the DOM and invisible to the eye
+       against the fur field.
+       Discretion now comes from TIME instead. It fades out after a few
+       seconds without mouse movement, so during a showing — when nobody is
+       touching the mouse — the screen is clean, and the instant anyone
+       reaches for the mouse it is unmistakably there. */
+    opacity: 1;
+    transition: opacity .45s ease, background .2s, border-color .2s, color .2s;
   }
-  .mp-gear:hover { opacity: 1; color: #ffb0b0; border-color: #7a3030; }
+  .mp-gear.idle { opacity: 0; pointer-events: none; }
+  .mp-gear:hover {
+    background: rgba(255,59,59,.22); border-color: var(--gaze-red); color: #fff;
+  }
 
   /* Opens straight up from the gear, and horizontally centred for the same
      reason the gear is: centring is what keeps it clear of the corner tags
@@ -429,6 +440,30 @@ function setAssist(on) {
 
 document.getElementById("toggle-assist").onchange = (e) => setAssist(e.target.checked);
 
+// The gear is fully visible whenever the mouse is in use and fades away when
+// it is not — which is what "discreet" should have meant all along. A showing
+// runs untouched, so it disappears on its own; anyone reaching for the mouse
+// gets it back before they arrive at it.
+const GEAR_IDLE_MS = 3000;
+let gearIdleTimer = null;
+
+function wakeGear() {
+  const g = document.getElementById("mpGear");
+  if (!g) return;
+  g.classList.remove("idle");
+  clearTimeout(gearIdleTimer);
+  gearIdleTimer = setTimeout(() => {
+    // Never fade while the panel is open — that IS active use, even if the
+    // mouse happens to be resting while you read a slider.
+    const panel = document.getElementById("tuning-panel");
+    if (panel && !panel.classList.contains("tuning-panel-hidden")) return wakeGear();
+    g.classList.add("idle");
+  }, GEAR_IDLE_MS);
+}
+
+window.addEventListener("mousemove", wakeGear);
+window.addEventListener("mousedown", wakeGear);
+
 function setMarkers(on) {
   if (!window.Markers) return;
   on ? Markers.show() : Markers.hide();
@@ -456,6 +491,11 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "g" || e.key === "G") setTargetVisible(!window.PetrifEyeShow.pointerMarker);
   if (e.key === "a" || e.key === "A") setAssist(!GazeAssist.isEnabled());
   if (e.key === "m" || e.key === "M") setMarkers(!(window.Markers && Markers.shown));
+  // 's' is ALREADY handled by sketch.js keyPressed() -> toggleSettingsPanel(),
+  // which works on this page's panel too. Toggling it here as well just
+  // flipped it twice for a net no-op — which is why the key appeared dead.
+  // Only wake the gear here; let sketch.js own the toggle.
+  if (e.key === "s" || e.key === "S") wakeGear();
 });
 
 let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
@@ -497,6 +537,7 @@ function start(sim) {
   document.getElementById("mpBoot").classList.add("hidden");
   document.getElementById("mpPanel").style.display = "";
   document.getElementById("mpGear").style.display = "";
+  wakeGear();          // visible on entry, then fades if the mouse stays still
   renderPanel(lastList);
 
   if (sim) {
