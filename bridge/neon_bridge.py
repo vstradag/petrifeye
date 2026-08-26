@@ -554,7 +554,7 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     PUPIL_HZ = 30.0   # 200Hz raw is far more than any animation needs
 
     async def pump_gaze():
-        nonlocal last_pupil_sent
+        nonlocal last_pupil_sent, last_gaze_sent
         async for datum in receive_gaze_data(gaze_url, run_loop=True):
             state["last_gaze"] = time.monotonic()
 
