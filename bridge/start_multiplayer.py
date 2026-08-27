@@ -22,12 +22,51 @@ import signal
 import socket
 import subprocess
 import sys
+import time
+import webbrowser
 from contextlib import closing
 
 BASE_PORT = 8443
 HERE = os.path.dirname(os.path.abspath(__file__))
-PYTHON = os.path.join(HERE, ".venv", "bin", "python")
 BRIDGE = os.path.join(HERE, "neon_bridge.py")
+
+# Candidate interpreters, best first. The local one leads deliberately: a
+# venv living inside the Google Drive folder is a trap. Drive's file provider
+# serves those files through a virtual filesystem, and when it stalls, an
+# `import numpy` blocks FOREVER rather than failing — the process just hangs
+# with no output and no error, which is indistinguishable from a bug in the
+# bridge itself. That cost an hour once; it should never cost anything again.
+PYTHON_CANDIDATES = [
+    os.environ.get("MEDUSA_PYTHON"),
+    os.path.expanduser("~/dev/medusa-bridge-venv/bin/python"),
+    os.path.join(HERE, ".venv", "bin", "python"),
+]
+
+
+def find_python(verbose=True):
+    """First interpreter that can actually import the bridge's heavy deps.
+
+    Probed with a timeout rather than trusted, because the failure being
+    guarded against is a HANG, not an ImportError — a stalled cloud mount
+    never returns at all.
+    """
+    for cand in PYTHON_CANDIDATES:
+        if not cand or not os.path.exists(cand):
+            continue
+        try:
+            subprocess.run([cand, "-c", "import numpy, aiohttp, cv2"],
+                           capture_output=True, timeout=25, check=True)
+            if verbose:
+                print(f"python: {cand}")
+            return cand
+        except subprocess.TimeoutExpired:
+            print(f"python: {cand} HANGS on import — skipping.\n"
+                  f"        (a venv on Google Drive does this when the file "
+                  f"provider stalls)", file=sys.stderr)
+        except subprocess.CalledProcessError:
+            if verbose:
+                print(f"python: {cand} missing deps — skipping", file=sys.stderr)
+    return None
 
 
 def classify(net):
@@ -92,6 +131,13 @@ def local_networks():
             continue
         nets.append((addr, net))
     return nets
+
+
+def port_open(host, port, timeout=0.4):
+    """Blocking 'is anything listening yet' check, for the pre-browser wait."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sk:
+        sk.settimeout(timeout)
+        return sk.connect_ex((host, port)) == 0
 
 
 async def _port_open(host, port=8080, timeout=0.4):
@@ -194,6 +240,8 @@ def main():
     ap.add_argument("--players", type=int,
                     help="refuse to start unless exactly this many are found")
     ap.add_argument("--base-port", type=int, default=BASE_PORT)
+    ap.add_argument("--no-browser", action="store_true",
+                    help="start the bridges but do not open a browser")
     args = ap.parse_args()
 
     if args.address:
@@ -219,13 +267,23 @@ def main():
         frame = f", {d['frame']}" if d.get("frame") else ""
         print(f"  P{i + 1}  {d['ip']}  {d['name']}{batt}{frame}{warn}")
 
+    # Only enforced when the caller ASKED for a specific count. Left open,
+    # the launcher adapts to whatever is switched on — which is the whole
+    # point of a one-click start: you cannot know in advance how many pairs
+    # of glasses are awake.
     if args.players and len(devices) != args.players:
         print(f"\nexpected {args.players}, found {len(devices)} — not starting.",
               file=sys.stderr)
         return 1
 
-    if not os.path.exists(PYTHON):
-        print(f"\nvenv missing at {PYTHON}", file=sys.stderr)
+    python = find_python()
+    if not python:
+        print("\nNo usable Python found. Tried:\n  " +
+              "\n  ".join(c for c in PYTHON_CANDIDATES if c) +
+              "\n\nCreate one with:\n"
+              "  python3 -m venv ~/dev/medusa-bridge-venv\n"
+              "  ~/dev/medusa-bridge-venv/bin/pip install -r bridge/requirements.txt",
+              file=sys.stderr)
         return 1
 
     procs = []
@@ -233,13 +291,34 @@ def main():
     for i, d in enumerate(devices):
         port = args.base_port + i
         log = f"/tmp/bridge-p{i + 1}.log"
-        cmd = [PYTHON, BRIDGE, "--port", str(port), "--address", d["ip"]]
+        cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]]
         with open(log, "w") as fh:
             procs.append((i + 1, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
         print(f"P{i + 1} -> port {port}  ({d['ip']})   log: {log}")
 
-    print(f"\nopen https://localhost:{args.base_port}/games/medusa-multiplayer.html")
-    print("ctrl-c to stop all bridges\n")
+    # One device is a single-player session; two or more is multiplayer.
+    # Guessing right here is the difference between "it just opened" and
+    # "now go and find the right URL yourself".
+    page = ("games/medusa-multiplayer.html" if len(devices) > 1
+            else "games/medusa.html")
+    url = f"https://localhost:{args.base_port}/{page}"
+
+    # Give the first bridge a moment to bind before pointing a browser at it,
+    # or the page loads into a connection error and needs a manual reload.
+    for _ in range(40):
+        if port_open("127.0.0.1", args.base_port):
+            break
+        time.sleep(0.25)
+
+    print(f"\nopening {url}")
+    if not args.no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            print("  (could not open a browser — open that URL yourself)")
+    print("\nThe browser will warn about the certificate: it is self-signed,")
+    print("served by the bridge on your own machine. Click through it.")
+    print("\nctrl-c to stop all bridges\n")
 
     def stop(*_):
         for _n, _p, _ip, proc in procs:
