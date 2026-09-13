@@ -201,7 +201,12 @@
         const mag = Math.hypot(lx, ly);
         if (mag > MAX_LEAD_PX) { lx *= MAX_LEAD_PX / mag; ly *= MAX_LEAD_PX / mag; }
 
-        return { ...p, x: x + lx, y: y + ly, speed: s.speed };
+        // rawX/rawY carry the unassisted position through. The assist is tuned
+        // for FEEL — it leads past a saccade's landing point and creeps into
+        // place — which is right for hitting a target and wrong for MEASURING
+        // looking: fed to a fixation detector it split a 650ms fixation into
+        // 120ms + 400ms. Anything that analyses gaze should read these instead.
+        return { ...p, x: x + lx, y: y + ly, speed: s.speed, rawX: p.x, rawY: p.y };
       });
     },
 

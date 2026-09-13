@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>POLITICAL VISION — viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<link rel="stylesheet" href="../tuning.css" />
+<link rel="stylesheet" href="../shared/gaze/session-ui.css" />
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  .pv-title { font-size: 11px; color: #e8e6e2; margin-top: 6px; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+
+<!-- Boot card: choose each player's input, frame the tags, then start. -->
+<div class="ss-boot" id="ssBoot">
+  <div class="ss-boot-inner" id="ssBootInner">
+    <h1>POLITICAL <span>VISION</span></h1>
+    <p class="sub">where eyes go on a political cartoon</p>
+    <div class="ss-srcs" id="ssSrcs"></div>
+    <pre id="ssBootCmd"></pre>
+    <p class="note" id="ssBootState">checking bridges…</p>
+    <button class="ss-btn" id="ssStart" disabled>waiting for bridges</button>
+    <button class="ss-btn ghost" id="ssSim">test with mouse + arrows</button>
+    <p class="note" style="margin-top:22px">
+      The <b style="color:#c98f8f">observer screen</b> — scanpaths and live statistics —
+      opens in its own window for the second projector.<br />
+      <button class="ss-btn ghost" id="ssObserverBoot" style="margin:10px 0 0">open observer screen</button>
+    </p>
+  </div>
+</div>
+
+<div class="ss-cal" id="ssCal"><p class="ss-cal-msg" id="ssCalMsg"></p></div>
+<div class="ss-status" id="ssStatus"></div>
+<button class="ss-gear" id="ssGear" title="settings (s)" style="display:none">&#9881;</button>
+
+<div class="tuning-panel tuning-panel-hidden" id="tuning-panel">
+  <div class="ss-section" style="margin-top:0;border-top:0;padding-top:0">cartoon</div>
+  <div class="pv-title" id="pvTitle">—</div>
+  <div class="ss-row-btns">
+    <button class="ss-mini" id="pvPrev">&larr; prev (p)</button>
+    <button class="ss-mini" id="pvNext">next (n) &rarr;</button>
+  </div>
+  <div class="ss-row-btns">
+    <button class="ss-mini" id="pvObserver">observer screen (o)</button>
+    <button class="ss-mini" id="pvReset">reset this image (r)</button>
+  </div>
+
+  <label class="ss-toggle-row" title="Participants usually chase a visible marker, which changes where they look. Off by default for that reason.">
+    <input type="checkbox" id="toggle-target" />
+    <span>show gaze target on this screen (g)</span>
+  </label>
+  <label class="ss-toggle-row">
+    <input type="checkbox" id="toggle-assist" checked />
+    <span>motion assist (a)</span>
+  </label>
+  <label class="ss-toggle-row" title="Tags must be on screen for gaze to map. Hiding them stops tracking once the cached surface expires.">
+    <input type="checkbox" id="toggle-markers" checked />
+    <span>screen markers (m)</span>
+  </label>
+  <label title="Smaller tags leave more room for the cartoon, which is kept clear of them — but the tag must still span ~25-30px in the scene camera.">
+    <div class="tuning-row"><span>marker size</span><span id="tv-marker">300px</span></div>
+    <input type="range" id="slider-marker" min="80" max="600" value="300" step="10" />
+  </label>
+
+  <div class="ss-section">fixations</div>
+  <label title="How far gaze may wander and still count as one fixation, as a share of the cartoon's width.">
+    <div class="tuning-row"><span>spread</span><span id="tv-spread">3.5%</span></div>
+    <input type="range" id="slider-spread" min="1" max="10" value="3.5" step="0.5" />
+  </label>
+  <label title="Shortest stay that counts as a fixation. ~100ms is the conventional threshold.">
+    <div class="tuning-row"><span>minimum duration</span><span id="tv-mindur">100ms</span></div>
+    <input type="range" id="slider-mindur" min="60" max="300" value="100" step="10" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
+    <select id="select-profile">
+      <option value="">auto (per input)</option>
+      <option value="mouse">mouse — precise</option>
+      <option value="neon">neon glasses</option>
+      <option value="webgazer">webcam — worst case</option>
+    </select>
+  </label>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/gaze/gaze-assist.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
+<script src="../shared/gaze/gaze-aggregator.js"></script>
+<script src="../shared/gaze/fixations.js"></script>
+<script src="../shared/controls-hint.js"></script>
+<script src="political-vision.js"></script>
+</body>
+</html>
