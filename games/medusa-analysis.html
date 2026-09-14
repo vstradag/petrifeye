@@ -388,9 +388,13 @@ function renderBootState(list) {
       // Connected and streaming, just not framed on the screen yet.
       const m = p.markers;
       cls = m ? "warn" : "warn";
+      // The start card covers the tags until START, so 0/4 here is normal
+      // and "look at this screen" cannot be acted on. And with no marker
+      // count yet, say what the bridge itself says ("waiting for scene
+      // frames") instead of a generic line that hid a stuck camera stream.
       txt = m != null
-        ? `${m}/4 markers — ${m >= 3 ? "nearly there, hold still" : "look at this screen"}`
-        : "connected — look at this screen";
+        ? `${m}/4 markers — ${m >= 3 ? "nearly there, hold still" : "normal before start: the tags appear once the game starts"}`
+        : (p.detail || "connected");
     } else {
       cls = p.state === "offline" ? "err" : "warn";
       txt = p.detail || p.state;

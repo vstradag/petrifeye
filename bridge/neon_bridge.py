@@ -471,7 +471,17 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     # Left alone this sat "stalled" for five and a half hours while the phone
     # was healthy and reachable the whole time.
     RESTART_AFTER = 30.0
-    state = {"last_gaze": 0.0, "markers": -1, "reported": None}
+    # The same rule for the SCENE camera, which the gaze check cannot see.
+    # A connection can come up with gaze and eye events streaming but the
+    # scene stream never started — seen twice in one day, both times on the
+    # first connection after a phone woke. Gaze kept arriving, so the gaze
+    # watchdog was satisfied, and the bridge sat on "waiting for scene frames"
+    # indefinitely while reporting itself healthy: no scene frames means no
+    # surface, so not one gaze sample could be mapped. A healthy scene camera
+    # sends ~30 frames a second, so 12s of silence is unambiguous; and
+    # restarting cannot lose anything, since nothing was being mapped anyway.
+    SCENE_RESTART_AFTER = 12.0
+    state = {"last_gaze": 0.0, "last_scene": 0.0, "markers": -1, "reported": None}
     began = time.monotonic()
 
     async def watchdog():
@@ -486,6 +496,14 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                          now - quiet_since)
                 # Cancels the sibling pumps via gather, unwinding into
                 # neon_loop's retry, which re-fetches status and sensor URLs.
+                raise StreamRestart
+
+            # Only when a mapper exists: without one there is no scene stream
+            # to wait for, and gaze goes out unmapped by design.
+            scene_quiet_since = state["last_scene"] or began
+            if mapper and live and (now - scene_quiet_since) > SCENE_RESTART_AFTER:
+                log.info("gaze live but no scene frames for %.0fs — rebuilding the "
+                         "device connection", now - scene_quiet_since)
                 raise StreamRestart
 
             if live:
@@ -641,6 +659,9 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
         if mapper is None:
             return
         async for frame in receive_video_frames(scene_url, run_loop=True):
+            # Recorded before anything can skip the frame: the watchdog needs
+            # to know the camera is ALIVE, whether or not a surface exists yet.
+            state["last_scene"] = time.monotonic()
             # No gaze datum or surface needed here any more: this pump's only
             # job is to keep `held` current. Waiting on a gaze sample before
             # locating the surface would also have meant the very first solve

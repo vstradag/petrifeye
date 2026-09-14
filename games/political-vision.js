@@ -354,9 +354,13 @@
       if (p.live) { cls = "live"; txt = "gaze mapped — ready"; }
       else if (p.streaming) {
         cls = "warn";
+        // The start card covers the tags until START, so 0/4 here is normal
+        // and "look at this screen" cannot be acted on. And with no marker
+        // count yet, say what the bridge itself says ("waiting for scene
+        // frames") instead of a generic line that hid a stuck camera stream.
         txt = p.markers != null
-          ? `${p.markers}/4 markers — ${p.markers >= 3 ? "nearly there, hold still" : "look at this screen"}`
-          : "connected — look at this screen";
+          ? `${p.markers}/4 markers — ${p.markers >= 3 ? "nearly there, hold still" : "normal before start: the tags appear once the game starts"}`
+          : (p.detail || "connected");
       } else { cls = p.state === "offline" ? "err" : "warn"; txt = p.detail || p.state; }
       return `<span style="color:${p.color}">${p.label}</span> · port ${p.port} — <span class="ss-state ${cls}">${txt}</span>`;
     }).join("<br>");
