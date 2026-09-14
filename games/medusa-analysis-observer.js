@@ -33,6 +33,8 @@
     live: new Map(),        // player id -> { u, v, fu, fv, fd, at, trail }
     blobs: [],              // latest eyes: { id, u, v, r, s }
     background: null,       // Image of the game with no eyes
+    calibration: null,      // per-player accuracy from the nine-point screen
+    ended: false,
   };
   let statsDirty = true, regionsDirty = true;
 
@@ -200,9 +202,26 @@
         ${total} eye${total === 1 ? "" : "s"} petrified this round
         <span class="stones">${Array.from({ length: eyes }, (_, i) => `<span class="stone${i < stones ? " on" : ""}"></span>`).join("")}</span>
         <div class="score-sub">${stones} of ${eyes} are stone right now — stones come back to life after 10s</div>
+        ${calibrationLine()}
       </div>`;
     const s = Math.floor((performance.now() - S.roundStart) / 1000);
-    $("q2Clock").textContent = S.started ? `round ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "";
+    const clock = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    $("q2Clock").textContent = S.ended ? `session ended · ${S.endedClock || clock}` : S.started ? `round ${clock}` : "";
+  }
+
+  // Accuracy is the context for every number on this screen: 20px of error
+  // and 80px of error make "looked at the eye" mean very different things.
+  function calibrationLine() {
+    const c = S.calibration;
+    if (!c) return "";
+    if (c.skipped) return `<div class="score-sub">calibration skipped</div>`;
+    const parts = S.players.map((p) => {
+      const r = c.byPlayer[p.id];
+      if (!r || r.errorBeforePx == null) return `<span style="color:${p.color}">${p.label}</span> no data`;
+      const after = r.correction !== "none" && c.applied ? ` → ~${r.errorAfterPx}px` : "";
+      return `<span style="color:${p.color}">${p.label}</span> ${r.errorBeforePx}px${after}`;
+    });
+    return `<div class="score-sub">calibration error · ${parts.join(" · ")}${c.applied ? "" : " · correction off"}</div>`;
   }
 
   // ------------------------------------------------ Q3 petrifying stats
@@ -339,6 +358,12 @@
       if (m.view && m.view.w) S.view = m.view;
       S.settings = m.settings || S.settings;
       S.roundStart = performance.now() - (m.roundStartedMsAgo || 0);
+      S.calibration = m.calibration || null;
+      S.ended = !!m.ended;
+      if (S.ended) {
+        const t = Math.floor((m.roundStartedMsAgo || 0) / 1000);
+        S.endedClock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+      }
       S.live.clear();
       $("waiting").classList.toggle("hidden", S.started);
       $("waitingMsg").innerHTML = S.started ? "" :
@@ -353,6 +378,7 @@
       if (m.scores) S.scores = m.scores;
       statsDirty = regionsDirty = true;
     } else if (m.type === "gaze") {
+      if (S.ended) return;
       const now = performance.now();
       if (m.view && m.view.w) S.view = m.view;
       S.blobs = m.blobs || S.blobs;
@@ -363,6 +389,11 @@
         l.trail.push({ u: g.u, v: g.v, at: now });
         while (l.trail.length && now - l.trail[0].at > TRAIL_MS) l.trail.shift();
       }
+    } else if (m.type === "session-ended") {
+      // Keep everything on screen as the final record; only the live markers go.
+      S.ended = true;
+      S.live.clear();
+      statsDirty = regionsDirty = true;
     } else if (m.type === "background" && m.url) {
       const img = new Image();
       img.onload = () => { S.background = img; regionsDirty = true; };
