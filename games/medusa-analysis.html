@@ -94,9 +94,7 @@
   /* Full-screen setup card, shown until every bridge is streaming. Without
      it a missing bridge just looks like a black screen. */
   .mp-boot {
-    /* Below the tracking markers (z 1100). At 1200 the black card hid the
-       very tags players were meant to frame while it was showing. */
-    position: fixed; inset:0; z-index:1050; background:#000;
+    position: fixed; inset:0; z-index:1200; background:#000;
     display:flex; align-items:center; justify-content:center;
     font-family: var(--gaze-mono); text-align:center;
   }
@@ -148,8 +146,6 @@
   .ma-mini { flex:1; font-family:var(--gaze-mono); font-size:10px; letter-spacing:.06em; color:#d9d7d3;
              background:#14161c; border:1px solid #2f3139; padding:7px 4px; cursor:pointer; }
   .ma-mini:hover { border-color:var(--gaze-red); color:#fff; }
-  .ma-end { color:#ffb0b0; border-color:#5a2a2a; }
-  .ma-end.armed { background:rgba(255,59,59,.22); color:#fff; border-color:var(--gaze-red); }
 </style>
 </head>
 <body>
@@ -183,13 +179,6 @@
     <button class="ma-mini" id="maObserver">analysis screen (o)</button>
     <button class="ma-mini" id="maNewRound" title="Scores to zero, every stone back to life, analysis cleared">new round</button>
   </div>
-  <div class="ma-row">
-    <button class="ma-mini ma-end" id="maEnd" title="Stops the game and shows the session summary, with the data to download">end session</button>
-  </div>
-  <label class="mp-toggle-row" title="Uses the per-player correction fitted by the nine-point calibration. Off shows uncorrected gaze, for comparison.">
-    <input type="checkbox" id="toggle-correction" checked />
-    <span>calibration correction</span>
-  </label>
   <label>
     <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
     <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
@@ -576,12 +565,17 @@ function goFullscreen() {
   } catch (_) { /* unsupported → not fatal */ }
 }
 
-let inputsPrepared = false;
-
-function prepareInputs(sim) {
-  if (inputsPrepared) return;
-  inputsPrepared = true;
+function start(sim) {
+  if (started) return;
+  started = true;
   simMode = !!sim;
+  goFullscreen();
+  document.getElementById("mpBoot").classList.add("hidden");
+  document.getElementById("mpPanel").style.display = "";
+  document.getElementById("mpGear").style.display = "";
+  wakeGear();          // visible on entry, then fades if the mouse stays still
+  renderPanel(lastList);
+
   if (sim) {
     // Tracking already ships a second pointer driven by the arrow keys,
     // built for exactly this: exercising multi-pointer dwell with one mouse.
@@ -599,25 +593,11 @@ function prepareInputs(sim) {
   }
   // Markers are already showing from load in the live path; the scene
   // cameras must keep seeing them for the whole session, so nothing to do.
-}
-
-function start(sim) {
-  if (started) return;
-  prepareInputs(sim);
-  started = true;
-  goFullscreen();
-  document.getElementById("mpBoot").classList.add("hidden");
-  document.getElementById("mpPanel").style.display = "";
-  document.getElementById("mpGear").style.display = "";
-  wakeGear();          // visible on entry, then fades if the mouse stays still
-  renderPanel(lastList);
 
   // The control legend is shown only when testing with mouse and keyboard,
   // where the bindings are not discoverable. With glasses on there is
   // nothing to learn — you look at a blob — so it would be pure clutter over
   // the work. It is still reachable with h.
-  window.dispatchEvent(new CustomEvent("medusa-session-start", { detail: { sim: !!sim } }));
-
   if (sim && window.ControlsHint) {
     ControlsHint.show(
       [{ keys: "mouse", does: "P1" }, { keys: "arrows", does: "P2" },
@@ -628,54 +608,18 @@ function start(sim) {
   }
 }
 
-// ------------------------------------------------ nine-point calibration
-// Per-player correction fitted by the calibration, applied to every gaze
-// sample BEFORE the game sees it — so dwell, petrification and the analysis
-// all use the corrected position. Keyed by player id.
-const calibration = { result: null, models: {}, enabled: true };
-
-function correctedPointers(pts) {
-  if (!calibration.enabled) return pts;
-  return pts.map((p) => {
-    const m = /^player-(\d+)$/.exec(p.id);
-    const model = m && calibration.models[Number(m[1])];
-    if (!model || model.type === "none") return p;
-    const q = NinePointCalibration.apply(model, p.x, p.y);
-    return { ...p, x: q.x, y: q.y };
-  });
-}
-// Wrapped on THIS page's Tracking only; the shared module is unchanged.
-const setExternalRaw = Tracking.setExternalPointers.bind(Tracking);
-Tracking.setExternalPointers = (pts) => setExternalRaw(correctedPointers(pts || []));
-
-async function calibrateThenStart(sim) {
-  goFullscreen();              // inside the click, and so the points use the final screen size
-  prepareInputs(sim);
-  calibration.models = {};     // measure raw gaze, never an earlier correction
-  document.getElementById("mpBootInner").style.visibility = "hidden";
-  const result = await NinePointCalibration.run({
-    players: PLAYERS,
-    simMode: !!sim,
-    clickMode: !sim && !!GazeAggregator.webcamPlayer(),
-    onClick: (x, y) => GazeAggregator.recordCalibrationClick(x, y),
-    readPointers: () => Tracking.getPointers(),
-    playerOfPointer: (id) => byPointer[id] || null,
-    inputOf: (pl) => sim ? (pl.id === 0 ? "mouse" : "arrows")
-      : ((GazeAggregator.players().find((p) => p.id === pl.id) || {}).source || "neon"),
-    allLive: () => sim || GazeAggregator.players().filter((p) => p.source === "neon").every((p) => p.live),
-    markerFootprint: () => (window.Markers && Markers.shown ? (Markers.margin || 24) + (Markers.size || 300) : 0),
-  });
-  document.getElementById("mpBootInner").style.visibility = "";
-  calibration.result = result;
-  if (!result.skipped && !sim) {
-    for (const [id, r] of Object.entries(result.byPlayer)) calibration.models[Number(id)] = r.model;
+document.getElementById("mpStart").onclick = async () => {
+  const cam = GazeAggregator.webcamPlayer();
+  if (cam && !calibratedWebcam) {
+    // Hide the card first: the dots must be clicked against the empty stage,
+    // not on top of the setup text.
+    document.getElementById("mpBootInner").style.visibility = "hidden";
+    await runWebcamCalibration();
+    document.getElementById("mpBootInner").style.visibility = "";
   }
-  if (!result.skipped && GazeAggregator.webcamPlayer()) calibratedWebcam = true;
-  start(sim);
-}
-
-document.getElementById("mpStart").onclick = () => calibrateThenStart(false);
-document.getElementById("mpSim").onclick = () => calibrateThenStart(true);
+  start(false);
+};
+document.getElementById("mpSim").onclick = () => start(true);
 
 renderBootCmd();
 GazeAggregator.init({ players: PLAYERS });
@@ -692,7 +636,6 @@ if (new URLSearchParams(location.search).has("sim")) start(true);
 
 <script src="../sketch.js"></script>
 <script src="../shared/gaze/fixations.js"></script>
-<script src="../shared/gaze/nine-point-calibration.js"></script>
 <script src="medusa-analysis.js"></script>
 </body>
 </html>
