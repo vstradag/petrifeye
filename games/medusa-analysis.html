@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MEDUSA — multiplayer with analysis</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<link rel="stylesheet" href="../tuning.css" />
+<style>
+  /* Scoreboard + connection state. One row per player, always visible:
+     during a showing it is the score, and while setting up it is the only
+     honest indicator of whether each bridge is actually feeding gaze. */
+  /* Scoreboard, top CENTRE — the neutral spot between two competing players,
+     and it reads as part of the piece rather than a debug overlay. */
+  .mp-panel {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 950; display: flex; gap: 26px; align-items: center;
+    font-family: var(--gaze-mono); background: rgba(8,9,14,.72);
+    border: 1px solid #23252c; padding: 10px 22px;
+  }
+  .mp-row { display:flex; align-items:center; gap:9px; }
+  .mp-dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .mp-name { font-size:12px; letter-spacing:.12em; }
+  .mp-state { font-size:10px; color:#6f6d6a; }
+  .mp-state.live { color:#5fd39a; }
+  .mp-state.warn { color:#d8a657; }
+  .mp-state.err  { color:#c26060; }
+  .mp-score { font-size:24px; color:#e8e6e2; font-variant-numeric:tabular-nums;
+              min-width:24px; text-align:right; font-weight:200; }
+  .mp-lead { color:#fff; text-shadow:0 0 14px rgba(255,255,255,.5); }
+  /* Connection state is setup information, not part of the show. It only
+     appears if a player actually drops mid-game, where it explains a dead
+     pointer instead of leaving it a mystery. */
+  .mp-row .mp-state:empty { display:none; }
+
+  /* ------------------------------------------------ settings, top-right
+     Deliberately faint: reachable if someone needs it, invisible enough
+     that nobody looks at it instead of the piece. */
+  /* BOTTOM CENTRE, not the top-right corner it used to sit in.
+     The four AprilTags are 300px squares inset 24px into each CORNER, on a
+     layer at z-index 1100 — so the old top-right gear was rendered
+     underneath an opaque white tag and simply could not be seen. (The tag
+     layer is pointer-events:none, so it was still clickable; it was
+     invisible, which amounts to the same thing.)
+     The horizontal centre is the one band that is marker-free at ANY
+     height, because tags only ever occupy ~324px in from the left and
+     right edges. Centring horizontally is what guarantees no overlap —
+     which matters in both directions: a gear ON a tag would occlude it and
+     break detection for that corner. */
+  .mp-gear {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    top: auto; right: auto;
+    z-index: 1150;              /* above the marker layer (1100) */
+    width: 38px; height: 38px; padding: 0;
+    background: rgba(10,12,18,.88);
+    border: 1px solid #7a7c85; border-radius: 50%;
+    color: #f0eee9; font-size: 18px; line-height: 1; cursor: pointer;
+
+    /* Opaque and high-contrast, because chasing "discreet" through CONTRAST
+       cost this button its entire purpose twice: first at opacity .28, then
+       again at .5 — both times present in the DOM and invisible to the eye
+       against the fur field.
+       Discretion now comes from TIME instead. It fades out after a few
+       seconds without mouse movement, so during a showing — when nobody is
+       touching the mouse — the screen is clean, and the instant anyone
+       reaches for the mouse it is unmistakably there. */
+    opacity: 1;
+    transition: opacity .45s ease, background .2s, border-color .2s, color .2s;
+  }
+  .mp-gear.idle { opacity: 0; pointer-events: none; }
+  .mp-gear:hover {
+    background: rgba(255,59,59,.22); border-color: var(--gaze-red); color: #fff;
+  }
+
+  /* Opens straight up from the gear, and horizontally centred for the same
+     reason the gear is: centring is what keeps it clear of the corner tags
+     no matter how tall the panel grows or how small the window gets. */
+  .tuning-panel {
+    top: auto !important;
+    bottom: 56px !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%);
+    z-index: 1150 !important;
+  }
+
+  .mp-toggle-row {
+    display:flex; align-items:center; gap:8px;
+    margin-top:10px; padding-top:10px; border-top:1px solid #2a2c33;
+    font-size:11px; color:#9a9895; cursor:pointer;
+  }
+
+  /* Full-screen setup card, shown until every bridge is streaming. Without
+     it a missing bridge just looks like a black screen. */
+  .mp-boot {
+    position: fixed; inset:0; z-index:1200; background:#000;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--gaze-mono); text-align:center;
+  }
+  .mp-boot.hidden { display:none; }
+  .mp-boot-inner { max-width: 620px; padding: 30px; }
+  .mp-boot h1 { font-size:30px; font-weight:200; letter-spacing:.34em;
+                margin:0 0 8px; color:#e8e6e2; }
+  .mp-boot h1 span { color:var(--gaze-red); }
+  .mp-boot .sub { font-size:10px; letter-spacing:.38em; text-transform:uppercase;
+                  color:#6a6a6a; margin:0 0 30px; }
+  .mp-boot pre { text-align:left; background:#0b0d12; border:1px solid #23252c;
+                 padding:14px 16px; font-size:11.5px; line-height:1.85;
+                 color:#9a9895; overflow-x:auto; margin:0 0 18px; }
+  .mp-boot pre b { color:#c98f8f; font-weight:600; }
+  .mp-boot .note { font-size:11.5px; line-height:1.8; color:#8d8b88; margin:0 0 18px; }
+  .mp-btn { font-family:var(--gaze-mono); font-size:11px; letter-spacing:.3em;
+            text-transform:uppercase; color:#ffb0b0; background:transparent;
+            border:1px solid var(--gaze-red); padding:12px 30px; cursor:pointer; }
+  .mp-btn:hover { background:rgba(255,59,59,.14); color:#fff; }
+  .mp-btn.ghost { border-color:#2a2c33; color:#9a9895; margin-left:10px; }
+  .mp-btn.ghost:hover { border-color:#666; background:transparent; }
+
+  /* Per-player input choice on the boot card. */
+  .mp-srcs { display:flex; flex-direction:column; gap:9px; margin:0 0 20px; }
+  .mp-src { display:flex; align-items:center; gap:12px; justify-content:center;
+            font-size:12px; }
+  .mp-src select { font-family:var(--gaze-mono); font-size:11px;
+                   background:#0b0d12; color:#c9c7c4; border:1px solid #2a2c33;
+                   padding:5px 8px; }
+  .mp-src .who { min-width:26px; font-weight:600; letter-spacing:.1em; }
+  .mp-src .st { font-size:10.5px; color:#6f6d6a; min-width:210px; text-align:left; }
+  .mp-src .st.live { color:#5fd39a; }
+  .mp-src .st.warn { color:#d8a657; }
+  .mp-src .st.err  { color:#c26060; }
+
+  /* Calibration overlay for the webcam player. */
+  .mp-cal { position:fixed; inset:0; z-index:1300; background:#000; display:none; }
+  .mp-cal.on { display:block; }
+  .mp-cal-msg { position:fixed; left:50%; bottom:46px; transform:translateX(-50%);
+                font-family:var(--gaze-mono); font-size:12px; letter-spacing:.3em;
+                text-transform:uppercase; color:#ffd9d9; text-align:center; }
+  .mp-cal-dot { position:fixed; width:46px; height:46px; margin:-23px 0 0 -23px;
+                border-radius:50%; border:2px solid var(--gaze-red);
+                background:rgba(255,59,59,.16); cursor:pointer; }
+  .mp-cal-dot span { position:absolute; inset:0; display:flex; align-items:center;
+                     justify-content:center; font-family:var(--gaze-mono);
+                     font-size:13px; color:#ffd9d9; }
+  .ma-row { display:flex; gap:6px; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #2a2c33; }
+  .ma-mini { flex:1; font-family:var(--gaze-mono); font-size:10px; letter-spacing:.06em; color:#d9d7d3;
+             background:#14161c; border:1px solid #2f3139; padding:7px 4px; cursor:pointer; }
+  .ma-mini:hover { border-color:var(--gaze-red); color:#fff; }
+</style>
+</head>
+<body>
+
+<div class="mp-boot" id="mpBoot">
+  <div class="mp-boot-inner" id="mpBootInner">
+    <h1>MEDUSA <span>MULTIPLAYER</span></h1>
+    <p class="sub">with second screen analysis</p>
+    <div class="mp-srcs" id="mpSrcs"></div>
+    <pre id="mpBootCmd"></pre>
+    <p class="note" id="mpBootState">checking bridges…</p>
+    <button class="mp-btn" id="mpStart" disabled>waiting for bridges</button>
+    <button class="mp-btn ghost" id="mpSim">test with mouse + arrows</button>
+    <p class="note" style="margin-top:22px">The <b style="color:#c98f8f">analysis screen</b> opens in its own window, for the second projector.<br />
+      <button class="mp-btn ghost" id="maObserverBoot" style="margin:10px 0 0">open analysis screen</button></p>
+  </div>
+</div>
+
+<div class="mp-cal" id="mpCal">
+  <p class="mp-cal-msg" id="mpCalMsg"></p>
+</div>
+
+<div class="mp-panel" id="mpPanel" style="display:none"></div>
+<button class="mp-gear" id="mpGear" title="settings (s)" style="display:none">&#9881;</button>
+
+<!-- Same tuning panel as single player. Hidden by default here: during a
+     showing these are backstage controls, not part of the work. Opened from
+     the gear, or with s. -->
+<div class="tuning-panel tuning-panel-hidden" id="tuning-panel">
+  <div class="ma-row">
+    <button class="ma-mini" id="maObserver">analysis screen (o)</button>
+    <button class="ma-mini" id="maNewRound" title="Scores to zero, every stone back to life, analysis cleared">new round</button>
+  </div>
+  <label>
+    <div class="tuning-row"><span>min eye size</span><span id="tv-min">28px</span></div>
+    <input type="range" id="slider-min-radius" min="10" max="120" value="28" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>max eye size</span><span id="tv-max">46px</span></div>
+    <input type="range" id="slider-max-radius" min="10" max="120" value="46" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>dwell to petrify</span><span id="tv-dwell">2.0s</span></div>
+    <input type="range" id="slider-dwell" min="0.3" max="5" value="2" step="0.1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>gaze assist</span><span id="tv-assist">170px</span></div>
+    <input type="range" id="slider-assist" min="0" max="320" value="170" step="5" />
+  </label>
+  <label class="tuning-checkbox">
+    <input type="checkbox" id="toggle-fur" />
+    <span>fur background (f)</span>
+  </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-target" checked />
+    <span>show gaze target (g)</span>
+  </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-assist" checked />
+    <span>motion assist (a)</span>
+  </label>
+  <label class="mp-toggle-row" title="Tags must be on screen for gaze to map. Hiding them stops tracking once the cached surface expires.">
+    <input type="checkbox" id="toggle-markers" checked />
+    <span>screen markers (m)</span>
+  </label>
+  <label title="Smaller frees screen space but shortens detection range — the tag must still span ~25-30px in the scene camera. On a big screen it can go much smaller than on a laptop.">
+    <div class="tuning-row"><span>marker size</span><span id="tv-marker">300px</span></div>
+    <input type="range" id="slider-marker" min="80" max="600" value="300" step="10" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
+    <select id="select-profile">
+      <option value="">auto (per input)</option>
+      <option value="mouse">mouse — precise</option>
+      <option value="neon">neon glasses</option>
+      <option value="webgazer">webcam — worst case</option>
+    </select>
+  </label>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+<script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/dwell.js"></script>
+<script src="../shared/attention.js"></script>
+<script src="../shared/gaze/gaze-assist.js"></script>
+<script src="../shared/fur-field.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
+<script src="../shared/gaze/gaze-aggregator.js"></script>
+<script src="../shared/controls-hint.js"></script>
+
+<script>
+// Presentation. Read by sketch.js when it loads (below), so it must be set
+// here, before that script tag. Diagnostics off: during a showing the
+// bottom-left readout and the pointer id labels are backstage information.
+window.PetrifEyeShow = {
+  hud: false,
+  pointerMarker: true,
+  markerDiameter: 44,
+  markerColor: [57, 255, 20],
+  // On for a showing. Nine small blobs on flat black look like an empty
+  // screen; the fur is what makes it read as the piece. Measured at 6.4ms
+  // a frame fullscreen, so it costs nothing worth saving.
+  fur: true,
+};
+
+// Add a player by adding a row: each needs its own bridge on its own port.
+const PLAYERS = [
+  { id: 0, label: "P1", port: 8443, color: "#ff5f5f" },
+  { id: 1, label: "P2", port: 8444, color: "#4ecdc4" },
+];
+
+const scores = {};
+PLAYERS.forEach((p) => (scores[p.id] = 0));
+let started = false;
+let simMode = false;
+
+// pointerId -> player, for attributing a petrification.
+//
+// Live play uses the aggregator's ids ("player-0"). The mouse/keyboard
+// stand-in comes from Tracking, which names its pointers "mouse" and "sim2",
+// so those need aliases too — without them a simulated petrification is
+// reported under an id nothing recognises and nobody is credited, which
+// looks exactly like a broken scoreboard.
+const byPointer = {};
+PLAYERS.forEach((p) => (byPointer[`player-${p.id}`] = p));
+const SIM_POINTER_IDS = ["mouse", "sim2"];
+
+// ---------------------------------------------------------------- boot card
+function renderBootCmd() {
+  const neon = GazeAggregator.players().filter((p) => p.source === "neon");
+  const box = document.getElementById("mpBootCmd");
+  if (!neon.length) { box.style.display = "none"; return; }
+  box.style.display = "";
+  const lines = neon.map(
+    (p) => `<b>#</b> ${p.label}\n~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port ${p.port}`
+  ).join("\n\n");
+  document.getElementById("mpBootCmd").innerHTML =
+    `<b># from the code/ folder, one per player, each in its own terminal</b>\n\n${lines}`;
+}
+
+// ------------------------------------------------- per-player input choice
+// WebGazer is one camera watching one face, so it yields exactly ONE pointer
+// no matter how many people are in front of it. At most one player can be on
+// webcam; the rest need their own glasses and their own bridge.
+function renderSources(list) {
+  const webcamTaken = list.some((p) => p.source === "webcam");
+  document.getElementById("mpSrcs").innerHTML = list.map((p) => {
+    const camOpt = (p.source === "webcam" || !webcamTaken)
+      ? `<option value="webcam"${p.source === "webcam" ? " selected" : ""}>webcam (WebGazer)</option>`
+      : `<option value="webcam" disabled>webcam — taken by another player</option>`;
+    const cls = p.live ? "live" : p.state === "offline" ? "err" : "warn";
+    const st = p.live ? "ready"
+      : p.source === "webcam" ? (p.detail || p.state)
+      : p.streaming && p.markers != null ? `${p.markers}/4 markers`
+      : (p.detail || p.state);
+    return `<div class="mp-src">
+      <span class="who" style="color:${p.color}">${p.label}</span>
+      <select data-player="${p.id}">
+        <option value="neon"${p.source === "neon" ? " selected" : ""}>neon glasses · port ${p.port}</option>
+        ${camOpt}
+      </select>
+      <span class="st ${cls}">${st}</span>
+    </div>`;
+  }).join("");
+
+  document.getElementById("mpSrcs").querySelectorAll("select").forEach((sel) => {
+    sel.onchange = (e) => {
+      GazeAggregator.setSource(Number(e.target.dataset.player), e.target.value);
+      calibratedWebcam = false;   // a new camera player must calibrate again
+    };
+  });
+}
+
+// ------------------------------------------------------ webcam calibration
+// WebGazer's ridge regression is untrained until it has seen clicks paired
+// with gaze, so without this the webcam player's pointer is meaningless.
+// Single player gets this from gaze-controller, which owns its whole page;
+// this is the compact equivalent for a page that does not hand over control.
+let calibratedWebcam = false;
+const CAL_COLS = 3, CAL_ROWS = 3, CAL_CLICKS = 4;
+
+function runWebcamCalibration() {
+  return new Promise((resolve) => {
+    const layer = document.getElementById("mpCal");
+    const msg = document.getElementById("mpCalMsg");
+    layer.classList.add("on");
+    const pts = [];
+    for (let r = 0; r < CAL_ROWS; r++)
+      for (let c = 0; c < CAL_COLS; c++)
+        pts.push({ fx: (c + 0.5) / CAL_COLS, fy: (r + 0.5) / CAL_ROWS });
+
+    let i = 0;
+    const showPoint = () => {
+      layer.querySelectorAll(".mp-cal-dot").forEach((d) => d.remove());
+      if (i >= pts.length) {
+        layer.classList.remove("on");
+        calibratedWebcam = true;
+        resolve();
+        return;
+      }
+      let clicks = 0;
+      const dot = document.createElement("button");
+      dot.className = "mp-cal-dot";
+      dot.style.left = `${pts[i].fx * 100}%`;
+      dot.style.top = `${pts[i].fy * 100}%`;
+      dot.innerHTML = `<span>${CAL_CLICKS}</span>`;
+      dot.onclick = (ev) => {
+        // Feed WebGazer the SCREEN position actually clicked, paired with
+        // whatever its model currently predicts — that pairing is the
+        // training signal.
+        GazeAggregator.recordCalibrationClick(ev.clientX, ev.clientY);
+        clicks += 1;
+        dot.querySelector("span").textContent = String(CAL_CLICKS - clicks);
+        if (clicks >= CAL_CLICKS) { i += 1; showPoint(); }
+      };
+      layer.appendChild(dot);
+      msg.textContent = `look at the dot and click it — point ${i + 1} of ${pts.length}`;
+    };
+    showPoint();
+  });
+}
+
+function renderBootState(list) {
+  const el = document.getElementById("mpBootState");
+  const btn = document.getElementById("mpStart");
+
+  // Readiness is "the bridge has gaze from the phone", NOT "mapped gaze has
+  // arrived". Mapped gaze also needs the four tags inside that player's
+  // scene camera, and the tags are on this very screen — so requiring it
+  // here would wait forever on a condition only starting can satisfy.
+  const ready = list.filter((p) => p.streaming).length;
+
+  el.innerHTML = list.map((p) => {
+    let cls, txt;
+    if (p.live) {
+      cls = "live"; txt = "gaze mapped — ready";
+    } else if (p.streaming) {
+      // Connected and streaming, just not framed on the screen yet.
+      const m = p.markers;
+      cls = m ? "warn" : "warn";
+      txt = m != null
+        ? `${m}/4 markers — ${m >= 3 ? "nearly there, hold still" : "look at this screen"}`
+        : "connected — look at this screen";
+    } else {
+      cls = p.state === "offline" ? "err" : "warn";
+      txt = p.detail || p.state;
+    }
+    return `<span style="color:${p.color}">${p.label}</span> · port ${p.port} — <span class="mp-state ${cls}">${txt}</span>`;
+  }).join("<br>");
+
+  btn.disabled = ready === 0;
+  btn.textContent = ready === 0 ? "waiting for bridges"
+    : ready < list.length ? `start with ${ready} of ${list.length}` : "start";
+}
+
+// ---------------------------------------------------------------- scoreboard
+function renderPanel(list) {
+  const best = Math.max(...Object.values(scores));
+  document.getElementById("mpPanel").innerHTML =
+    list.map((p) => {
+      const cls = p.state === "offline" ? "err" : "warn";
+      // Say NOTHING while a player is playing normally — a permanent "live"
+      // label is just clutter on the work. Speak up only when something is
+      // wrong, and then say the marker count rather than a generic status:
+      // that is the difference between "I'm broken" and "turn back towards
+      // the screen".
+      const txt = (simMode || p.live) ? ""
+        : p.streaming && p.markers != null ? `${p.markers}/4 markers`
+        : p.streaming ? "look at the screen"
+        : "disconnected";
+      const lead = scores[p.id] === best && best > 0 ? " mp-lead" : "";
+      return `<div class="mp-row">
+        <div class="mp-dot" style="background:${p.color}"></div>
+        <div class="mp-name" style="color:${p.color}">${p.label}</div>
+        <div class="mp-state ${cls}">${txt}</div>
+        <div class="mp-score${lead}">${scores[p.id]}</div>
+      </div>`;
+    }).join("");
+}
+
+// ------------------------------------------------------------- chrome
+function setTuningVisible(on) {
+  const panel = document.getElementById("tuning-panel");
+  if (panel) panel.classList.toggle("tuning-panel-hidden", !on);
+}
+
+function setTargetVisible(on) {
+  window.PetrifEyeShow.pointerMarker = !!on;
+  const box = document.getElementById("toggle-target");
+  if (box) box.checked = !!on;
+}
+
+document.getElementById("mpGear").onclick = () => {
+  const panel = document.getElementById("tuning-panel");
+  setTuningVisible(panel.classList.contains("tuning-panel-hidden"));
+};
+document.getElementById("toggle-target").onchange = (e) => setTargetVisible(e.target.checked);
+
+function setAssist(on) {
+  if (window.GazeAssist) GazeAssist.setEnabled(on);
+  const box = document.getElementById("toggle-assist");
+  if (box) box.checked = !!on;
+}
+
+document.getElementById("toggle-assist").onchange = (e) => setAssist(e.target.checked);
+
+// The gear is fully visible whenever the mouse is in use and fades away when
+// it is not — which is what "discreet" should have meant all along. A showing
+// runs untouched, so it disappears on its own; anyone reaching for the mouse
+// gets it back before they arrive at it.
+const GEAR_IDLE_MS = 3000;
+let gearIdleTimer = null;
+
+function wakeGear() {
+  const g = document.getElementById("mpGear");
+  if (!g) return;
+  g.classList.remove("idle");
+  clearTimeout(gearIdleTimer);
+  gearIdleTimer = setTimeout(() => {
+    // Never fade while the panel is open — that IS active use, even if the
+    // mouse happens to be resting while you read a slider.
+    const panel = document.getElementById("tuning-panel");
+    if (panel && !panel.classList.contains("tuning-panel-hidden")) return wakeGear();
+    g.classList.add("idle");
+  }, GEAR_IDLE_MS);
+}
+
+window.addEventListener("mousemove", wakeGear);
+window.addEventListener("mousedown", wakeGear);
+
+function setMarkers(on) {
+  if (!window.Markers) return;
+  on ? Markers.show() : Markers.hide();
+}
+
+document.getElementById("toggle-markers").onchange = (e) => setMarkers(e.target.checked);
+
+// Marker size. Routed through the aggregator rather than Markers directly,
+// so the tags and every bridge's surface geometry always move together.
+const markerSlider = document.getElementById("slider-marker");
+const markerReadout = document.getElementById("tv-marker");
+
+function showMarkerSize(px) {
+  markerReadout.textContent = `${px}px`;
+  if (Number(markerSlider.value) !== px) markerSlider.value = px;
+}
+
+markerSlider.oninput = (e) => {
+  const applied = GazeAggregator.setMarkerSize(Number(e.target.value));
+  if (applied) showMarkerSize(applied);
+};
+
+// The real starting value comes from the bridge's layout.json, not from the
+// slider's markup — the bridge may have been launched with --marker-size.
+window.addEventListener("markers-size", (e) => showMarkerSize(e.detail.size));
+window.addEventListener("load", () => {
+  if (window.Markers && Markers.size) showMarkerSize(Markers.size);
+});
+
+// Markers announce their own state, so clicking a tag to dismiss it leaves
+// this checkbox correct without the two having to know about each other.
+window.addEventListener("markers-visibility", (e) => {
+  const box = document.getElementById("toggle-markers");
+  if (box) box.checked = !!e.detail.shown;
+});
+
+// Preview how another input will feel while testing with a cursor. A mouse
+// is pixel-accurate, so it cannot show you whether the assist is strong
+// enough for gaze — this forces the gaze profiles onto it.
+document.getElementById("select-profile").onchange = (e) => {
+  const v = e.target.value;
+  if (window.GazeAssist) GazeAssist.useProfile(v || null);
+  document.getElementById("tv-profile").textContent = v || "auto";
+};
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "g" || e.key === "G") setTargetVisible(!window.PetrifEyeShow.pointerMarker);
+  if (e.key === "a" || e.key === "A") setAssist(!GazeAssist.isEnabled());
+  if (e.key === "m" || e.key === "M") setMarkers(!(window.Markers && Markers.shown));
+  // 's' is ALREADY handled by sketch.js keyPressed() -> toggleSettingsPanel(),
+  // which works on this page's panel too. Toggling it here as well just
+  // flipped it twice for a net no-op — which is why the key appeared dead.
+  // Only wake the gear here; let sketch.js own the toggle.
+  if (e.key === "s" || e.key === "S") wakeGear();
+});
+
+let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
+window.addEventListener("gaze-players", (e) => {
+  lastList = e.detail;
+  if (started) { renderPanel(lastList); }
+  else { renderSources(lastList); renderBootState(lastList); renderBootCmd(); }
+});
+
+// Score attribution: sketch.js forwards the winning pointer to petrify(),
+// which reports it here. No game logic is duplicated.
+window.addEventListener("blob-petrified", (e) => {
+  const p = byPointer[e.detail.pointerId];
+  if (!p) return;              // unattributed (single-pointer / programmatic)
+  scores[p.id] += 1;
+  renderPanel(lastList);
+});
+
+// ---------------------------------------------------------------- start
+// Fullscreen must be requested inside a user gesture, so this only works
+// when called straight from the START click — which is also the right
+// moment: the tags jump to the true screen corners, making the tracked
+// surface as large as the display allows, and browser chrome stops eating
+// vertical space. The aggregator re-reports the viewport on
+// fullscreenchange, so every bridge rebuilds its surface at the new size.
+function goFullscreen() {
+  try {
+    if (document.fullscreenElement) return;
+    const p = document.documentElement.requestFullscreen?.();
+    if (p && p.catch) p.catch(() => {}); // denied → play windowed
+  } catch (_) { /* unsupported → not fatal */ }
+}
+
+function start(sim) {
+  if (started) return;
+  started = true;
+  simMode = !!sim;
+  goFullscreen();
+  document.getElementById("mpBoot").classList.add("hidden");
+  document.getElementById("mpPanel").style.display = "";
+  document.getElementById("mpGear").style.display = "";
+  wakeGear();          // visible on entry, then fades if the mouse stays still
+  renderPanel(lastList);
+
+  if (sim) {
+    // Tracking already ships a second pointer driven by the arrow keys,
+    // built for exactly this: exercising multi-pointer dwell with one mouse.
+    // The aggregator has to stop publishing first — it would otherwise keep
+    // pushing an empty external-pointer list over the top of the mouse.
+    GazeAggregator.setPublishing(false);
+    Tracking.releaseExternal();
+    if (!Tracking.isSimSecondEnabled()) Tracking.toggleSimSecondPointer();
+    // Credit the stand-in pointers to the first N players, in order.
+    SIM_POINTER_IDS.forEach((pid, i) => {
+      if (PLAYERS[i]) byPointer[pid] = PLAYERS[i];
+    });
+    // No cameras involved — the tags are just clutter over the piece.
+    if (window.Markers) Markers.hide();
+  }
+  // Markers are already showing from load in the live path; the scene
+  // cameras must keep seeing them for the whole session, so nothing to do.
+
+  // The control legend is shown only when testing with mouse and keyboard,
+  // where the bindings are not discoverable. With glasses on there is
+  // nothing to learn — you look at a blob — so it would be pure clutter over
+  // the work. It is still reachable with h.
+  if (sim && window.ControlsHint) {
+    ControlsHint.show(
+      [{ keys: "mouse", does: "P1" }, { keys: "arrows", does: "P2" },
+       { keys: "g", does: "gaze target on/off" },
+       { keys: "r", does: "reset blobs" }, { keys: "o", does: "analysis screen" }],
+      "medusa multiplayer"
+    );
+  }
+}
+
+document.getElementById("mpStart").onclick = async () => {
+  const cam = GazeAggregator.webcamPlayer();
+  if (cam && !calibratedWebcam) {
+    // Hide the card first: the dots must be clicked against the empty stage,
+    // not on top of the setup text.
+    document.getElementById("mpBootInner").style.visibility = "hidden";
+    await runWebcamCalibration();
+    document.getElementById("mpBootInner").style.visibility = "";
+  }
+  start(false);
+};
+document.getElementById("mpSim").onclick = () => start(true);
+
+renderBootCmd();
+GazeAggregator.init({ players: PLAYERS });
+
+// Draw the tags DURING the boot card, not after starting. Each player's
+// scene camera has to see them before any gaze can be mapped, so the boot
+// card doubles as the framing step: look at the screen, watch your own
+// marker count climb to 4/4, then start.
+if (window.Markers) Markers.show();
+
+// ?sim skips straight into mouse+arrows, matching ?mouse elsewhere.
+if (new URLSearchParams(location.search).has("sim")) start(true);
+</script>
+
+<script src="../sketch.js"></script>
+<script src="../shared/gaze/fixations.js"></script>
+<script src="medusa-analysis.js"></script>
+</body>
+</html>

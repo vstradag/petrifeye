@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MEDUSA — analysis screen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: #050608; color: #e8e6e2;
+               font-family: var(--gaze-mono); overflow: hidden; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+          gap: 2px; height: 100vh; background: #1a1c22; }
+  .q { position: relative; background: #07080b; overflow: hidden; display: flex; flex-direction: column; }
+  .q-head { display: flex; justify-content: space-between; align-items: baseline;
+            padding: 10px 16px 6px; font-size: 10px; letter-spacing: .3em; text-transform: uppercase; color: #7a7876; }
+  .q-head b { color: #e8e6e2; font-weight: 500; letter-spacing: .12em; text-transform: none; font-size: 12px; }
+  .q-body { position: relative; flex: 1; min-height: 0; }
+  .q-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---- score ---- */
+  .score { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 28px; }
+  .score-row { display: flex; justify-content: space-around; align-items: flex-end; }
+  .score-cell { text-align: center; }
+  .score-name { font-size: 13px; letter-spacing: .3em; }
+  .score-num { font-size: clamp(64px, 11vw, 170px); font-weight: 200; line-height: 1; font-variant-numeric: tabular-nums; }
+  .score-lead { text-shadow: 0 0 36px rgba(255,255,255,.28); }
+  .score-sub { font-size: 11px; color: #6f6d6a; margin-top: 8px; letter-spacing: .08em; }
+  .score-foot { text-align: center; margin-top: 26px; font-size: 12px; color: #8d8b88; letter-spacing: .06em; }
+  .stones { display: inline-flex; gap: 6px; vertical-align: middle; margin-left: 10px; }
+  .stone { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #3a3c44; background: #1a1c22; }
+  .stone.on { background: #9a978f; border-color: #c9c6bd; }
+
+  /* ---- tables ---- */
+  .stats { position: absolute; inset: 0; padding: 4px 22px 14px; display: flex; flex-direction: column; }
+  .stats table { width: 100%; border-collapse: collapse; }
+  .stats th { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; font-weight: 500;
+              text-align: right; padding: 6px 0 8px; color: #7a7876; }
+  .stats th:first-child { text-align: left; }
+  /* Row height follows the screen: seven rows plus the note have to fit a
+     laptop-sized quadrant as well as a projected one. */
+  .stats td { text-align: right; padding: clamp(3px, 0.75vh, 9px) 0; border-top: 1px solid #16181e; font-variant-numeric: tabular-nums; }
+  .stats td:first-child { text-align: left; font-size: 12px; color: #a9a7a3; }
+  .stats td .big { font-size: clamp(16px, min(2.6vw, 4.2vh), 40px); font-weight: 200; color: #f0eee9; }
+  .stats td .unit { font-size: 11px; color: #6f6d6a; margin-left: 4px; }
+  .stats tr.secondary td .big { font-size: clamp(12px, min(1.5vw, 2.4vh), 20px); color: #b9b7b3; }
+  .stats .foot { margin-top: auto; padding-top: 6px; font-size: 9.5px; line-height: 1.55; color: #5a5856; }
+
+  .waiting { position: fixed; inset: 0; z-index: 10; background: rgba(5,6,8,.94);
+             display: flex; align-items: center; justify-content: center; text-align: center; }
+  .waiting.hidden { display: none; }
+  .waiting h1 { font-size: 26px; font-weight: 200; letter-spacing: .34em; margin: 0 0 14px; }
+  .waiting h1 span { color: var(--gaze-red); }
+  .waiting p { font-size: 12px; line-height: 1.9; color: #8d8b88; max-width: 580px; margin: 0 auto; }
+  .keys { position: fixed; right: 10px; bottom: 8px; z-index: 5; font-size: 10px; color: #3c3e46; letter-spacing: .08em; }
+</style>
+</head>
+<body>
+
+<div class="grid">
+  <section class="q">
+    <div class="q-head"><span>scanpaths</span><b id="q1Mode"></b></div>
+    <div class="q-body"><canvas id="q1"></canvas></div>
+  </section>
+
+  <section class="q">
+    <div class="q-head"><span>score · eyes petrified</span><b id="q2Clock"></b></div>
+    <div class="q-body"><div class="score" id="q2"></div></div>
+  </section>
+
+  <section class="q">
+    <div class="q-head"><span>looking that petrified eyes</span><b></b></div>
+    <div class="q-body"><div class="stats" id="q3"></div></div>
+  </section>
+
+  <section class="q">
+    <div class="q-head"><span>where on the screen</span><b id="q4Note"></b></div>
+    <div class="q-body"><canvas id="q4"></canvas></div>
+  </section>
+</div>
+
+<div class="waiting" id="waiting">
+  <div>
+    <h1>MEDUSA <span>ANALYSIS</span></h1>
+    <p id="waitingMsg">
+      Waiting for the game screen.<br />
+      Open <b>Medusa (+2 players) with second screen analysis</b> in this same browser —
+      this window listens to it directly, so it must be the same browser.
+    </p>
+  </div>
+</div>
+
+<div class="keys">x new round · f fullscreen</div>
+
+<script src="medusa-analysis-observer.js"></script>
+</body>
+</html>
