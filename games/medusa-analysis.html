@@ -282,10 +282,10 @@ function renderBootCmd() {
   if (!neon.length) { box.style.display = "none"; return; }
   box.style.display = "";
   const lines = neon.map(
-    (p) => `<b>#</b> ${p.label}\n~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port ${p.port}`
+    (p) => `<b>#</b> ${p.label}\n~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port ${p.port} --address PHONE_IP`
   ).join("\n\n");
   document.getElementById("mpBootCmd").innerHTML =
-    `<b># from the code/ folder, one per player, each in its own terminal</b>\n\n${lines}`;
+    `<b># each bridge must be pinned to ITS OWN phone with --address</b>\n<b># without it, every bridge grabs the first phone it finds — the same one</b>\n<b># easiest: double-click Start PetrifEye.command, which finds and pins each phone</b>\n\n${lines}`;
 }
 
 // ------------------------------------------------- per-player input choice

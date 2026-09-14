@@ -296,12 +296,11 @@ def main():
             procs.append((i + 1, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
         print(f"P{i + 1} -> port {port}  ({d['ip']})   log: {log}")
 
-    # One device is a single-player session; two or more is multiplayer.
-    # Guessing right here is the difference between "it just opened" and
-    # "now go and find the right URL yourself".
-    page = ("games/medusa-multiplayer.html" if len(devices) > 1
-            else "games/medusa.html")
-    url = f"https://localhost:{args.base_port}/{page}"
+    # Open the game MENU, not a particular game. With several experiences now
+    # sharing the same bridges (MEDUSA, the analysis version, POLITICAL VISION)
+    # guessing one from the device count would open the wrong one more often
+    # than the right one; the menu is one click from all of them.
+    url = f"https://localhost:{args.base_port}/"
 
     # Give the first bridge a moment to bind before pointing a browser at it,
     # or the page loads into a connection error and needs a manual reload.

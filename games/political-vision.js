@@ -311,9 +311,9 @@
     // The LOCAL venv, never bridge/.venv: that one lives in the Google Drive
     // folder and can hang forever on import.
     const lines = neon.map((p) =>
-      `<b>#</b> ${p.label}\n~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port ${p.port}`
+      `<b>#</b> ${p.label}\n~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port ${p.port} --address PHONE_IP`
     ).join("\n\n");
-    box.innerHTML = `<b># from the code/ folder, one per player — or double-click Start PetrifEye.command</b>\n\n${lines}`;
+    box.innerHTML = `<b># each bridge must be pinned to ITS OWN phone with --address</b>\n<b># without it, every bridge grabs the first phone it finds — the same one</b>\n<b># easiest: double-click Start PetrifEye.command, which finds and pins each phone</b>\n\n${lines}`;
   }
 
   // WebGazer is one camera watching one face: at most one player on webcam.
