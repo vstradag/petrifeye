@@ -140,6 +140,44 @@ def port_open(host, port, timeout=0.4):
         return sk.connect_ex((host, port)) == 0
 
 
+def free_port(port):
+    """Stop an old bridge still holding `port`, so a fresh one can bind.
+
+    Without this the new bridge dies on "address already in use" — into a log
+    file nobody is looking at — while the OLD bridge keeps serving the page,
+    possibly paired with the wrong phone. It looks like a success and isn't.
+    Only processes that are our own bridges are stopped; anything else on the
+    port is reported and left alone.
+    """
+    if not port_open("127.0.0.1", port):
+        return True
+    pids = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                          capture_output=True, text=True).stdout.split()
+    for pid in pids:
+        cmd = subprocess.run(["ps", "-o", "command=", "-p", pid],
+                             capture_output=True, text=True).stdout.strip()
+        if "neon_bridge.py" not in cmd:
+            print(f"port {port} is used by another program, not a bridge:\n  {cmd}",
+                  file=sys.stderr)
+            return False
+        print(f"stopping an old bridge still running on port {port} (pid {pid})")
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    for _ in range(40):
+        if not port_open("127.0.0.1", port):
+            return True
+        time.sleep(0.25)
+    for pid in pids:
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    time.sleep(0.5)
+    return not port_open("127.0.0.1", port)
+
+
 async def _port_open(host, port=8080, timeout=0.4):
     try:
         _, w = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
@@ -250,17 +288,26 @@ def main():
     else:
         devices = asyncio.run(discover())
 
-    if devices is None:
-        return 1        # discover() already explained exactly what is wrong
+    # No glasses is NOT a reason to refuse. The bridge is also the web server:
+    # without one, the app cannot even open for the webcam or the mouse. So
+    # start a single bridge regardless. It keeps looking, and a pair of
+    # glasses switched on later is picked up as P1.
     if not devices:
-        print("\nNo Neon Companion found on this network.\n"
-              "  · The Mac and the phones must be on the SAME network.\n"
-              "  · Campus networks (eduroam) isolate devices from each other and\n"
-              "    will never work — use a phone hotspot or a dedicated router.\n"
-              "  · Or pass IPs directly:  --address <ip1> <ip2>", file=sys.stderr)
-        return 1
+        if devices is not None:
+            print("\nNo Neon Companion found on this network.\n"
+                  "  · The Mac and the phones must be on the SAME network.\n"
+                  "  · Campus networks (eduroam) isolate devices from each other and\n"
+                  "    will never work — use a phone hotspot or a dedicated router.\n"
+                  "  · Or pass IPs directly:  --address IP1 IP2", file=sys.stderr)
+        if args.players:
+            return 1    # a specific number of players was demanded
+        print("\nStarting the app anyway, with no glasses: the webcam and the\n"
+              "mouse work without them, and glasses switched on later are\n"
+              "picked up as P1.")
+        devices = []
 
-    print(f"\nfound {len(devices)} device(s):")
+    if devices:
+        print(f"\nfound {len(devices)} device(s):")
     for i, d in enumerate(devices):
         warn = "" if d.get("gaze_ok") else "   <-- gaze sensor not connected"
         batt = f", battery {d['battery']}%" if d.get("battery") is not None else ""
@@ -271,7 +318,7 @@ def main():
     # the launcher adapts to whatever is switched on — which is the whole
     # point of a one-click start: you cannot know in advance how many pairs
     # of glasses are awake.
-    if args.players and len(devices) != args.players:
+    if devices and args.players and len(devices) != args.players:
         print(f"\nexpected {args.players}, found {len(devices)} — not starting.",
               file=sys.stderr)
         return 1
@@ -286,15 +333,25 @@ def main():
               file=sys.stderr)
         return 1
 
+    # One bridge per phone, each pinned to its own phone with --address: an
+    # unpinned bridge takes the FIRST phone that answers, so two unpinned
+    # bridges would both stream the same pair of glasses. With no phones,
+    # one unpinned bridge, so the app is served and keeps looking.
+    plan = [(i + 1, args.base_port + i, d["ip"]) for i, d in enumerate(devices)] \
+        or [(1, args.base_port, None)]
+
+    for _n, port, _ip in plan:
+        if not free_port(port):
+            return 1
+
     procs = []
     print()
-    for i, d in enumerate(devices):
-        port = args.base_port + i
-        log = f"/tmp/bridge-p{i + 1}.log"
-        cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]]
+    for n, port, ip in plan:
+        log = f"/tmp/bridge-p{n}.log"
+        cmd = [python, BRIDGE, "--port", str(port)] + (["--address", ip] if ip else [])
         with open(log, "w") as fh:
-            procs.append((i + 1, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
-        print(f"P{i + 1} -> port {port}  ({d['ip']})   log: {log}")
+            procs.append((n, port, ip, subprocess.Popen(cmd, stdout=fh, stderr=fh)))
+        print(f"P{n} -> port {port}  ({ip or 'no glasses yet — still looking'})   log: {log}")
 
     # Open the game MENU, not a particular game. With several experiences now
     # sharing the same bridges (MEDUSA, the analysis version, POLITICAL VISION)
