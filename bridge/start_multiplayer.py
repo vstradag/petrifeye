@@ -27,6 +27,7 @@ import webbrowser
 from contextlib import closing
 
 BASE_PORT = 8443
+SWEEP_TIMEOUTS = (0.4, 1.0, 2.0)   # seconds per discovery pass; see discover()
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "neon_bridge.py")
 
@@ -187,12 +188,12 @@ async def _port_open(host, port=8080, timeout=0.4):
         return None
 
 
-async def _identify(session, host):
+async def _identify(session, host, timeout=3.0):
     """Confirm a host is a Companion and pull its name/serial."""
     import aiohttp
     try:
         async with session.get(f"http://{host}:8080/api/status",
-                               timeout=aiohttp.ClientTimeout(total=3)) as r:
+                               timeout=aiohttp.ClientTimeout(total=timeout)) as r:
             if r.status != 200:
                 return None
             body = json.loads(await r.text()).get("result", [])
@@ -259,12 +260,33 @@ async def discover():
         # that is already certain.
         return None
 
-    open_hosts = [h for h in await asyncio.gather(*(_port_open(h) for h in hosts)) if h]
+    # SEVERAL passes, each only re-probing hosts not found yet, with a longer
+    # wait each time. One quick pass was not enough, measured on two real
+    # phones: one answered in ~64ms, the other took 225ms typically and often
+    # more than the 0.4s allowed, so a single pass found BOTH phones in only
+    # 3 of 12 runs — the second player silently got no bridge. Phones on Wi-Fi
+    # power saving answer slowly, and the first pass also has to wait for
+    # address resolution of the whole subnet at once. Over 12 runs each:
+    #   one pass 0.4s          3/12
+    #   one pass 1.5s          9/12
+    #   0.4s then 1.5s        11/12
+    #   0.4 / 1.0 / 2.0s      12/12   (~2.7s, once per session)
+    open_hosts = []
+    for wait in SWEEP_TIMEOUTS:
+        todo = [h for h in hosts if h not in open_hosts]
+        open_hosts += [h for h in await asyncio.gather(*(_port_open(h, timeout=wait) for h in todo)) if h]
     if not open_hosts:
         return []
 
     async with aiohttp.ClientSession() as s:
-        found = await asyncio.gather(*(_identify(s, h) for h in open_hosts))
+        found = list(await asyncio.gather(*(_identify(s, h) for h in open_hosts)))
+        # A phone that answered the knock but not the status request gets one
+        # more, longer, chance — the same slow-to-answer phone, one step later.
+        retry = [i for i, d in enumerate(found) if d is None]
+        if retry:
+            again = await asyncio.gather(*(_identify(s, open_hosts[i], timeout=6.0) for i in retry))
+            for i, d in zip(retry, again):
+                found[i] = d
     # Sort by address so player order is stable between runs.
     return sorted((d for d in found if d),
                   key=lambda d: tuple(int(o) for o in d["ip"].split(".")))
@@ -318,6 +340,13 @@ def main():
     # the launcher adapts to whatever is switched on — which is the whole
     # point of a one-click start: you cannot know in advance how many pairs
     # of glasses are awake.
+    if devices:
+        # The one gap no sweep can close: a phone that is asleep, or whose
+        # Companion app is in the background, does not answer at all.
+        print("\nMissing a pair of glasses? Wake that phone, bring the Companion\n"
+              "app to the front, and run this again — it replaces the bridges\n"
+              "that are already running.")
+
     if devices and args.players and len(devices) != args.players:
         print(f"\nexpected {args.players}, found {len(devices)} — not starting.",
               file=sys.stderr)
