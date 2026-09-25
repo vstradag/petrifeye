@@ -24,6 +24,10 @@
   let publishing = true;      // false while a mouse/keyboard stand-in drives
   const conn = {};            // playerId -> { ws, state, detail, x, y, at }
 
+  // Which display this window IS, when several are showing at once (Live Gaze).
+  // null means "the only screen", which is every other experience.
+  let screen = null;          // { key, ids }
+
   function snapshot() {
     return players.map((p) => {
       const c = conn[p.id] || {};
@@ -60,16 +64,39 @@
   // solved this in neon-source.js; multiplayer needs it per socket, and it
   // matters most exactly when entering fullscreen, which is the largest
   // viewport change that ever happens.
-  function sendViewport() {
-    const payload = JSON.stringify({
-      type: "viewport",
-      width: Math.round(window.innerWidth),
-      height: Math.round(window.innerHeight),
-    });
+  function broadcast(obj) {
+    const payload = JSON.stringify(obj);
     for (const p of players) {
       const ws = (conn[p.id] || {}).ws;
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(payload);
     }
+  }
+
+  function sendViewport() {
+    broadcast({
+      type: "viewport",
+      width: Math.round(window.innerWidth),
+      height: Math.round(window.innerHeight),
+    });
+    // Same information, in the form a multi-display bridge needs it: the
+    // registration carries this window's OWN size, which is the only thing
+    // that stays right when two windows of different sizes report at once.
+    sendScreen();
+  }
+
+  // Claim a display on every bridge: these four tags, this size, this key.
+  // The bridge then labels each mapped sample with the screen it landed on,
+  // and this window ignores the others — so a visitor looking at image 2 does
+  // not drag image 1's pointer across it.
+  function sendScreen() {
+    if (!screen) return;
+    broadcast({
+      type: "screen",
+      key: screen.key,
+      ids: screen.ids,
+      width: Math.round(window.innerWidth),
+      height: Math.round(window.innerHeight),
+    });
   }
 
   // Marker size is surface geometry, so EVERY bridge has to hear about a
@@ -77,11 +104,7 @@
   // the tags no longer occupy, and skews that player's gaze with no error
   // anywhere. Sent to all sockets for the same reason the viewport is.
   function sendMarkerSizeNow(px) {
-    const payload = JSON.stringify({ type: "markerSize", size: Math.round(px) });
-    for (const p of players) {
-      const ws = (conn[p.id] || {}).ws;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(payload);
-    }
+    broadcast({ type: "markerSize", size: Math.round(px) });
   }
 
   // Debounced for the same reason the viewport is, and it matters MORE here.
@@ -202,7 +225,14 @@
       if (msg.type === "status") {
         c.state = msg.state;
         c.detail = msg.detail || "";
-        if (msg.markersVisible != null) c.markers = msg.markersVisible;
+        // With several displays up, the bridge counts tags per screen. The
+        // plain total would read 4/4 here because ANOTHER screen's tags are in
+        // view, which is the opposite of useful on the window that is dark.
+        if (screen && msg.screens && msg.screens[screen.key] != null) {
+          c.markers = msg.screens[screen.key];
+        } else if (msg.markersVisible != null) {
+          c.markers = msg.markersVisible;
+        }
         emit();
         return;
       }
@@ -210,6 +240,9 @@
         // worn === false means the glasses are off the face; holding the last
         // position would leave a ghost pointer parked on a blob.
         if (msg.worn === false) return;
+        // Another display's sample. Unlabelled gaze is always ours: an older
+        // bridge, or the single-screen case.
+        if (screen && msg.screen && msg.screen !== screen.key) return;
         c.x = msg.x;
         c.y = msg.y;
         c.at = performance.now();
@@ -236,8 +269,24 @@
     ws.onerror = () => {};
   }
 
+  // Index 0 deliberately maps to the bridge's DEFAULT screen key. The bridge
+  // always keeps a default surface (every other experience depends on it), so
+  // registering under that key replaces it — whereas a new key with the same
+  // four tags would add a second surface carrying identical markers, which is
+  // genuinely ambiguous to the detector and maps gaze to whichever it hit first.
+  function screenKeyFor(index) {
+    return index === 0 ? "main" : `screen-${index + 1}`;
+  }
+
   window.GazeAggregator = {
+    screenKeyFor,
+
     init(config) {
+      // Registered before the sockets open so the very first solve already
+      // uses this window's own tags and size.
+      if (config.screen && Array.isArray(config.screen.ids)) {
+        screen = { key: config.screen.key, ids: config.screen.ids.slice() };
+      }
       players = config.players.map((p, i) => ({
         source: "neon",     // "neon" (own bridge) | "webcam" (shared WebGazer)
         ...p,
@@ -255,6 +304,7 @@
 
     players: () => snapshot(),
     pointerIdFor: (id) => `player-${id}`,
+    screen: () => (screen ? { ...screen } : null),
 
     // Resize the on-screen tags and keep every bridge's surface in step.
     // Single entry point on purpose: doing one without the other is the

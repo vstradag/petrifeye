@@ -17,6 +17,13 @@ real-time-screen-gaze>=1.1.2
 # Headless OpenCV: smaller, and no Qt/GUI dependencies for a process that
 # never opens a window.
 #
+# In practice this pin does NOT decide which OpenCV gets imported:
+# real-time-screen-gaze depends on opencv-contrib-python (non-headless), so pip
+# installs BOTH and the non-headless one owns the `cv2` module — verified on a
+# clean 3.12 venv, which ends up with headless 4.14 and contrib 5.0 side by
+# side, exactly like the working machine. Leave it: it costs nothing, and
+# "correcting" the constraint changes nothing about what is imported.
+#
 # Known, harmless-in-practice noise on macOS: this and PyAV (pulled in by
 # pupil-labs-realtime-api) each bundle their own copy of libavdevice, so the
 # ObjC runtime prints a "Class AVFFrameReceiver is implemented in both..."

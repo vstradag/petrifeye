@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LIVE GAZE — choose images</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<style>
+  body { background:#07080c; min-height:100vh; color:#e8e6e2; font-family: var(--gaze-mono); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 46px 24px 80px; }
+
+  h1 { font-size: 34px; font-weight: 200; letter-spacing: .3em; margin: 0 0 8px; text-align:center; }
+  h1 span { color: var(--gaze-red); text-shadow: 0 0 26px rgba(255,59,59,.5); }
+  .lede { text-align:center; color:#6a6a6a; font-size:11px; letter-spacing:.34em;
+          text-transform:uppercase; margin:0 0 40px; }
+
+  .step { border:1px solid #23252c; background:#0b0d12; padding:24px 26px; margin-bottom:20px; }
+  .step.done { border-color:#1c3a2c; }
+  .step h2 { font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:#7a7876;
+             margin:0 0 16px; font-weight:500; }
+  .step h2 b { color:#c98f8f; font-weight:600; }
+  p.note { font-size:12px; line-height:1.85; color:#8d8b88; margin:0 0 14px; }
+  p.note b { color:#c98f8f; font-weight:600; }
+  code { color:#9a7070; }
+
+  /* ---- drop zone ---- */
+  .drop { border:1px dashed #2e3138; padding:34px 20px; text-align:center; cursor:pointer;
+          transition:border-color .16s, background .16s; }
+  .drop:hover, .drop.over { border-color: var(--gaze-red); background:rgba(255,59,59,.05); }
+  .drop .big { font-size:14px; letter-spacing:.1em; color:#e8e6e2; }
+  .drop .sub { font-size:11px; color:#6a6a6a; margin-top:10px; letter-spacing:.06em; }
+  input[type=file] { display:none; }
+
+  /* ---- chosen images ---- */
+  .picks { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:14px; margin-top:18px; }
+  .pick { border:1px solid #23252c; background:#090b0f; display:flex; flex-direction:column; }
+  .pick img { width:100%; height:130px; object-fit:contain; background:#000; display:block; }
+  .pick .meta { padding:10px 12px 12px; }
+  .pick .nm { font-size:12px; color:#e8e6e2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pick .dim { font-size:10px; color:#6a6a6a; margin-top:5px; letter-spacing:.06em; }
+  .pick .tags { font-size:10px; color:#7a5555; margin-top:7px; letter-spacing:.08em; }
+  .pick .row { display:flex; gap:6px; margin-top:10px; }
+
+  button { font-family:var(--gaze-mono); font-size:11px; letter-spacing:.1em; cursor:pointer;
+           border:1px solid #2e3138; background:#11141a; color:#c9c7c3; padding:8px 12px;
+           transition:border-color .16s, color .16s, background .16s; }
+  button:hover:not(:disabled) { border-color: var(--gaze-red); color:#fff; background:rgba(255,59,59,.08); }
+  button:disabled { opacity:.35; cursor:default; }
+  button.go { border-color:#3a3d45; color:#e8e6e2; padding:11px 16px; }
+  button.mini { padding:5px 9px; font-size:10px; }
+
+  /* ---- launch grid ---- */
+  .screens { display:grid; gap:12px; }
+  .scr { display:grid; grid-template-columns: 54px 1fr auto auto; align-items:center; gap:14px;
+         border:1px solid #23252c; background:#090b0f; padding:12px 14px; }
+  .scr .n { font-size:22px; font-weight:200; color:#3e424c; text-align:center; }
+  .scr .nm { font-size:12.5px; color:#e8e6e2; }
+  .scr .sub { font-size:10px; color:#6a6a6a; margin-top:4px; letter-spacing:.06em; }
+  .scr .sub b { color:#7a5555; }
+  .hr { border-top:1px solid #1c1e24; margin:20px 0 16px; }
+  .row-btns { display:flex; flex-wrap:wrap; gap:10px; }
+  .hidden { display:none; }
+  .foot { margin-top:34px; text-align:center; font-size:11px; color:#4a4a4a; line-height:2; }
+  .foot a { color:#7a5555; }
+  .warn { color:#c98f8f; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LIVE <span>GAZE</span></h1>
+  <p class="lede">upload images · one screen each</p>
+
+  <section class="step" id="step1">
+    <h2>1 · <b>choose the images</b> for this session</h2>
+    <p class="note">
+      Up to <b>three</b>. Each image gets its own screen window and its own
+      analysis window, so three images means six displays — the limit is
+      <b>monitors, not the computer</b>: the glasses' camera is decoded once no
+      matter how many screens are up.
+      If you are short on displays, open a single analysis window: its fourth
+      panel carries the other images' scanpaths and numbers too.
+    </p>
+    <div class="drop" id="drop">
+      <div class="big">drop images here, or click to choose</div>
+      <div class="sub">jpg · png · webp — they stay on this computer</div>
+    </div>
+    <input type="file" id="file" accept="image/*" multiple />
+    <div class="picks" id="picks"></div>
+    <p class="note warn hidden" id="err"></p>
+  </section>
+
+  <section class="step hidden" id="step2">
+    <h2>2 · <b>open one window per screen</b> and drag each to its display</h2>
+    <p class="note">
+      Every screen draws <b>its own four AprilTags</b> — that is what lets one
+      pair of glasses tell the displays apart, so a visitor looking at image 2
+      never moves image 1's pointer. Open a window, drag it to its monitor or
+      projector, then press <b>start</b> in it (starting one starts the others).
+    </p>
+    <div class="screens" id="screens"></div>
+    <div class="hr"></div>
+    <div class="row-btns">
+      <button class="go" id="openAll">open every window</button>
+      <button id="again">choose different images</button>
+    </div>
+    <p class="note" style="margin:14px 0 0">
+      If only the first window appears, the browser blocked the rest as popups —
+      open them one at a time with the buttons above, or allow popups for this site.
+    </p>
+  </section>
+
+  <p class="foot">
+    Gaze comes from the same bridges as everything else — <code>8443</code> for P1,
+    <code>8444</code> for P2 — and each window also offers the webcam and a
+    mouse stand-in for testing.<br />
+    <a href="../index.html">← all experiences</a>
+  </p>
+</div>
+
+<script src="../shared/gaze/live-gaze-store.js"></script>
+<script src="live-gaze.js"></script>
+</body>
+</html>

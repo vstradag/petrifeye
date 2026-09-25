@@ -12,6 +12,75 @@ unzip just this directory and it runs.
 (updated by manual zip upload, not auto-deployed from this repo — may lag
 behind the latest commit).
 
+## Installing on another computer
+
+Tested on macOS with Python 3.12. Everything below is one-time except the last
+step, which is how you start the piece every session.
+
+```bash
+# 1. the code
+git clone https://github.com/vstradag/petrifeye.git
+cd petrifeye
+
+# 2. Python for the Neon bridge — NOT inside the project folder, see the
+#    warning below. Any path outside a synced folder will do.
+python3 -m venv ~/dev/medusa-bridge-venv
+~/dev/medusa-bridge-venv/bin/pip install -r bridge/requirements.txt
+
+# 3. start everything: finds every phone, one bridge per phone, opens the menu
+~/dev/medusa-bridge-venv/bin/python bridge/start_multiplayer.py
+```
+
+**Never put the venv inside a Google Drive / Dropbox / iCloud folder.** The
+project itself lives in Google Drive on the original machine, and a venv there
+makes `import` hang *forever* rather than fail — the file provider stalls on the
+thousands of small reads a package import does. `~/dev/…` is outside the synced
+tree, which is the whole point of that path.
+
+Then, in the browser the launcher opens:
+
+- **Click through the certificate warning.** It is self-signed, served by the
+  bridge on your own machine. The page and the gaze WebSocket share one origin,
+  so accepting it once covers both — and an un-trusted WebSocket fails
+  *silently*, with nothing to click.
+- Pick an experience from the menu.
+
+### What the phones need
+
+- The **Neon Companion** app open, awake, and with the glasses plugged in. A
+  locked phone drops off the network and the bridge reports `no Companion found`.
+- **Every device on the same network as the computer** — a phone hotspot or a
+  dedicated router. **Campus/eduroam will never work**: those isolate clients
+  from each other, so the computer cannot reach the phone at all even though
+  both have internet. Prefer 5 GHz; a congested 2.4 GHz hotspot is what makes
+  gaze jump.
+- One bridge per pair of glasses, on ports 8443, 8444, … The launcher pins each
+  one to its own phone with `--address`. **Do not start bridges by hand** — an
+  unpinned bridge grabs whichever phone answers first, so two of them stream the
+  same glasses while the second pair appears dead.
+
+Keep the launcher's terminal window open for the whole session; `ctrl-c` there
+stops every bridge.
+
+### Displays to bring
+
+Most experiences want one screen, or two if you are showing an observer screen
+(MEDUSA with analysis, POLITICAL VISION). **LIVE GAZE wants one display per
+uploaded image**, plus an analysis display for each one if you have them — the
+limit is monitors, not the computer, because each pair of glasses is decoded
+once however many screens are registered. Short on displays: open a single
+analysis window, whose fourth panel carries the other images' scanpaths too.
+
+### If you only want the webcam
+
+No Python, no phones, nothing to install:
+
+```bash
+node serve-https.js
+```
+
+You still need a local certificate — see "Running it locally" below.
+
 ## Running it locally
 
 WebGazer requires a secure context (HTTPS) — plain `http://` won't work,
@@ -53,16 +122,23 @@ eight-step wizard that walks through the hardware, the phone, the network,
 and the bridge one step at a time, and can actually test the connection and
 marker visibility rather than just asserting they work.
 
+Normally you start it with the launcher (see **Installing on another
+computer** above), which finds the phones and starts one bridge per phone:
+
 ```bash
-python3 -m venv bridge/.venv
-bridge/.venv/bin/python -m pip install -r bridge/requirements.txt
-bridge/.venv/bin/python bridge/neon_bridge.py --screen-width 1920 --screen-height 1080
+~/dev/medusa-bridge-venv/bin/python bridge/start_multiplayer.py
+```
+
+A single bridge by hand, for one pair of glasses only:
+
+```bash
+~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py --port 8443 --address PHONE_IP
 ```
 
 Run the bridge *instead of* `serve-https.js` — it serves the app itself, on
-the same port and cert. A venv keeps these (opencv, pupil-apriltags, PyAV)
-out of your system/conda Python; `bridge/.venv/` is disposable, delete and
-recreate it freely.
+the same port and cert. The venv keeps these (opencv, pupil-apriltags, PyAV)
+out of your system/conda Python and is disposable: delete and recreate it
+freely, as long as it stays outside any synced folder.
 
 Because the bridge serves both the page and the gaze socket on the **same
 origin**, clicking through Chrome's self-signed-certificate warning once

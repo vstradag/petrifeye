@@ -204,8 +204,34 @@ class Hub:
         # the page actually drew them.
         self.viewport: tuple[int, int] | None = None
 
+        # EXTRA SCREENS, for experiences that show several displays at once
+        # (LIVE GAZE): key -> {"ids": [4 tag ids], "w": int, "h": int}.
+        #
+        # Each display must carry its own four tags. Two screens showing the
+        # SAME four would be indistinguishable to the scene camera — it would
+        # see eight tags with duplicate ids and solve nonsense — so a screen
+        # registers the id set it draws, and gaze is reported per screen.
+        #
+        # The default screen, the one every other experience uses, is not in
+        # here: it is `viewport` above with MARKER_IDS, so pages that know
+        # nothing about this keep working untouched.
+        self.screens: dict[str, dict] = {}
+        self._screen_owner: dict = {}
+
     def add(self, ws):
         self.clients.add(ws)
+
+    def set_screen(self, ws, key, ids, w, h):
+        self.screens[key] = {"ids": list(ids), "w": int(w), "h": int(h)}
+        self._screen_owner[key] = ws
+
+    def drop_screens(self, ws):
+        """Forget the screens a closing window owned, so surfaces don't pile up."""
+        gone = [k for k, owner in self._screen_owner.items() if owner is ws]
+        for key in gone:
+            self.screens.pop(key, None)
+            self._screen_owner.pop(key, None)
+        return gone
 
     def discard(self, ws):
         self.clients.discard(ws)
@@ -392,7 +418,29 @@ SURFACE_HOLD_MS = 2500
 QUIET_RATIO = 60 / 600
 
 
-def marker_verts(w: int, h: int):
+DEFAULT_SCREEN = "main"
+
+
+def build_surfaces(mapper, specs):
+    """One mapper surface per screen. specs: key -> {"ids", "w", "h"}.
+
+    Module level so it can be tested without a phone: the surfaces are the
+    part that decides whether gaze lands on the right display at all.
+    """
+    out = {}
+    if not mapper:
+        return out
+    # The library can only clear ALL surfaces, so every screen is re-added.
+    mapper.clear_surfaces()
+    for key, sp in specs.items():
+        out[key] = {
+            "obj": mapper.add_surface(marker_verts(sp["w"], sp["h"], sp["ids"]), (sp["w"], sp["h"])),
+            "w": sp["w"], "h": sp["h"], "ids": list(sp["ids"]),
+        }
+    return out
+
+
+def marker_verts(w: int, h: int, ids=None):
     """Corner points of the four on-screen AprilTags, in screen pixels.
 
     Describes the TAG, not the <img> that contains it: the PNG carries a
@@ -403,14 +451,15 @@ def marker_verts(w: int, h: int):
     Corners are listed top-left first then clockwise, which is what
     add_surface() expects.
     """
+    ids = list(ids or MARKER_IDS)
     s, m = IMG_SIZE, IMG_MARGIN
     inset = s * QUIET_RATIO   # 12px at the default size
     side = s - 2 * inset      # 96px
     origins = {
-        MARKER_IDS[0]: (m, m),                  # top-left
-        MARKER_IDS[1]: (w - m - s, m),          # top-right
-        MARKER_IDS[2]: (w - m - s, h - m - s),  # bottom-right
-        MARKER_IDS[3]: (m, h - m - s),          # bottom-left
+        ids[0]: (m, m),                  # top-left
+        ids[1]: (w - m - s, m),          # top-right
+        ids[2]: (w - m - s, h - m - s),  # bottom-right
+        ids[3]: (m, h - m - s),          # bottom-left
     }
     verts = {}
     for mid, (ox, oy) in origins.items():
@@ -430,25 +479,47 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     # Surface geometry follows the browser's real viewport. Rebuilt whenever
     # it changes (first report, window resize, fullscreen toggle) so the
     # marker layout the mapper assumes always matches what the page draws.
-    surf = {"w": None, "h": None, "obj": None}
+    # ONE SURFACE PER SCREEN. Usually that is a single screen — the page's
+    # viewport with the default tags — and everything behaves as before. LIVE
+    # GAZE shows an image per display, each drawing its own four tags, and
+    # registers one screen each; the mapper takes any number of surfaces and
+    # reports gaze per surface, so the glasses can tell the displays apart.
+    surfaces = {}          # key -> {"obj", "w", "h", "ids"}
+    built = {"stamp": None}
+
+    def screen_specs():
+        vw, vh = hub.viewport or (screen_w, screen_h)
+        specs = {DEFAULT_SCREEN: {"ids": list(MARKER_IDS), "w": vw, "h": vh}}
+        for key, sp in hub.screens.items():
+            specs[key] = {"ids": list(sp["ids"]), "w": sp["w"], "h": sp["h"]}
+        return specs
+
+    def current_surfaces():
+        # Marker SIZE is part of the geometry, not just looks: marker_verts()
+        # places the tag corners from it. If a page resizes its tags and this
+        # keeps the old figure, the mapper solves against corners that are no
+        # longer where the tags are — every coordinate skews, silently. So a
+        # size change invalidates the surfaces exactly like a viewport change.
+        specs = screen_specs()
+        stamp = (IMG_SIZE, IMG_MARGIN, json.dumps(specs, sort_keys=True))
+        if stamp != built["stamp"]:
+            surfaces.clear()
+            if mapper:
+                # Rebuilding changes every surface uid, which makes a held
+                # solve meaningless — drop it rather than map through stale keys.
+                surfaces.update(build_surfaces(mapper, specs))
+                held["locations"] = None
+            built["stamp"] = stamp
+            log.info("surfaces rebuilt (markers %dpx @ %dpx inset): %s", IMG_SIZE, IMG_MARGIN,
+                     "; ".join(f"{k} {sp['w']}x{sp['h']} tags {sp['ids']}"
+                               for k, sp in specs.items()))
+        return surfaces
 
     def current_surface():
+        """The default screen, for every caller that knows only one."""
         vw, vh = hub.viewport or (screen_w, screen_h)
-        # Marker SIZE is part of the surface geometry, not just its looks:
-        # marker_verts() places the tag corners from it. If the page resizes
-        # its tags and this keeps the old figure, the mapper goes on solving
-        # against corners that are no longer where the tags are — every
-        # coordinate skews, and nothing reports an error. So a size change
-        # has to invalidate the surface exactly like a viewport change does.
-        if surf["w"] != vw or surf["h"] != vh or surf.get("size") != IMG_SIZE:
-            if mapper:
-                mapper.clear_surfaces()
-                surf["obj"] = mapper.add_surface(marker_verts(vw, vh), (vw, vh))
-            surf["w"], surf["h"] = vw, vh
-            surf["size"] = IMG_SIZE
-            log.info("surface rebuilt for %dx%d (markers %dpx @ %dpx inset)",
-                     vw, vh, IMG_SIZE, IMG_MARGIN)
-        return surf["obj"], surf["w"], surf["h"]
+        s = current_surfaces().get(DEFAULT_SCREEN)
+        return (s["obj"], s["w"], s["h"]) if s else (None, vw, vh)
 
     # Deliberately NOT announcing "streaming" yet. The RTSP connection is
     # opened lazily by the pumps below and can fail indefinitely (the phone
@@ -481,7 +552,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
     # sends ~30 frames a second, so 12s of silence is unambiguous; and
     # restarting cannot lose anything, since nothing was being mapped anyway.
     SCENE_RESTART_AFTER = 12.0
-    state = {"last_gaze": 0.0, "last_scene": 0.0, "markers": -1, "reported": None}
+    state = {"last_gaze": 0.0, "last_scene": 0.0, "markers": -1, "reported": None,
+             "per_screen": {}}
     began = time.monotonic()
 
     async def watchdog():
@@ -525,6 +597,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                         "streaming", detail,
                         surfaceOk=bool(mapper),
                         markersVisible=(m if mapper and m >= 0 else None),
+                        # Per display, for experiences that show several.
+                        screens=state["per_screen"] or None,
                         blinkAvailable=blinks_on,
                     )
             else:
@@ -634,8 +708,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                 now_g = time.monotonic()
                 if now_g - last_gaze_sent < 1.0 / GAZE_HZ:
                     continue
-                surface, screen_vw, screen_vh = current_surface()
-                if surface is None or not held["locations"]:
+                surfs = current_surfaces()
+                if not surfs or not held["locations"]:
                     continue
                 if now_g - held["at"] > hold_seconds:
                     continue  # solve too stale to trust
@@ -644,16 +718,27 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                 result = mapper.process_gaze(datum)
                 if result is None:
                     continue
-                for surf_gaze in result.mapped_gaze.get(surface.uid, []):
-                    # MarkerMappedGaze.x/y are normalised 0..1 across the
-                    # surface, origin BOTTOM-left; the page's is top-left.
-                    last_gaze_sent = now_g
-                    await hub.send({
-                        "type": "gaze",
-                        "x": float(surf_gaze.x) * screen_vw,
-                        "y": (1.0 - float(surf_gaze.y)) * screen_vh,
-                        "worn": bool(getattr(datum, "worn", True)),
-                    })
+                worn = bool(getattr(datum, "worn", True))
+                for key, s in surfs.items():
+                    for surf_gaze in result.mapped_gaze.get(s["obj"].uid, []):
+                        # With several displays, a sample is reported only to
+                        # the screen it actually lands ON — otherwise every
+                        # screen would draw a gaze point for someone looking
+                        # at a different one. With a single screen the old
+                        # behaviour stands: off-screen gaze is still sent, and
+                        # the page decides what to do with it.
+                        if len(surfs) > 1 and not getattr(surf_gaze, "is_on_aoi", True):
+                            continue
+                        last_gaze_sent = now_g
+                        # MarkerMappedGaze.x/y are normalised 0..1 across the
+                        # surface, origin BOTTOM-left; the page's is top-left.
+                        await hub.send({
+                            "type": "gaze",
+                            "screen": key,
+                            "x": float(surf_gaze.x) * s["w"],
+                            "y": (1.0 - float(surf_gaze.y)) * s["h"],
+                            "worn": worn,
+                        })
 
     async def pump_scene():
         if mapper is None:
@@ -680,7 +765,28 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
 
             # Only record what we saw; the watchdog owns status reporting, so
             # marker churn can't fight it for the status line.
-            state["markers"] = len(getattr(mapper, "_detected_markers", None) or [])
+            # Counted PER SCREEN. A plain total would be wrong the moment a
+            # second display is on: its four tags would inflate the first
+            # screen's "4/4" while that screen might not be in view at all.
+            # Detected markers carry a uid like "tag36h11:5".
+            detected = getattr(mapper, "_detected_markers", None) or []
+            seen_ids = set()
+            for m in detected:
+                uid = str(getattr(m, "uid", ""))
+                if ":" in uid:
+                    try:
+                        seen_ids.add(int(uid.rsplit(":", 1)[1]))
+                    except ValueError:
+                        pass
+            specs = screen_specs()
+            if seen_ids or not detected:
+                state["per_screen"] = {k: len(seen_ids & set(sp["ids"])) for k, sp in specs.items()}
+                state["markers"] = state["per_screen"].get(DEFAULT_SCREEN, 0)
+            else:
+                # A library that names markers differently: fall back to the
+                # old total rather than reporting a confident zero.
+                state["per_screen"] = {}
+                state["markers"] = len(detected)
 
             # SURFACE HOLD. Without this, one blink, head turn or motion-blurred
             # frame that loses the markers stops gaze dead for that frame — and
@@ -795,6 +901,24 @@ async def ws_handler(request):
                         if hub.viewport != (w, h):
                             log.info("browser viewport: %dx%d CSS px", w, h)
                         hub.viewport = (w, h)
+                elif payload.get("type") == "screen":
+                    # A display registering itself: its own four tag ids and
+                    # its own size. Several screens may be registered at once,
+                    # by different windows, each mapped separately.
+                    key = str(payload.get("key") or "")[:32]
+                    ids = payload.get("ids") or []
+                    w, h = int(payload.get("width", 0)), int(payload.get("height", 0))
+                    ok = (key and isinstance(ids, list) and len(ids) == 4
+                          and len(set(ids)) == 4
+                          and all(isinstance(i, int) and 0 <= i < 587 for i in ids)
+                          and 200 <= w <= 20000 and 200 <= h <= 20000)
+                    if not ok:
+                        log.info("ignoring malformed screen registration: %r", payload)
+                    elif hub.screens.get(key) != {"ids": list(ids), "w": w, "h": h}:
+                        hub.set_screen(ws, key, ids, w, h)
+                        log.info("screen %r: %dx%d, tags %s", key, w, h, ids)
+                    else:
+                        hub.set_screen(ws, key, ids, w, h)   # refresh ownership
                 elif payload.get("type") == "markerSize":
                     # The page has resized its tags; match it so marker_verts()
                     # keeps describing where the tags actually are. The surface
@@ -814,6 +938,11 @@ async def ws_handler(request):
                         IMG_SIZE = s
     finally:
         hub.discard(ws)
+        # A closed window's screens must go with it, or their surfaces linger
+        # and the mapper keeps solving for a display nobody is showing.
+        gone = hub.drop_screens(ws)
+        if gone:
+            log.info("screens released: %s", ", ".join(gone))
         log.info("browser disconnected (%d left)", len(hub.clients))
     return ws
 

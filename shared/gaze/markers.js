@@ -20,7 +20,15 @@
   // /markers/layout.json, so there is a single source of truth — these two
   // files silently skewing every mapped coordinate if they drifted apart was
   // too easy a mistake to leave in place.
-  let IDS = [0, 1, 2, 3];
+  // A page showing one of SEVERAL simultaneous displays must claim its own
+  // four tags by setting window.GazeMarkerIds before this file loads: two
+  // monitors wearing the same four tags are literally the same surface as far
+  // as the scene camera is concerned, so gaze would map to whichever one the
+  // detector happened to see. When a page claims ids, layout.json must not
+  // overwrite them (it only knows about the default single-screen set).
+  const CLAIMED = Array.isArray(window.GazeMarkerIds) &&
+                  window.GazeMarkerIds.length === 4 ? window.GazeMarkerIds.slice() : null;
+  let IDS = CLAIMED || [0, 1, 2, 3];
   let SIZE = 200;
   let MARGIN = 16;
   // "always" | "flash" | "off" — see MARKER_MODE in neon_bridge.py.
@@ -38,7 +46,7 @@
     .then((r) => (r.ok ? r.json() : null))
     .then((cfg) => {
       if (!cfg) return;
-      IDS = cfg.ids || IDS;
+      if (!CLAIMED) IDS = cfg.ids || IDS;
       SIZE = cfg.size || SIZE;
       MARGIN = cfg.margin != null ? cfg.margin : MARGIN;
       MODE = cfg.mode || MODE;
@@ -161,6 +169,11 @@
       window.dispatchEvent(new CustomEvent("markers-size", { detail: { size: SIZE } }));
       return SIZE;
     },
+
+    // The four tag ids actually on screen. A multi-display page sends these to
+    // the bridge with {type:"screen"} so the surface it solves is the same
+    // rectangle the visitor is looking at.
+    get ids() { return IDS.slice(); },
 
     get size() { return SIZE; },
     get margin() { return MARGIN; },
