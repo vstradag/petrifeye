@@ -17,19 +17,39 @@ behind the latest commit).
 Tested on macOS with Python 3.12. Everything below is one-time except the last
 step, which is how you start the piece every session.
 
+**Check your Python first — this is the one step that bites:**
+
+```bash
+python3 --version
+```
+
+**If that says 3.9 (or anything below 3.10), do not continue with it.** macOS
+ships 3.9 as `python3` through the Command Line Tools, and it fails twice over:
+`pupil-labs-realtime-api` 1.9 requires 3.10+ (pip will only offer you 1.5.0 and
+then give up), and the bridge uses syntax 3.9 cannot even parse. Install a
+current Python first — either the
+[python.org installer](https://www.python.org/downloads/macos/) (needs nothing
+else) or `brew install python@3.12` — and use its versioned name below.
+
 ```bash
 # 1. the code
 git clone https://github.com/vstradag/petrifeye.git
 cd petrifeye
 
-# 2. Python for the Neon bridge — NOT inside the project folder, see the
-#    warning below. Any path outside a synced folder will do.
-python3 -m venv ~/dev/medusa-bridge-venv
+# 2. Python for the Neon bridge. Name the version explicitly, so a stale
+#    `python3` on the PATH cannot quietly build a 3.9 venv. And keep it OUT of
+#    the project folder — see the warning below.
+python3.12 -m venv ~/dev/medusa-bridge-venv
+~/dev/medusa-bridge-venv/bin/pip install --upgrade pip
 ~/dev/medusa-bridge-venv/bin/pip install -r bridge/requirements.txt
 
 # 3. start everything: finds every phone, one bridge per phone, opens the menu
 ~/dev/medusa-bridge-venv/bin/python bridge/start_multiplayer.py
 ```
+
+If step 2 ends in errors, **step 3 will not work** — it now refuses to start and
+tells you what is missing instead of failing halfway through discovery. Fix the
+install and re-run it.
 
 **Never put the venv inside a Google Drive / Dropbox / iCloud folder.** The
 project itself lives in Google Drive on the original machine, and a venv there

@@ -292,7 +292,57 @@ async def discover():
                   key=lambda d: tuple(int(o) for o in d["ip"].split(".")))
 
 
+PY_HELP = """\
+Install a current Python, then rebuild the venv with it:
+
+  # either: the python.org installer (no Homebrew needed)
+  #   https://www.python.org/downloads/macos/
+  # or:
+  brew install python@3.12
+
+  python3.12 -m venv ~/dev/medusa-bridge-venv
+  ~/dev/medusa-bridge-venv/bin/pip install --upgrade pip
+  ~/dev/medusa-bridge-venv/bin/pip install -r bridge/requirements.txt
+"""
+
+
+def preflight():
+    """Refuse to start with a clear reason rather than a traceback later.
+
+    Both failures below happen on a brand-new Mac, in this order, and neither
+    announced itself usefully before: macOS ships Python 3.9 as `python3`, so
+    `python3 -m venv` makes a 3.9 venv; pip in it can then only see
+    pupil-labs-realtime-api up to 1.5.0 (1.9 needs >=3.10) and the install
+    aborts — after which this script used to run anyway and die on
+    `import aiohttp` deep inside discovery, which reads like a bug in the code
+    rather than an unfinished install.
+    """
+    if sys.version_info < (3, 10):
+        sys.exit(
+            f"\nThis needs Python 3.10 or newer; this interpreter is "
+            f"{sys.version.split()[0]}\n  ({sys.executable})\n\n"
+            "macOS ships 3.9 as `python3`, so a venv built with it is too old:\n"
+            "pupil-labs-realtime-api 1.9 requires 3.10+, and the bridge itself\n"
+            "uses syntax 3.9 cannot parse.\n\n" + PY_HELP
+        )
+    missing = []
+    for mod in ("aiohttp", "numpy", "cv2"):
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        sys.exit(
+            f"\nMissing: {', '.join(missing)} — the dependency install did not finish.\n"
+            f"  ({sys.executable})\n\n"
+            "Run it again and read the output for the real error:\n"
+            f"  {sys.executable} -m pip install --upgrade pip\n"
+            f"  {sys.executable} -m pip install -r bridge/requirements.txt\n"
+        )
+
+
 def main():
+    preflight()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-a", "--address", nargs="+", metavar="IP",

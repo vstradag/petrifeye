@@ -35,6 +35,23 @@ import traceback
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
+# Checked BEFORE anything else, because the way this file fails on an old
+# Python is unreadable: `str | None` in a signature is evaluated when the
+# function is defined, so 3.9 dies with "unsupported operand type(s) for |:
+# 'type' and 'NoneType'" pointing at a line that has nothing wrong with it.
+# pupil-labs-realtime-api needs >=3.10 anyway (1.5.0 was the last 3.9 build),
+# and macOS still ships 3.9 as `python3` via the Command Line Tools — so a
+# fresh Mac hits this on the first run.
+if sys.version_info < (3, 10):
+    sys.exit(
+        f"This needs Python 3.10 or newer; you are running {sys.version.split()[0]}.\n"
+        "macOS ships 3.9 as `python3`, so a venv made with it is too old.\n"
+        "Install a current Python (python.org installer, or `brew install python@3.12`),\n"
+        "then rebuild the venv with it:\n"
+        "  python3.12 -m venv ~/dev/medusa-bridge-venv\n"
+        "  ~/dev/medusa-bridge-venv/bin/pip install -r bridge/requirements.txt"
+    )
+
 try:
     from aiohttp import web, WSMsgType
 except ImportError:
