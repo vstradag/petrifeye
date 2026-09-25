@@ -121,8 +121,15 @@ node serve-https.js        # defaults to port 8443
 open https://localhost:8443/
 ```
 
-You'll need a local TLS cert first. Easiest path is
-[mkcert](https://github.com/FiloSottile/mkcert):
+**The Neon bridge makes its own certificate** on first run if `.certs/` is
+empty, using the `openssl` macOS already ships — so a fresh clone just works,
+and you click through one browser warning. It writes the files where
+`serve-https.js` looks for them too, so starting the bridge once also equips the
+webcam-only server.
+
+Use [mkcert](https://github.com/FiloSottile/mkcert) instead only if you want
+**no warning at all** (it installs a local CA your browser trusts). Put the
+files in `.certs/` and the auto-generation step is skipped:
 
 ```bash
 brew install mkcert          # or see the mkcert README for your OS

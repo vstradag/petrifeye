@@ -1028,10 +1028,71 @@ def build_app():
     return app
 
 
+def make_self_signed(cert, key):
+    """Generate a throwaway cert so a fresh clone can just run.
+
+    Certificates are machine-specific and gitignored, so every new computer
+    started with a hard stop telling it to install mkcert — which in turn wants
+    Homebrew, which wants the Xcode tools. Three installs to serve a local page.
+
+    macOS ships LibreSSL as /usr/bin/openssl and it handles this fine (tested on
+    LibreSSL 3.3.6 and OpenSSL 3.0). The result is self-signed, so the browser
+    shows one warning to click through — the same warning the README has always
+    said to accept. mkcert remains worth it if you want no warning at all: put
+    its files in .certs/ and this step is skipped.
+    """
+    import socket
+    import subprocess
+    from contextlib import closing
+
+    CERT_DIR.mkdir(parents=True, exist_ok=True)
+    # The LAN address is included so the page also loads from another device on
+    # the network without a name mismatch on top of the self-signed warning.
+    # Found the same way discovery does it — gethostbyname(gethostname()) is
+    # unreliable on macOS and can block; a UDP connect() sends nothing and just
+    # reports which local address would be used.
+    names = ["DNS:localhost", "IP:127.0.0.1"]
+    try:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as s:
+            s.connect(("8.8.8.8", 80))
+            lan = s.getsockname()[0]
+        if lan and not lan.startswith("127."):
+            names.append(f"IP:{lan}")
+    except OSError:
+        pass
+    for openssl in ("/usr/bin/openssl", "openssl"):
+        try:
+            subprocess.run(
+                [openssl, "req", "-x509", "-newkey", "rsa:2048", "-sha256",
+                 "-days", "825", "-nodes",
+                 "-keyout", str(key), "-out", str(cert),
+                 "-subj", "/CN=localhost",
+                 "-addext", f"subjectAltName={','.join(names)}"],
+                capture_output=True, timeout=120, check=True)
+            log.info("generated a self-signed certificate in %s (%s)",
+                     CERT_DIR, ", ".join(names))
+            log.info("the browser will warn once — it is your own machine; click through")
+            return True
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            log.warning("could not generate a certificate with %s: %s", openssl, e)
+            return False
+    return False
+
+
 def ssl_context():
     cert, key = CERT_DIR / "cert.pem", CERT_DIR / "key.pem"
     if not cert.exists() or not key.exists():
-        sys.exit(f"No TLS cert in {CERT_DIR}. See README (mkcert).")
+        if not make_self_signed(cert, key):
+            sys.exit(
+                f"No TLS cert in {CERT_DIR}, and one could not be generated.\n"
+                "Install mkcert and make one by hand:\n"
+                "  brew install mkcert && mkcert -install\n"
+                f"  mkdir -p {CERT_DIR}\n"
+                f"  mkcert -key-file {CERT_DIR}/key.pem -cert-file {CERT_DIR}/cert.pem"
+                " localhost 127.0.0.1 ::1"
+            )
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)
     return ctx
