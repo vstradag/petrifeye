@@ -17,6 +17,15 @@ behind the latest commit).
 Tested on macOS with Python 3.12. Everything below is one-time except the last
 step, which is how you start the piece every session.
 
+**The short way: double-click `Setup PetrifEye.command`.** It finds a suitable
+Python by asking each candidate its version, builds the environment outside the
+project, installs everything and verifies the imports — or tells you exactly
+what to install if the Mac has nothing new enough. Running it twice is safe: an
+environment that already works is left alone. Then double-click
+`Start PetrifEye.command`.
+
+The manual route, and what that script is protecting you from:
+
 **Check your Python first — this is the one step that bites:**
 
 ```bash
