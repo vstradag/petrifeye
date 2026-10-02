@@ -17,14 +17,36 @@ behind the latest commit).
 Tested on macOS with Python 3.12. Everything below is one-time except the last
 step, which is how you start the piece every session.
 
-**The short way: double-click `Setup PetrifEye.command`.** It finds a suitable
-Python by asking each candidate its version, builds the environment outside the
-project, installs everything and verifies the imports — or tells you exactly
-what to install if the Mac has nothing new enough. Running it twice is safe: an
-environment that already works is left alone. Then double-click
-`Start PetrifEye.command`.
+### The short way
 
-The manual route, and what that script is protecting you from:
+**1. Make sure the Mac has Python 3.10 or newer.** macOS ships 3.9, which is too
+old. Check with `python3 --version`; if it is below 3.10, install one from the
+[python.org installer](https://www.python.org/downloads/macos/) — download 3.12
+or 3.13, open the `.pkg`, click through. Nothing else is needed.
+
+**2. Get the project.** Use `git clone`, not the zip, if you have the choice:
+
+```bash
+git clone https://github.com/vstradag/petrifeye.git
+```
+
+A zip downloaded in a browser works too, but macOS marks anything from the web
+as quarantined and then refuses to open an unsigned `.command` by
+double-clicking ("unidentified developer"). If that happens: **right-click the
+file → Open**, and confirm once. `git clone` does not set that flag at all, which
+is why it is the easier route.
+
+**3. Double-click `Start PetrifEye.command`.** On the first run it sets itself up
+— it finds a suitable Python by asking each candidate its version, builds the
+environment outside the project folder, installs the dependencies and checks them
+— then discovers the phones and opens the menu. Every run after that just starts.
+Leave its Terminal window open for the session; `ctrl-c` there stops everything.
+
+`Setup PetrifEye.command` does only the setup half, if you want to install ahead
+of time or re-check an environment. Running it twice is safe: one that already
+works is left alone.
+
+The manual route, and what those scripts are protecting you from:
 
 **Check your Python first — this is the one step that bites:**
 
