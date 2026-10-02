@@ -72,6 +72,68 @@ const WALL_MARGIN = 0.5;        // x the ideal spacing: how far in the edges pus
 const WALL_FORCE = 0.6;         // x maxForce, at the very edge
 const WANDER_TURN = 0.35;       // radians of heading change per frame, at most
 const WANDER_FORCE = 0.01;
+// Clearance kept between an eye's edge and a corner AprilTag, so an eye never
+// parks where the visitor cannot see it.
+const MARKER_CLEARANCE = 8;     // px beyond the eye's own radius
+const MARKER_FORCE = 3.0;       // x maxForce at the tag's edge
+
+// The four tag squares, in canvas pixels — empty when the tags are not drawn,
+// so nothing is avoided during a mouse test or once they are dismissed.
+// Recomputed every frame on purpose: the size slider changes them live, and
+// so does a resize.
+//
+// This mirrors the layout in shared/gaze/markers.js (an <img> of SIZE pixels
+// inset by MARGIN at each corner) and therefore the geometry the bridge solves
+// against in marker_verts(). If those ever move, this follows them through
+// Markers.size / Markers.margin rather than repeating the numbers.
+function markerRects() {
+  if (!(window.Markers && Markers.shown)) return [];
+  const s = Markers.size, m = Markers.margin;
+  return [
+    { x: m, y: m, w: s, h: s },
+    { x: width - m - s, y: m, w: s, h: s },
+    { x: width - m - s, y: height - m - s, w: s, h: s },
+    { x: m, y: height - m - s, w: s, h: s },
+  ];
+}
+
+// The avoidance force cannot act before a tag exists, so the one way an eye can
+// START completely covered is a tag appearing on top of it — when the markers
+// are switched on, or when the size slider grows one onto an eye. Pushing out
+// from dead centre takes 2.4 seconds (measured), which is 2.4 seconds of an eye
+// nobody can see, so that single case is settled at once instead of drifting.
+//
+// Only fully covered eyes are moved. A partial overlap is still visible, and
+// letting it drift out on its own looks like the piece rather than a glitch.
+function evictFromMarkers() {
+  if (!Array.isArray(blobs) || !blobs.length) return;
+  for (const r of markerRects()) {
+    for (const b of blobs) {
+      const covered = b.pos.x - b.radius >= r.x && b.pos.x + b.radius <= r.x + r.w &&
+                      b.pos.y - b.radius >= r.y && b.pos.y + b.radius <= r.y + r.h;
+      if (!covered) continue;
+      const pad = b.radius + MARKER_CLEARANCE;
+      // Every way out, nearest first — but a tag sits in a corner, so the two
+      // closest exits lead off the screen. Take the nearest one that does not.
+      const exits = [
+        { x: r.x - pad, y: b.pos.y, d: b.pos.x - r.x },
+        { x: r.x + r.w + pad, y: b.pos.y, d: r.x + r.w - b.pos.x },
+        { x: b.pos.x, y: r.y - pad, d: b.pos.y - r.y },
+        { x: b.pos.x, y: r.y + r.h + pad, d: r.y + r.h - b.pos.y },
+      ].sort((p, q) => p.d - q.d);
+      const fits = exits.find((p) => p.x >= b.radius && p.x <= width - b.radius &&
+                                     p.y >= b.radius && p.y <= height - b.radius);
+      const to = fits || exits[exits.length - 1];
+      b.pos.set(constrain(to.x, b.radius, width - b.radius),
+                constrain(to.y, b.radius, height - b.radius));
+    }
+  }
+}
+
+window.addEventListener("markers-visibility", (e) => {
+  if (e.detail && e.detail.shown) evictFromMarkers();
+});
+window.addEventListener("markers-size", evictFromMarkers);
 
 // Presentation chrome, separate from the piece itself. A page sets
 // window.PetrifEyeShow BEFORE this script loads to run clean for an
@@ -470,6 +532,38 @@ class Blob {
     if (this.pos.y < margin) wall.y += (margin - this.pos.y) / margin;
     if (this.pos.y > height - margin) wall.y -= (this.pos.y - (height - margin)) / margin;
     if (wall.magSq() > 0) this.acc.add(wall.mult(this.maxForce * WALL_FORCE));
+
+    // Keep clear of the corner tags. An eye sitting under one is simply gone
+    // as far as the visitor is concerned — and the tags cannot move or fade,
+    // because the glasses' scene camera has to keep seeing them, so the eye is
+    // the thing that has to give way.
+    //
+    // Circle against rectangle: the nearest point on the tag to this eye's
+    // centre decides the direction, which makes an eye slide along a tag's
+    // edge instead of being thrown back the way it came.
+    const pad = this.radius + MARKER_CLEARANCE;
+    for (const r of markerRects()) {
+      const nx = constrain(this.pos.x, r.x, r.x + r.w);
+      const ny = constrain(this.pos.y, r.y, r.y + r.h);
+      let dx = this.pos.x - nx, dy = this.pos.y - ny;
+      const d = Math.hypot(dx, dy);
+      if (d > pad) continue;
+      if (d > 0.001) {
+        this.acc.add(p5.Vector.fromAngle(Math.atan2(dy, dx))
+          .mult(this.maxForce * MARKER_FORCE * (1 - d / pad)));
+      } else {
+        // Dead centre inside the tag — there is no "away from the nearest
+        // point" to use, so leave by whichever edge is closest.
+        const left = this.pos.x - r.x, right = r.x + r.w - this.pos.x;
+        const top = this.pos.y - r.y, bottom = r.y + r.h - this.pos.y;
+        const least = Math.min(left, right, top, bottom);
+        const out = createVector(
+          least === left ? -1 : least === right ? 1 : 0,
+          least === top ? -1 : least === bottom ? 1 : 0,
+        );
+        this.acc.add(out.mult(this.maxForce * MARKER_FORCE));
+      }
+    }
 
     // Perlin noise is NOT uniform: it clusters around 0.5. The old line mapped
     // it straight onto an absolute angle —
