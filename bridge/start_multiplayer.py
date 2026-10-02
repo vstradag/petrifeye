@@ -22,12 +22,19 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from contextlib import closing
 
 BASE_PORT = 8443
 SWEEP_TIMEOUTS = (0.4, 1.0, 2.0)   # seconds per discovery pass; see discover()
+
+# Seats a late phone can still take. Two, because every experience's PLAYERS
+# table has exactly two rows (ports 8443 and 8444) — a third bridge would run
+# with no screen reading it. `--players N` raises the limit along with the rest.
+AUTO_JOIN_LIMIT = 2
+WATCH_SECONDS = 15                 # how often to look again for a phone
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "neon_bridge.py")
 
@@ -453,6 +460,49 @@ def main():
             print("  (could not open a browser — open that URL yourself)")
     print("\nThe browser will warn about the certificate: it is self-signed,")
     print("served by the bridge on your own machine. Click through it.")
+
+    # Keep looking, instead of deciding the room at startup.
+    #
+    # Discovery used to run once. A phone that was still waking up, or whose
+    # Companion app had not been opened yet, was then invisible for the rest of
+    # the session — the page said only "bridge on port 8444 not reachable", and
+    # the only cure was to quit and start everything again, which is the last
+    # thing anyone wants to do with visitors waiting. Observed for real: the
+    # launcher started at 00:18:30 with one phone, the second phone was ready
+    # moments later and reachable all evening, and never got a bridge.
+    #
+    # So a phone that turns up late now simply gets the next free port.
+    def watch_for_latecomers():
+        taken = {ip for _n, _p, ip, _proc in procs if ip}
+        limit = args.players or AUTO_JOIN_LIMIT
+        while True:
+            time.sleep(WATCH_SECONDS)
+            if len(procs) >= limit:
+                return                      # every seat an app can read is full
+            try:
+                found = asyncio.run(discover()) or []
+            except Exception:
+                continue                    # a transient network error is not fatal
+            for d in found:
+                if d["ip"] in taken or len(procs) >= limit:
+                    continue
+                n = len(procs) + 1
+                port = args.base_port + n - 1
+                if not free_port(port):
+                    continue
+                log = f"/tmp/bridge-p{n}.log"
+                cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]]
+                with open(log, "w") as fh:
+                    procs.append((n, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
+                taken.add(d["ip"])
+                print(f"\nP{n} joined late -> port {port}  ({d['ip']})   log: {log}")
+                print("   reload the page in the browser to pick it up\n")
+
+    if len(procs) < (args.players or AUTO_JOIN_LIMIT):
+        threading.Thread(target=watch_for_latecomers, daemon=True).start()
+        print(f"\nStill watching for more phones every {WATCH_SECONDS}s — "
+              "open the Companion app and they will be added.")
+
     print("\nctrl-c to stop all bridges\n")
 
     def stop(*_):
