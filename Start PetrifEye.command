@@ -26,12 +26,26 @@ printf '\n\033[1mPETRIFEYE\033[0m\n\n'
 # is unhappy — it does not error, it simply never returns — so each candidate
 # gets a hard time limit rather than being trusted. macOS has no `timeout`,
 # hence perl's alarm.
-# Wrapped in a subshell so the shell's own job-control notice is swallowed too:
-# when the alarm fires, bash prints "Alarm clock: 14  perl -e ..." to the
-# terminal itself, which reads like a crash to anyone running this for the
-# first time. Redirecting only perl's output does not hide that line.
+# No SIGALRM, deliberately. This used to be `perl -e 'alarm 25; exec @ARGV'`,
+# and when the alarm fired bash printed its own job notice —
+# "Alarm clock: 14  perl -e ..." — straight to the terminal. That notice comes
+# from the shell reporting a foreground child killed by a signal, so it is
+# OUTSIDE anything the command's own redirections can suppress, and it reads
+# like a crash on a first run. A background child polled and killed produces no
+# such line in a non-interactive script.
 probe() {
-  ( perl -e 'alarm 25; exec @ARGV' "$1" -c 'import numpy, aiohttp, cv2' ) >/dev/null 2>&1
+  ( "$1" -c 'import numpy, aiohttp, cv2' >/dev/null 2>&1 ) &
+  local pid=$! waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge 50 ]; then          # 50 x 0.5s = the same 25s budget
+      kill -9 "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      return 1
+    fi
+    sleep 0.5
+    waited=$((waited + 1))
+  done
+  wait "$pid"
 }
 
 PY=""
