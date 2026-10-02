@@ -19,8 +19,8 @@
 // face without editing code.
 
 let MIN_RADIUS = 28;
-let MAX_RADIUS = 46;
-let DWELL_SECONDS = 2.0;
+let MAX_RADIUS = 100;
+let DWELL_SECONDS = 1.0;
 // How far from a blob's centre a GAZE pointer can land and still be
 // understood as looking at it (see shared/attention.js). Live-tunable, and
 // re-derived from real measured error whenever a calibration finishes.
@@ -776,6 +776,19 @@ function initTuningPanel() {
     GAZE_ASSIST_RADIUS = Number(assistSlider.value);
     assistLabel.textContent = `${GAZE_ASSIST_RADIUS}px`;
   });
+
+  // Show what is actually in effect, rather than whatever number the markup
+  // happens to carry. These sliders were only ever written by their own input
+  // handlers, so the `value="46"` in three separate HTML files and the
+  // defaults at the top of this file were independent copies that agreed by
+  // luck — change one and the panel quietly describes a game you are not
+  // playing. The defaults here are now the single source of truth.
+  minSlider.value = String(MIN_RADIUS);
+  minLabel.textContent = `${MIN_RADIUS}px`;
+  maxSlider.value = String(MAX_RADIUS);
+  maxLabel.textContent = `${MAX_RADIUS}px`;
+  dwellSlider.value = String(DWELL_SECONDS);
+  dwellLabel.textContent = `${DWELL_SECONDS.toFixed(1)}s`;
 }
 
 // Pushes a programmatic assist change (from a finished calibration) back
