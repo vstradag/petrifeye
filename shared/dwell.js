@@ -38,6 +38,14 @@ class DwellTarget {
     }
 
     for (const p of pointers) {
+      // A held pointer is one whose samples stopped arriving — a Wi-Fi stall,
+      // or gaze slipping off the mapped surface near a screen edge. It is
+      // still drawn at its last known place, but it must neither gain nor lose
+      // dwell: gaining would let a stalled marker petrify an eye with nobody
+      // looking, and draining would punish the visitor for the network. It
+      // stays in presentIds above, so the progress already earned survives the
+      // gap rather than being deleted as an absent pointer.
+      if (p.held) continue;
       if (this.hitTest(p)) {
         const next = (this.dwellByPointer.get(p.id) || 0) + dt;
         this.dwellByPointer.set(p.id, next);

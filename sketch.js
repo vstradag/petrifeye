@@ -283,7 +283,20 @@ function draw() {
     .filter((b) => !b.petrified)
     .map((b) => ({ id: b.id, x: b.pos.x, y: b.pos.y, radius: b.radius }));
 
-  focus = attention.resolve(pointers, live);
+  // Correct for the wearer's own bias BEFORE anything judges where they are
+  // looking, so the correction actually helps them hit an eye rather than just
+  // describing how far off they were. Petrified eyes are already excluded from
+  // `live`, so it only ever learns from an eye that can still be turned.
+  const aimed = window.GazeAutoCalibrate ? GazeAutoCalibrate.apply(pointers) : pointers;
+
+  focus = attention.resolve(aimed, live);
+
+  // Learn AFTER the arbiter has chosen, from the corrected position it judged
+  // — never from the magnetised one below, which is pulled onto the target by
+  // design and would report a residual of zero forever.
+  if (window.GazeAutoCalibrate) {
+    GazeAutoCalibrate.observe(aimed, focus, live, (t) => attention.reach(t), dt);
+  }
 
   // Settle the pointer onto whatever it just locked. Deliberately AFTER
   // arbitration and not fed back into it: the arbiter keeps judging the
@@ -291,8 +304,8 @@ function draw() {
   // Selection stickiness is the arbiter's switchMargin/releaseFactor; this
   // is only what the visitor sees and dwells with.
   const assisted = window.GazeAssist
-    ? GazeAssist.magnetize(pointers, focus, live, (t) => attention.reach(t))
-    : pointers;
+    ? GazeAssist.magnetize(aimed, focus, live, (t) => attention.reach(t))
+    : aimed;
 
   for (const b of blobs) b.dwell.update(assisted, dt);
   for (const b of blobs) b.display(assisted);
@@ -379,6 +392,16 @@ function keyPressed() {
   if (key === "r" || key === "R") blobs.forEach((b) => b.unpetrify());
   if (key === "f" || key === "F") setFurEnabled(!furEnabled);
   if (key === "s" || key === "S") toggleSettingsPanel();
+  // Shift-C forgets what it has learned and starts again — for handing the
+  // glasses to the next visitor, whose offset is their own.
+  if (key === "C") { if (window.GazeAutoCalibrate) GazeAutoCalibrate.reset(); }
+  else if (key === "c") setAutoCalibrate(!(window.GazeAutoCalibrate && GazeAutoCalibrate.isEnabled()));
+}
+
+function setAutoCalibrate(on) {
+  if (window.GazeAutoCalibrate) GazeAutoCalibrate.setEnabled(on);
+  const box = document.getElementById("toggle-autocal");
+  if (box) box.checked = !!on;
 }
 
 function setFurEnabled(enabled) {
@@ -816,6 +839,15 @@ function initTuningPanel() {
   // to the value it already had, appearing to do nothing.
   furToggle.checked = furEnabled;
   furToggle.addEventListener("change", () => setFurEnabled(furToggle.checked));
+
+  // Same treatment for auto-calibration: reflect the real state first, then
+  // wire the handler, or the first click "toggles" it to the value it already
+  // had and appears to do nothing.
+  const calToggle = document.getElementById("toggle-autocal");
+  if (calToggle && window.GazeAutoCalibrate) {
+    calToggle.checked = GazeAutoCalibrate.isEnabled();
+    calToggle.addEventListener("change", () => setAutoCalibrate(calToggle.checked));
+  }
 
   function remapRadii(oldMin, oldMax, newMin, newMax) {
     for (const b of blobs) {

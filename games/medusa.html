@@ -28,6 +28,10 @@
     <div class="tuning-row"><span>gaze assist</span><span id="tv-assist">170px</span></div>
     <input type="range" id="slider-assist" min="0" max="320" value="170" step="5" />
   </label>
+  <label class="tuning-checkbox" title="Learns the wearer's own gaze offset from the eyes they look at, and corrects for it continuously. Off means raw tracker output.">
+    <input type="checkbox" id="toggle-autocal" checked />
+    <span>auto-calibration (c)</span>
+  </label>
   <label class="tuning-checkbox">
     <input type="checkbox" id="toggle-fur" />
     <span>fur background (f)</span>
@@ -37,6 +41,7 @@
 <script src="../shared/dwell.js"></script>
 <script src="../shared/attention.js"></script>
 <script src="../shared/gaze/gaze-assist.js"></script>
+<script src="../shared/gaze/auto-calibrate.js"></script>
 <script src="../shared/fur-field.js"></script>
 <script src="../shared/gaze/markers.js"></script>
 <script src="../shared/gaze/webgazer-source.js"></script>

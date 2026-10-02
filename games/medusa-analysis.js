@@ -154,6 +154,14 @@
     const live = [];
 
     for (const ptr of pointers) {
+
+      // A held pointer is a frozen last-known position, not a measurement — the
+      // samples stopped arriving (see shared/tracking.js). Feeding it to the
+      // fixation detector would manufacture a long, perfectly still fixation out
+      // of a Wi-Fi stall. Treated as absent instead, which closes the fixation
+      // that was in progress, exactly as a real loss of tracking should.
+
+      if (ptr.held) continue;
       const player = playerOf(ptr.id);
       if (!player || !Number.isFinite(ptr.x)) continue;
       seen.add(ptr.id);

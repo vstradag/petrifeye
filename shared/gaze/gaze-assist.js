@@ -178,6 +178,28 @@
       return pointers.map((p) => {
         if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
         const s = stateFor(p);
+
+        // A HELD pointer is a frozen last-known position, not a measurement
+        // (see shared/tracking.js). Everything this function does would be
+        // actively wrong on one: the filter would keep converging on a value
+        // that is no longer being observed, and the lead term would walk the
+        // marker away from the last place the visitor was actually seen
+        // looking — which is precisely the "gaze jumps" artefact, since the
+        // invented drift has to be undone the moment real samples return.
+        if (p.held) {
+          s.heldAt = true;
+          return { ...p, x: p.x, y: p.y, speed: 0, rawX: p.x, rawY: p.y };
+        }
+        // Coming back from a stall: start the filter again at where gaze
+        // actually is now. Letting it glide from the stale point is the visible
+        // "catching up" slide after every hiccup.
+        if (s.heldAt) {
+          s.heldAt = false;
+          s.fx = new OneEuro(s.profile);
+          s.fy = new OneEuro(s.profile);
+          s.speed = 0;
+        }
+
         const x = s.fx.filter(p.x, dt);
         const y = s.fy.filter(p.y, dt);
 
@@ -219,6 +241,10 @@
       const byId = new Map(targets.map((t) => [t.id, t]));
 
       return pointers.map((p) => {
+        // Never pull a frozen marker onto a target: during a stall there is no
+        // evidence the visitor is looking there, and creeping it in would turn
+        // a dropout into a petrified eye they never chose.
+        if (p.held) return p;
         const t = byId.get(focus.get(p.id));
         if (!t) return p;
         const s = state.get(p.id);
