@@ -14,7 +14,7 @@ set -o pipefail
 # Finder starts .command files in the user's HOME, not next to the script, so
 # every path here has to be derived from the script's own location.
 CODE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$HOME/dev/medusa-bridge-venv"
+VENV="${MEDUSA_VENV:-$HOME/dev/medusa-bridge-venv}"
 
 cd "$CODE" || { echo "Cannot find $CODE"; read -r -p "Press return to close."; exit 1; }
 
@@ -26,8 +26,12 @@ printf '\n\033[1mPETRIFEYE\033[0m\n\n'
 # is unhappy — it does not error, it simply never returns — so each candidate
 # gets a hard time limit rather than being trusted. macOS has no `timeout`,
 # hence perl's alarm.
+# Wrapped in a subshell so the shell's own job-control notice is swallowed too:
+# when the alarm fires, bash prints "Alarm clock: 14  perl -e ..." to the
+# terminal itself, which reads like a crash to anyone running this for the
+# first time. Redirecting only perl's output does not hide that line.
 probe() {
-  perl -e 'alarm 25; exec @ARGV' "$1" -c 'import numpy, aiohttp, cv2' >/dev/null 2>&1
+  ( perl -e 'alarm 25; exec @ARGV' "$1" -c 'import numpy, aiohttp, cv2' ) >/dev/null 2>&1
 }
 
 PY=""
@@ -41,25 +45,33 @@ for cand in "$MEDUSA_PYTHON" "$VENV/bin/python" "$CODE/bridge/.venv/bin/python";
   fi
 done
 
-# --- first run: build the environment ------------------------------------
+# --- first run: hand over to the setup script ----------------------------
+# Deliberately NOT building the environment here any more. This used to run
+# `python3 -m venv` directly, and on a stock Mac `python3` is 3.9 — too old for
+# pupil-labs-realtime-api 1.9 and for the bridge's own syntax — so the pip
+# install failed and this script reported "Install failed", which blames the
+# dependencies for what is really the wrong interpreter. Setup PetrifEye.command
+# chooses an interpreter by asking each candidate its version, and says what to
+# install when none qualifies. One place knows how to do this; this is not it.
 if [ -z "$PY" ]; then
+  SETUP="$CODE/Setup PetrifEye.command"
   echo
-  echo "No working Python environment yet. Setting one up in:"
-  echo "  $VENV"
-  echo "(Outside the project folder on purpose — a venv inside a cloud-synced"
-  echo " folder hangs on import.)"
+  echo "No working Python environment yet — running setup first."
   echo
-  command -v python3 >/dev/null 2>&1 || {
-    echo "python3 is not installed. Install it from https://python.org and run this again."
-    read -r -p "Press return to close."; exit 1; }
-
-  python3 -m venv "$VENV" || { read -r -p "venv failed. Press return to close."; exit 1; }
-  "$VENV/bin/pip" install --quiet --upgrade pip
-  echo "Installing dependencies (a few minutes the first time)..."
-  "$VENV/bin/pip" install --quiet -r "$CODE/bridge/requirements.txt" || {
-    read -r -p "Install failed. Press return to close."; exit 1; }
-  PY="$VENV/bin/python"
-  echo "Done."
+  if [ ! -f "$SETUP" ]; then
+    echo "Cannot find \"Setup PetrifEye.command\" next to this script."
+    echo "Re-download the project, keeping both files together."
+    read -r -p "Press return to close."; exit 1
+  fi
+  MEDUSA_VENV="$VENV" bash "$SETUP" || { read -r -p "Press return to close."; exit 1; }
+  if probe "$VENV/bin/python"; then
+    PY="$VENV/bin/python"
+  else
+    echo
+    echo "Setup finished but the environment at $VENV still cannot import what"
+    echo "the bridge needs. Run \"Setup PetrifEye.command\" on its own and read its output."
+    read -r -p "Press return to close."; exit 1
+  fi
 fi
 
 echo

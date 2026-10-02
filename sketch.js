@@ -33,6 +33,17 @@ let DWELL_SECONDS = 2.0;
 // the tracker CAN answer reliably.
 let GAZE_ASSIST_RADIUS = 170;
 const MOUSE_ASSIST_RADIUS = 0; // a mouse is genuinely pixel-accurate — no assist
+
+// Which pointers are precise enough to need no assist: the mouse, and the
+// arrow-key stand-in used for testing. EVERYTHING ELSE IS GAZE, whatever it is
+// called — and the naming differs per app, which is where this went wrong.
+// Single player publishes one pointer called "gaze"; multiplayer and the
+// analysis version publish "player-0", "player-1". Testing only for the literal
+// id "gaze" therefore left every multiplayer session on the mouse's zero-assist
+// radius, so gaze had to land inside a 28-46px blob — far below the tracker's
+// own error. Staring at an eye then did nothing unless the visitor chased the
+// on-screen marker onto it, which is exactly the symptom this fixes.
+const PRECISE_POINTER_IDS = new Set(["mouse", "sim2"]);
 const UNFREEZE_SECONDS = 10;
 const NUM_BLOBS = 9;
 
@@ -178,7 +189,7 @@ function draw() {
   // are excluded outright — they're finished, and leaving them in would let
   // a stone sitting nearer the gaze steal the lock from the live blob the
   // visitor is actually trying to petrify.
-  const gazeMode = pointers.some((p) => p.id === "gaze");
+  const gazeMode = pointers.some((p) => !PRECISE_POINTER_IDS.has(p.id));
   attention.captureRadius = gazeMode ? GAZE_ASSIST_RADIUS : MOUSE_ASSIST_RADIUS;
   const live = blobs
     .filter((b) => !b.petrified)
