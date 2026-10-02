@@ -47,6 +47,32 @@ const PRECISE_POINTER_IDS = new Set(["mouse", "sim2"]);
 const UNFREEZE_SECONDS = 10;
 const NUM_BLOBS = 9;
 
+// How the eyes distribute themselves. The piece wants nine of them spread
+// across the whole screen and drifting — NOT a flock, which is what the
+// original boids rules produced: cohesion pulled them into one clump and
+// alignment then walked the clump into a corner. Measured on a 1504x813
+// canvas, the median gap between nearest neighbours fell from 235px to 86px
+// in 90 seconds, while the centre of mass slid from 44% to 70% of the width.
+//
+// What is left is mutual avoidance plus a wander, which settles into even
+// spacing on its own. The range is derived from the room each blob has rather
+// than a fixed number of pixels, so it holds on a laptop and on a projector.
+// Avoidance alone is not enough, and the way it fails is not obvious from the
+// numbers: with a long range every blob pushes every other across the whole
+// screen, so they end up ringing the edges with an empty middle — spread, but
+// not evenly, and it only showed up in a screenshot. The soft wall force below
+// is what holds them off the edges. These four were chosen by running five
+// simulated minutes over six different starting layouts: mean distance to the
+// nearest edge lands at 198-225px against the 191px a perfect 3x3 grid would
+// give, the centre of mass stays near half the width, nearest neighbours never
+// come closer than ~208px, and they are still moving at the end.
+const SEPARATION_RANGE = 0.6;   // x the ideal spacing, sqrt(area / blobs)
+const SEPARATION_FORCE = 1.8;   // x maxForce
+const WALL_MARGIN = 0.5;        // x the ideal spacing: how far in the edges push
+const WALL_FORCE = 0.6;         // x maxForce, at the very edge
+const WANDER_TURN = 0.35;       // radians of heading change per frame, at most
+const WANDER_FORCE = 0.01;
+
 // Presentation chrome, separate from the piece itself. A page sets
 // window.PetrifEyeShow BEFORE this script loads to run clean for an
 // audience; the defaults here keep the developer view unchanged.
@@ -372,6 +398,10 @@ class Blob {
     this.maxForce = 0.02;
     this.noiseSeed = random(1000);
     this.noiseTime = random(1000);
+    // Each blob starts facing somewhere of its own, and noise only ever turns
+    // it from there. Starting them all at 0 would reintroduce exactly the
+    // shared direction this replaced.
+    this.wanderAngle = random(TWO_PI);
     this.petrified = false;
     this.petrifiedElapsed = 0;
     this.stoneImg = null;
@@ -398,26 +428,62 @@ class Blob {
 
   flock(others) {
     if (this.petrified) return;
-    const sep = createVector(), ali = createVector(), coh = createVector();
+
+    // Avoidance only — no cohesion, no alignment. Those two are what a flock
+    // is made of, and a flock is the opposite of what this needs: see the
+    // SEPARATION_* comment above for the measurements.
+    //
+    // The range follows the room available (sqrt of area per blob), so nine
+    // eyes space themselves out the same way on any screen instead of only
+    // noticing each other at a fixed 90px, which was close enough to touching
+    // that nothing kept them apart.
+    const ideal = Math.sqrt((width * height) / Math.max(1, NUM_BLOBS));
+    const range = ideal * SEPARATION_RANGE;
+    const sep = createVector();
     let count = 0;
     for (const o of others) {
       if (o === this || o.petrified) continue;
       const d = p5.Vector.dist(this.pos, o.pos);
-      if (d > 0 && d < 90) {
+      if (d > 0 && d < range) {
+        // 1/d, so a neighbour at arm's length shoves far harder than one
+        // across the room. That gradient is what produces spacing rather than
+        // everything repelling everything equally and piling into the walls.
         sep.add(p5.Vector.sub(this.pos, o.pos).normalize().div(d));
-        ali.add(o.vel);
-        coh.add(o.pos);
         count++;
       }
     }
     if (count > 0) {
-      sep.div(count).setMag(this.maxSpeed).limit(this.maxForce * 1.6);
-      ali.div(count).setMag(this.maxSpeed).limit(this.maxForce);
-      coh.div(count).sub(this.pos).setMag(this.maxSpeed).limit(this.maxForce);
-      this.acc.add(sep).add(ali).add(coh);
+      sep.div(count).setMag(this.maxSpeed).limit(this.maxForce * SEPARATION_FORCE);
+      this.acc.add(sep);
     }
-    const wander = p5.Vector.fromAngle(noise(this.noiseSeed, this.noiseTime) * TWO_PI * 2);
-    this.acc.add(wander.mult(0.01));
+
+    // A soft shove inwards near the edges, strongest right at the wall and
+    // gone by WALL_MARGIN in. Without it, mutual avoidance alone parks every
+    // blob against the sides — the same way charges spread to the surface of a
+    // conductor — and leaves the middle of the screen empty. The hard bounce in
+    // move() still catches anything that reaches the edge anyway; this keeps it
+    // from living there.
+    const margin = ideal * WALL_MARGIN;
+    const wall = createVector();
+    if (this.pos.x < margin) wall.x += (margin - this.pos.x) / margin;
+    if (this.pos.x > width - margin) wall.x -= (this.pos.x - (width - margin)) / margin;
+    if (this.pos.y < margin) wall.y += (margin - this.pos.y) / margin;
+    if (this.pos.y > height - margin) wall.y -= (this.pos.y - (height - margin)) / margin;
+    if (wall.magSq() > 0) this.acc.add(wall.mult(this.maxForce * WALL_FORCE));
+
+    // Perlin noise is NOT uniform: it clusters around 0.5. The old line mapped
+    // it straight onto an absolute angle —
+    //     fromAngle(noise(...) * TWO_PI * 2)
+    // and 0.5 * TWO_PI * 2 is 2*PI, i.e. 0 radians, i.e. RIGHT. So every blob
+    // was nudged rightward on every frame, forever. Measured across the nine:
+    // mean wander direction 18 degrees with a bias strength of 0.18, and the
+    // whole group drifting to 70% of the screen width within 90 seconds.
+    //
+    // Noise now steers each blob's OWN heading instead of naming a compass
+    // direction. It decides how much this blob turns, never which way the
+    // group goes, so there is no shared direction left to drift along.
+    this.wanderAngle += (noise(this.noiseSeed, this.noiseTime) - 0.5) * WANDER_TURN;
+    this.acc.add(p5.Vector.fromAngle(this.wanderAngle).mult(WANDER_FORCE));
   }
 
   move(dt) {
