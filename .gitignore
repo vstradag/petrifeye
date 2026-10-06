@@ -14,3 +14,8 @@ __pycache__/
 node_modules/
 
 .DS_Store
+
+# Offline install packages for the bridge, ~190MB. Built by
+# bridge/fetch_wheels.sh and published as a GitHub Release asset, not in git.
+bridge/wheels/
+bridge/petrifeye-offline-packages-*.zip

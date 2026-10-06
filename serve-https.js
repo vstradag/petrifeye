@@ -24,6 +24,9 @@ const MIME = {
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
   ".json": "application/json",
+  // WebGazer's face-mesh model (vendor/mediapipe). Anything else served as
+  // octet-stream makes the browser fall back to a slower wasm compile.
+  ".wasm": "application/wasm",
 };
 
 const options = {

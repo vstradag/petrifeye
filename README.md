@@ -40,11 +40,31 @@ is why it is the easier route.
 — it finds a suitable Python by asking each candidate its version, builds the
 environment outside the project folder, installs the dependencies and checks them
 — then discovers the phones and opens the menu. Every run after that just starts.
+Setup also puts a **`PetrifEye.command` shortcut on your Desktop**, so from then
+on you start it from there. It points to wherever the project folder is, so if
+you move the folder, double-click `Setup PetrifEye.command` in its new place
+to update the shortcut. Set `MEDUSA_NO_SHORTCUT=1` if you'd rather not have it.
 Leave its Terminal window open for the session; `ctrl-c` there stops everything.
 
 `Setup PetrifEye.command` does only the setup half, if you want to install ahead
 of time or re-check an environment. Running it twice is safe: one that already
 works is left alone.
+
+**No internet at the venue?** Run step 3 once while you still have internet,
+and that's it. Setup is the only part that downloads anything; once it has
+finished, the piece runs fully offline — the browser libraries and the
+face-mesh model ship in `vendor/`, and the bridge talks to the phones over the
+local network only.
+
+*Setting up a Mac that never gets internet* (rare): download
+`petrifeye-offline-packages-macos-arm64.zip` from the
+[Releases page](https://github.com/vstradag/petrifeye/releases) on any machine,
+copy it over with the project, and unzip it into the `bridge` folder so you
+get `bridge/wheels/`. The setup script then installs from there with no
+network. The packages cover Apple Silicon Macs on macOS 14+ with Python 3.12
+or 3.13 — and the Python installer itself has to come along too. On any other
+Mac the script falls back to installing online. To rebuild the zip after
+changing the bridge's packages, see `bridge/fetch_wheels.sh`.
 
 The manual route, and what those scripts are protecting you from:
 

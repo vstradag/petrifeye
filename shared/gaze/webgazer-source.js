@@ -36,6 +36,14 @@
 //                           affecting tracking (hidden during the game,
 //                           shown again for recalibration).
 (function () {
+  // Resolved from this script's own URL (shared/gaze/) rather than the
+  // page's, so it holds for a page in any folder. Must be captured now:
+  // document.currentScript is null inside the async start() below.
+  const FACE_MESH_PATH = new URL(
+    "../../vendor/mediapipe/face_mesh",
+    document.currentScript.src
+  ).href;
+
   let ready = false;
 
   async function start(onSample) {
@@ -44,12 +52,11 @@
     }
 
     // WebGazer's face-mesh model loads its assets (wasm/binarypb) from a
-    // path relative to *our* page by default, which 404s since we don't
-    // host them. webgazer.cs.brown.edu hosts a copy alongside webgazer.js
-    // itself, but fetches it there fail on CORS (no Access-Control-Allow-
-    // Origin header on those files) — so point at MediaPipe's own CDN
-    // instead, which serves the identical files with CORS enabled.
-    webgazer.params.faceMeshSolutionPath = "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh";
+    // path relative to *our* page by default, which 404s. We host a copy in
+    // vendor/ so webcam tracking works with no internet; the version there
+    // must match the face_mesh code bundled inside webgazer.js (see
+    // vendor/README.md).
+    webgazer.params.faceMeshSolutionPath = FACE_MESH_PATH;
 
     // Bigger internal preview than WebGazer's 320x240 default. The boot
     // cinematic blows this container up to fill the screen with CSS

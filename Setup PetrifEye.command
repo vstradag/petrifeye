@@ -23,6 +23,34 @@ MIN="3.10"
 say() { printf '%s\n' "$*"; }
 rule() { say "------------------------------------------------------------"; }
 
+# A double-clickable PetrifEye.command on the Desktop, so after the first run
+# nobody has to dig the project folder out again. Not a symlink: Start finds
+# the project from its own path, which through a link would be the Desktop.
+# This tiny script runs the real one instead. Rewritten on every setup, so
+# running Setup from a moved project re-points it. Opt out with
+# MEDUSA_NO_SHORTCUT=1.
+desktop_shortcut() {
+  [ -z "${MEDUSA_NO_SHORTCUT:-}" ] || return 0
+  local desk="${MEDUSA_DESKTOP:-$HOME/Desktop}"
+  [ -d "$desk" ] || return 0
+  local link="$desk/PetrifEye.command"
+  local start
+  start="$(pwd)/Start PetrifEye.command"
+  {
+    printf '#!/bin/bash\n'
+    printf '# Shortcut made by Setup PetrifEye.command. Safe to delete.\n'
+    printf 'START=%q\n' "$start"
+    printf '%s\n' \
+      'if [ -f "$START" ]; then exec bash "$START"; fi' \
+      'echo "PetrifEye is no longer at:"' \
+      'echo "  $START"' \
+      'echo "Open the project where it is now and double-click Setup PetrifEye.command"' \
+      'echo "there - that puts a working shortcut back on the Desktop."' \
+      'read -r -p "Press return to close."'
+  } > "$link" && chmod +x "$link" \
+    && say "Desktop shortcut:  $link  — double-click it to start PetrifEye."
+}
+
 say ""
 say "PetrifEye setup"
 rule
@@ -69,6 +97,7 @@ PY
     say "or:"
     say "  $VENV/bin/python bridge/start_multiplayer.py"
     say ""
+    desktop_shortcut
     exit 0
   fi
   say "An environment exists but is incomplete or too old — rebuilding it."
@@ -120,10 +149,31 @@ mkdir -p "$(dirname "$VENV")" || exit 1
 
 say "installing dependencies (a few minutes the first time)…"
 say ""
+# Offline first, when bridge/wheels/ was brought along (the Releases zip,
+# built by bridge/fetch_wheels.sh): the exact versions of a known-good
+# environment, with pip barred from the network. The zip carries its own copy
+# of the lock file, so wheels and versions can't drift apart even if the
+# repo's lock has moved on since. Wheels are per Python version and chip, so
+# this can miss on a Mac unlike the one that fetched them — then fall through
+# to the normal online install rather than give up.
+INSTALLED=""
+LOCK="bridge/wheels/requirements.lock.txt"
+[ -f "$LOCK" ] || LOCK="bridge/requirements.lock.txt"
+if ls bridge/wheels/*.whl >/dev/null 2>&1; then
+  say "found bridge/wheels — installing offline…"
+  if "$VENV/bin/python" -m pip install --quiet --no-index \
+       --find-links bridge/wheels -r "$LOCK"; then
+    INSTALLED=1
+  else
+    say ""
+    say "The offline packages don't fit this Mac/Python — trying online instead."
+    say ""
+  fi
+fi
 # pip itself first: the pip bundled with an older interpreter can fail to
 # resolve current wheels at all.
-"$VENV/bin/python" -m pip install --quiet --upgrade pip || true
-if ! "$VENV/bin/python" -m pip install -r "$REQS"; then
+[ -n "$INSTALLED" ] || "$VENV/bin/python" -m pip install --quiet --upgrade pip || true
+if [ -z "$INSTALLED" ] && ! "$VENV/bin/python" -m pip install -r "$REQS"; then
   say ""
   rule
   say "The dependency install FAILED — read the error above."
@@ -149,6 +199,7 @@ fi
 rule
 say "Done."
 say ""
+desktop_shortcut
 say "Start the piece by double-clicking:  Start PetrifEye.command"
 say "or from Terminal:"
 say "  cd \"$(pwd)\""
