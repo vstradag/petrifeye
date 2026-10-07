@@ -49,6 +49,11 @@
     <button class="ss-mini" id="lgReset">reset this image (r)</button>
   </div>
   <div class="ss-row-btns">
+    <button class="ss-mini" id="lgCalib" title="Five eyes to look at, one after another. Run it for every new visitor.">calibrate (c)</button>
+    <button class="ss-mini" id="lgCheck" title="One eye in the centre: corrects drift without a full calibration.">quick check (v)</button>
+  </div>
+  <div class="lg-tags" id="lgCalibInfo">not calibrated</div>
+  <div class="ss-row-btns">
     <button class="ss-mini" id="lgPick">change images (back to upload)</button>
   </div>
 
@@ -107,6 +112,7 @@
 <script src="../shared/gaze/webgazer-source.js"></script>
 <script src="../shared/gaze/gaze-aggregator.js"></script>
 <script src="../shared/gaze/fixations.js"></script>
+<script src="../shared/gaze/target-calibration.js"></script>
 <script src="../shared/controls-hint.js"></script>
 <script src="live-gaze-screen.js"></script>
 </body>

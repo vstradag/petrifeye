@@ -32,6 +32,8 @@
   const SLOT = Math.max(0, Math.min(LiveGazeStore.MAX_IMAGES - 1,
     Number(new URLSearchParams(location.search).get("slot") || 0)));
   const INFO = LiveGazeStore.slotInfo(SLOT);
+  // The mouse needs no calibration; ?calib runs it anyway, for testing.
+  const CALIB_IN_SIM = new URLSearchParams(location.search).has("calib");
 
   const $ = (id) => document.getElementById(id);
   const bus = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
@@ -45,6 +47,8 @@
     showTarget: false,
     spreadPct: 3.5,      // fixation dispersion, % of displayed image width
     minDurationMs: 100,
+    calib: null,         // GazeTargetCalibration.Session while calibrating
+    calibNote: null,     // { text, until } — result shown after it
   };
   const detectors = new Map();   // pointerId -> FixationDetector
   let rect = { x: 0, y: 0, w: 1, h: 1 };
@@ -165,6 +169,9 @@
     state.fixations = [];
     detectors.clear();
     broadcastSnapshot();
+    // A reset is how a new visitor starts — and a new visitor needs their own
+    // calibration, not the previous wearer's.
+    if (state.started && (!state.simMode || CALIB_IN_SIM)) startCalibration("full");
   }
 
   // ------------------------------------------------------------ record
@@ -218,6 +225,13 @@
       // Starting one screen starts them all: with three projectors up, walking
       // to each window to press start is exactly when visitors are waiting.
       if (m.type === "start" && m.slot !== SLOT && !state.started) { start(false); return; }
+      // A calibration done on another screen: a starting point for players
+      // who have not calibrated on this one (see adopt()).
+      if (m.type === "calib" && m.slot !== SLOT && Array.isArray(m.offsets)) {
+        for (const o of m.offsets) GazeTargetCalibration.adopt(o.id, o);
+        renderCalibInfo();
+        return;
+      }
       if (m.type === "cmd" && (m.slot === SLOT || m.slot == null)) {
         if (m.cmd === "reset") resetImage();
       }
@@ -244,9 +258,14 @@
     if (img && img.el) drawingContext.drawImage(img.el, rect.x, rect.y, rect.w, rect.h);
     if (!state.started) return;
 
-    retuneDetectors();                    // rect may have changed size
     const now = performance.now();
-    const pointers = Tracking.update();
+    if (state.calib) { drawCalibration(now); return; }
+
+    retuneDetectors();                    // rect may have changed size
+    // Corrected by this visitor's calibration — x/y AND rawX/rawY, since the
+    // measurement below reads the raw position. The tracker's own reading
+    // stays on each pointer as uncalX/uncalY.
+    const pointers = GazeTargetCalibration.apply(Tracking.update());
     const seen = new Set();
     const live = [];
 
@@ -302,7 +321,86 @@
       lastGazePost = now;
       post({ type: "gaze", pts: live });
     }
+    if (state.calibNote && now < state.calibNote.until) drawCaption(state.calibNote.text);
   };
+
+  // --------------------------------------------------------- calibration
+  // Five eyes inside the image area — the centre and four towards its corners
+  // — where the analysis happens, and clear of the tags. Image hidden while
+  // it runs: nothing seen during calibration is data.
+  function calibrationTargets(mode) {
+    const r = rect;
+    const at = (fx, fy) => ({ x: r.x + fx * r.w, y: r.y + fy * r.h });
+    if (mode === "check") return [at(0.5, 0.5)];
+    return [at(0.5, 0.5), at(0.2, 0.2), at(0.8, 0.2), at(0.8, 0.8), at(0.2, 0.8)];
+  }
+
+  function startCalibration(mode = "full") {
+    if (!state.started) return;
+    rect = imageRect();
+    flushAll();                // close fixations in progress: what follows isn't data
+    detectors.clear();         // their filters hold uncorrected positions
+    const targets = calibrationTargets(mode);
+    // How far settled gaze may be from a target and still count: must exceed
+    // the bias being measured (Neon: up to ~100 px), and stay well under the
+    // spacing between targets so the wrong one is never credited.
+    const spacing = Math.min(0.6 * rect.w, 0.6 * rect.h, Math.hypot(0.3 * rect.w, 0.3 * rect.h));
+    const radius = Math.max(60, Math.min(220, 0.45 * spacing));
+    state.calibNote = null;
+    state.calib = new GazeTargetCalibration.Session({
+      targets, radius, areaW: rect.w, mode,
+      onDone: (summary) => finishCalibration(mode, summary),
+    });
+    post({ type: "calibrating", mode });
+  }
+
+  function finishCalibration(mode, summary) {
+    state.calib = null;
+    detectors.clear();
+    const name = (id) => (playerFor(id) || { label: id }).label;
+    const parts = summary.map((r) => {
+      if (!r.ok) return `${name(r.id)}: not calibrated${r.tooBig ? ` (off by ${r.tooBig}px)` : ""} — press c to retry`;
+      if (mode === "check") {
+        return `${name(r.id)}: checked${r.drift != null ? `, drift ${Math.round(r.drift)}px corrected halfway` : ""}`;
+      }
+      return `${name(r.id)}: calibrated · ${r.n}/5 eyes · consistency ±${Math.round(r.spread)}px`;
+    });
+    state.calibNote = { text: parts.join("    ") || "nobody looked at this screen — not calibrated here", until: performance.now() + 3500 };
+    const mine = GazeTargetCalibration.all().filter((o) => o.here);
+    if (mine.length) post({ type: "calib", offsets: mine });
+    renderCalibInfo();
+  }
+
+  function drawCalibration(now) {
+    background(0);            // the image is hidden while calibrating
+    const s = state.calib;
+    const ptrs = Tracking.update().filter((p) => !p.held && playerFor(p.id));
+    s.update(now, ptrs);
+    s.draw(drawingContext, now);
+    if (!state.calib) return;  // finished during update
+    const n = s.targets.length;
+    drawCaption(s.mode === "check"
+      ? "quick check — look at the eye"
+      : `look at each eye until it turns to stone · ${Math.min(s.i + 1, n)} / ${n}`);
+  }
+
+  function drawCaption(text) {
+    const ctx = drawingContext;
+    ctx.save();
+    ctx.font = "15px ui-monospace, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(232, 230, 226, 0.85)";
+    ctx.fillText(text, width / 2, Math.max(28, rect.y - 14));
+    ctx.restore();
+  }
+
+  function renderCalibInfo() {
+    const all = GazeTargetCalibration.all();
+    $("lgCalibInfo").textContent = all.length
+      ? all.map((o) => `${(playerFor(o.id) || { label: o.id }).label} ${Math.round(o.x)},${Math.round(o.y)}px` +
+          `${o.here ? ` ±${Math.round(o.spread || 0)}` : " (from another screen)"}`).join(" · ")
+      : "not calibrated";
+  }
 
   function drawTarget(x, y, color) {
     const ctx = drawingContext;
@@ -463,6 +561,8 @@
   $("lgObserver").onclick = openObserver;
   $("ssObserverBoot").onclick = openObserver;
   $("lgPick").onclick = () => { location.href = "live-gaze.html"; };
+  $("lgCalib").onclick = () => { if (!state.calib) startCalibration("full"); };
+  $("lgCheck").onclick = () => { if (!state.calib) startCalibration("check"); };
 
   $("slider-marker").oninput = (e) => {
     const applied = GazeAggregator.setMarkerSize(Number(e.target.value));
@@ -503,6 +603,8 @@
     else if (k === "s") toggleTuning();
     else if (k === "r") resetImage();
     else if (k === "o") openObserver();
+    else if (k === "c" && !state.calib) startCalibration("full");
+    else if (k === "v" && !state.calib) startCalibration("check");
   });
 
   let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
@@ -545,6 +647,7 @@
           { keys: "g", does: "gaze target on/off" },
           { keys: "o", does: "open analysis screen" },
           { keys: "r", does: "reset this image" },
+          { keys: "c / v", does: "calibrate / quick check" },
         ], `live gaze · image ${SLOT + 1}`);
       }
     } else {
@@ -554,6 +657,10 @@
     }
     renderStatus(lastList);
     broadcastSnapshot();
+    // Every visitor starts with their own calibration. Each screen runs it
+    // for whoever is looking at it; a screen nobody looks at gives up after
+    // the first eye and shows its image.
+    if (!state.simMode || CALIB_IN_SIM) startCalibration("full");
   }
 
   $("ssStart").onclick = async () => {
@@ -578,5 +685,5 @@
   if (new URLSearchParams(location.search).has("sim")) start(true);
 
   // Exposed for testing and the console.
-  window.LiveGazeScreen = { state, slot: SLOT, info: INFO, resetImage, imageRect: () => rect, detectors };
+  window.LiveGazeScreen = { state, slot: SLOT, info: INFO, resetImage, imageRect: () => rect, detectors, startCalibration };
 })();
