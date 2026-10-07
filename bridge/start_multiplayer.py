@@ -11,7 +11,7 @@ this finds every Neon on the network and assigns ports itself.
     python bridge/start_multiplayer.py --players 2        # require exactly 2
 
 Player N is the bridge on port 8443+N, matching the PLAYERS table in
-games/medusa-multiplayer.html.
+games/medusa-analysis.html.
 """
 import argparse
 import asyncio
