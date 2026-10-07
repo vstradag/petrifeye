@@ -9,11 +9,16 @@
 #     position into ~/petrifeye-recordings/<date-time>-port<N>/
 #
 # Play normally — look around, move your head, lean in and out, look away and
-# back. A few minutes per experience is plenty. Stop with ctrl-c in this
+# back, and if you can, try a brighter room too. A few minutes per experience
+# is plenty. Stop with ctrl-c in this
 # window (or close it); the recording is finalised on the way out.
 #
 # Recordings are ~90 MB a minute per pair of glasses. They stay on this Mac
 # and are not part of the project folder or git.
 
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
-exec bash "Start PetrifEye.command" --record --frame-px 10 "$@"
+# --marker-margin 120: the tags sit well inside the screen, clear of the
+# frame. At the default 24 px they were only ~7 camera px from the line and
+# got in the way of finding its edge near the corners. Every margin is fine
+# for the tags themselves: the bridge's geometry follows the setting.
+exec bash "Start PetrifEye.command" --record --frame-px 10 --marker-margin 120 "$@"

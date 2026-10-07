@@ -365,6 +365,8 @@ def main():
     ap.add_argument("--frame-px", type=int,
                     help="EXPERIMENTAL: bright line around the screen edge, in CSS px")
     ap.add_argument("--frame-color", help="colour of that line")
+    ap.add_argument("--marker-margin", type=int,
+                    help="inset of the on-screen tags from the edge, in CSS px")
     args = ap.parse_args()
 
     bridge_extra = []
@@ -374,6 +376,8 @@ def main():
         bridge_extra += ["--frame-px", str(args.frame_px)]
     if args.frame_color:
         bridge_extra += ["--frame-color", args.frame_color]
+    if args.marker_margin is not None:
+        bridge_extra += ["--marker-margin", str(args.marker_margin)]
 
     if args.address:
         devices = [{"ip": ip, "name": "(given)", "battery": None, "gaze_ok": True}
@@ -519,7 +523,7 @@ def main():
 
     print("\nctrl-c to stop all bridges\n")
 
-    def stop(*_):
+    def stop():
         for _n, _p, _ip, proc in procs:
             proc.terminate()
         # Give each bridge a moment to shut down in order — a recording
@@ -529,10 +533,21 @@ def main():
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 proc.kill()
-        sys.exit(0)
+        # Straight out: a plain exit would wait for the background phone
+        # search to finish its sweep (~10s) with nothing left to do.
+        sys.stdout.flush()
+        os._exit(0)
 
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
+    # The handler only gets us OUT of the wait below; stop() runs after it.
+    # Calling stop() from inside the handler meant waiting on a process the
+    # interrupted proc.wait() was still waiting on — Popen serialises that, so
+    # the second wait always sat out its full 15s timeout and then killed a
+    # bridge that had exited long before.
+    def interrupt(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, interrupt)
+    signal.signal(signal.SIGTERM, interrupt)
     try:
         for _n, _p, _ip, proc in procs:
             proc.wait()

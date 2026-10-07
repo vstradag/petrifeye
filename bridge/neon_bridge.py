@@ -1262,7 +1262,10 @@ async def main():
         log.info("flash: %dms every %dms (visible %.0f%% of the time)",
                  FLASH_ON_MS, FLASH_PERIOD_MS, duty)
 
-    runner = web.AppRunner(build_app())
+    # shutdown_timeout: aiohttp waits this long for open connections (a
+    # browser's gaze socket never finishes on its own) — 60s by default, which
+    # outlasted the launcher's patience and got the bridge killed mid-exit.
+    runner = web.AppRunner(build_app(), shutdown_timeout=2.0)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", args.port, ssl_context=ssl_context())
     await site.start()
@@ -1285,10 +1288,13 @@ async def main():
     try:
         await stop.wait()
     finally:
-        task.cancel()
-        await runner.cleanup()
+        # Recording FIRST: everything after this may be slow (open browser
+        # connections), and a launcher that runs out of patience kills the
+        # process — which must not cost the session's video.
         if RECORDER:
             RECORDER.close()
+        task.cancel()
+        await runner.cleanup()
 
 
 if __name__ == "__main__":
