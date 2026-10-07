@@ -142,6 +142,16 @@ limit is monitors, not the computer, because each pair of glasses is decoded
 once however many screens are registered. Short on displays: open a single
 analysis window, whose fourth panel carries the other images' scanpaths too.
 
+**LIVE GAZE calibrates each visitor.** When a session starts, every screen
+shows five eyes one after another; each turns to stone once the gaze of
+everyone looking at that screen has rested on it (~10 s for one visitor). The
+median of the five misses becomes that pair of glasses' correction, shared
+with the other screens, and nothing seen during calibration is recorded.
+Press **r** (reset) for the next visitor — it calibrates again — **c** to
+recalibrate, **v** for a one-eye drift check that moves the correction halfway.
+Unlike MEDUSA it does not learn from what is on screen: inferring where people
+"probably" look would bias exactly what LIVE GAZE measures.
+
 ### If you only want the webcam
 
 No Python, no phones, nothing to install:
