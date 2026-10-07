@@ -359,7 +359,21 @@ def main():
     ap.add_argument("--base-port", type=int, default=BASE_PORT)
     ap.add_argument("--no-browser", action="store_true",
                     help="start the bridges but do not open a browser")
+    # Passed through to every bridge (see neon_bridge.py for what they do).
+    ap.add_argument("--record", nargs="?", const="~/petrifeye-recordings", metavar="DIR",
+                    help="each bridge records its session for offline testing")
+    ap.add_argument("--frame-px", type=int,
+                    help="EXPERIMENTAL: bright line around the screen edge, in CSS px")
+    ap.add_argument("--frame-color", help="colour of that line")
     args = ap.parse_args()
+
+    bridge_extra = []
+    if args.record:
+        bridge_extra += ["--record", args.record]
+    if args.frame_px is not None:
+        bridge_extra += ["--frame-px", str(args.frame_px)]
+    if args.frame_color:
+        bridge_extra += ["--frame-color", args.frame_color]
 
     if args.address:
         devices = [{"ip": ip, "name": "(given)", "battery": None, "gaze_ok": True}
@@ -434,7 +448,7 @@ def main():
     print()
     for n, port, ip in plan:
         log = f"/tmp/bridge-p{n}.log"
-        cmd = [python, BRIDGE, "--port", str(port)] + (["--address", ip] if ip else [])
+        cmd = [python, BRIDGE, "--port", str(port)] + (["--address", ip] if ip else []) + bridge_extra
         with open(log, "w") as fh:
             procs.append((n, port, ip, subprocess.Popen(cmd, stdout=fh, stderr=fh)))
         print(f"P{n} -> port {port}  ({ip or 'no glasses yet — still looking'})   log: {log}")
@@ -491,7 +505,7 @@ def main():
                 if not free_port(port):
                     continue
                 log = f"/tmp/bridge-p{n}.log"
-                cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]]
+                cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]] + bridge_extra
                 with open(log, "w") as fh:
                     procs.append((n, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
                 taken.add(d["ip"])
@@ -508,6 +522,13 @@ def main():
     def stop(*_):
         for _n, _p, _ip, proc in procs:
             proc.terminate()
+        # Give each bridge a moment to shut down in order — a recording
+        # finalises its video file on the way out.
+        for _n, _p, _ip, proc in procs:
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, stop)

@@ -330,6 +330,8 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
 
                 calib = await dev.get_calibration()
                 mapper = GazeMapper(calib) if GazeMapper else None
+                if RECORDER:
+                    RECORDER.camera(calib)
                 # The surface is built inside stream(), not here: its geometry
                 # depends on the browser's reported viewport, which can arrive
                 # (or change) after the device connects.
@@ -434,6 +436,23 @@ SURFACE_HOLD_MS = 2500
 # quiet zone, so the tag itself covers the middle 80% of the <img>.
 QUIET_RATIO = 60 / 600
 
+# A bright line around the very edge of the viewport, drawn by markers.js
+# whenever the tags are wanted. EXPERIMENTAL: the candidate replacement for
+# the tags — four straight edges are easy to find in the scene image and fix
+# the screen's corners more precisely than four small tags. 0 = not drawn.
+# Thickness is CSS px: ~8-10 is 3-4 scene-camera pixels on a 24" monitor at
+# 60cm; further away needs proportionally more. The top-left corner carries a
+# solid square (FRAME_CORNER x thickness) so the rectangle's orientation is
+# unambiguous. Colour: something that appears nowhere else in the room.
+# Keep FRAME_PX * FRAME_CORNER below IMG_MARGIN: a bigger square would cover
+# part of the top-left tag's white border, which its detection depends on.
+FRAME_PX = 0
+FRAME_COLOR = "#ff00ff"
+FRAME_CORNER = 2
+
+# Set by --record: a recorder.Recorder writing this bridge's session.
+RECORDER = None
+
 
 DEFAULT_SCREEN = "main"
 
@@ -483,6 +502,22 @@ def marker_verts(w: int, h: int, ids=None):
         x, y = ox + inset, oy + inset
         verts[mid] = [(x, y), (x + side, y), (x + side, y + side), (x, y + side)]
     return verts
+
+
+def screen_corners_px(mapper, loc):
+    """Where a surface solve puts the screen's corners in the RAW scene image.
+
+    TL, TR, BR, BL of the viewport, in the camera's own (distorted) pixels:
+    the coordinates a frame detector working on a recording's scene.mp4 would
+    report, so the two compare directly. The surface's normalised space has
+    its origin at the BOTTOM-left, hence the flipped y.
+    """
+    import numpy as np
+    cam = mapper.camera
+    undist = loc._map_from_surface_to_image(
+        np.array([[0, 1], [1, 1], [1, 0], [0, 0]], dtype=np.float64))
+    rays = cam.unprojectPoints(np.asarray(undist).reshape(-1, 2), use_distortion=False)
+    return cam.projectPoints(rays, use_distortion=True).reshape(-1, 2).tolist()
 
 
 async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
@@ -673,6 +708,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
         nonlocal last_pupil_sent, last_gaze_sent
         async for datum in receive_gaze_data(gaze_url, run_loop=True):
             state["last_gaze"] = time.monotonic()
+            if RECORDER:
+                RECORDER.gaze(datum)
 
             left = getattr(datum, "pupil_diameter_left", None)
             right = getattr(datum, "pupil_diameter_right", None)
@@ -757,6 +794,41 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                             "worn": worn,
                         })
 
+    def scene_bgr(frame):
+        # The same unwrapping process_scene does for a VideoFrame.
+        if hasattr(frame, "bgr_pixels"):
+            return frame.bgr_pixels
+        return frame.bgr_buffer()
+
+    def record_scene(frame, bgr, detected, locations):
+        # Never lets an exception out: a recording problem may cost data, it
+        # must not cost tracking.
+        try:
+            _record_scene(frame, bgr, detected, locations)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("recorder: frame skipped (%s)", exc)
+
+    def _record_scene(frame, bgr, detected, locations):
+        info = {
+            "t": getattr(frame, "timestamp_unix_seconds", None),
+            "viewport": hub.viewport,
+            "layout": {"size": IMG_SIZE, "margin": IMG_MARGIN, "mode": MARKER_MODE,
+                       "frame_px": FRAME_PX, "frame_color": FRAME_COLOR},
+            "markers": [m.as_dict() for m in detected],
+            "surfaces": {},
+        }
+        for key, s in (current_surfaces() or {}).items():
+            loc = (locations or {}).get(s["obj"].uid)
+            entry = {"w": s["w"], "h": s["h"], "ids": s["ids"],
+                     "location": loc.as_dict() if loc is not None else None}
+            if loc is not None:
+                try:
+                    entry["corners_px"] = screen_corners_px(mapper, loc)
+                except Exception as exc:  # noqa: BLE001 - the raw location is still saved
+                    entry["corners_error"] = str(exc)
+            info["surfaces"][key] = entry
+        RECORDER.scene(bgr, info)
+
     async def pump_scene():
         if mapper is None:
             return
@@ -764,11 +836,21 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # Recorded before anything can skip the frame: the watchdog needs
             # to know the camera is ALIVE, whether or not a surface exists yet.
             state["last_scene"] = time.monotonic()
+            # Recording: decode to pixels ONCE and hand the array to both the
+            # mapper (which accepts one) and the recorder.
+            bgr = None
+            if RECORDER:
+                try:
+                    bgr = scene_bgr(frame)
+                except Exception:  # noqa: BLE001 - fall back to the normal path
+                    bgr = None
             # No gaze datum or surface needed here any more: this pump's only
             # job is to keep `held` current. Waiting on a gaze sample before
             # locating the surface would also have meant the very first solve
             # could not happen until gaze was already flowing.
             if current_surface()[0] is None:
+                if bgr is not None:
+                    record_scene(frame, bgr, [], None)
                 continue
 
             # Split rather than process_frame(): scene and gaze are processed
@@ -778,7 +860,7 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # unwraps it itself (`frame.bgr_pixels`, else `frame.bgr_buffer()`).
             # Handing it `frame.bgr_buffer` gave OpenCV an un-called bound
             # method, surfacing as a baffling cvtColor "Bad argument".
-            mapper.process_scene(frame)
+            mapper.process_scene(frame if bgr is None else bgr)
 
             # Only record what we saw; the watchdog owns status reporting, so
             # marker churn can't fight it for the status line.
@@ -815,6 +897,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # are public, so splitting them is intended; guarded with getattr so
             # a library change degrades to "no hold" instead of crashing.
             locations = getattr(mapper, "_surface_locations", None)
+            if bgr is not None:
+                record_scene(frame, bgr, detected, locations)
             if locations is None:
                 continue
             now = time.monotonic()
@@ -985,7 +1069,20 @@ async def markers_handler(request):
     # A quiet white border is required too — the detector looks for a light
     # margin around the black frame and won't find tags that bleed to the
     # edge of their own image.
-    pixels = np.asarray(marker_generator.generate_marker(marker_id=mid), dtype="uint8")
+    #
+    # ROTATED 180 degrees (flip_x + flip_y), and this matters a great deal.
+    # The mapper pairs each detected tag corner with a registered one BY NAME
+    # (top-left, top-right, …), and the names it gives the corners of an
+    # unflipped tag are those of the diagonally opposite corners in screen
+    # space. Every tag was effectively matched upside down: the four centres
+    # still agreed, so tracking "worked", but the solved screen came out
+    # shrunk and warped — measured on a synthetic scene with known geometry,
+    # mapped gaze was off by 72-78 screen px on average and up to 143 px at
+    # the edges. With the flip: ~1.5 px. (Printed tags from before this change
+    # simply need mounting rotated 180 degrees.)
+    pixels = np.asarray(
+        marker_generator.generate_marker(marker_id=mid, flip_x=True, flip_y=True),
+        dtype="uint8")
     img = Image.fromarray(pixels, mode="L").resize((480, 480), Image.NEAREST)
     quiet = Image.new("L", (600, 600), 255)
     quiet.paste(img, (60, 60))
@@ -1008,6 +1105,8 @@ async def layout_handler(_req):
             "mode": MARKER_MODE,
             "flashOnMs": FLASH_ON_MS,
             "flashPeriodMs": FLASH_PERIOD_MS,
+            "frame": ({"px": FRAME_PX, "color": FRAME_COLOR, "corner": FRAME_CORNER}
+                      if FRAME_PX > 0 else None),
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -1102,7 +1201,7 @@ async def main():
     # Declared up front: Python requires the global statement before any use
     # of the name in the function, and the argparse defaults below read them.
     global IMG_SIZE, IMG_MARGIN, MARKER_MODE, FLASH_ON_MS, FLASH_PERIOD_MS
-    global SURFACE_HOLD_MS
+    global SURFACE_HOLD_MS, FRAME_PX, FRAME_COLOR, RECORDER
 
     ap = argparse.ArgumentParser(description="Pupil Labs Neon bridge for PetrifEye")
     ap.add_argument("--address", help="Companion phone IP (skips mDNS discovery)")
@@ -1130,6 +1229,18 @@ async def main():
         "--surface-hold-ms", type=int, default=SURFACE_HOLD_MS,
         help="How long a surface solve stays usable after the tags vanish.",
     )
+    ap.add_argument(
+        "--frame-px", type=int, default=FRAME_PX,
+        help="EXPERIMENTAL: draw a bright line this many CSS px thick around "
+             "the screen edge, alongside the tags (0 = off). ~10 at desk distance.",
+    )
+    ap.add_argument("--frame-color", default=FRAME_COLOR,
+                    help="Colour of that line; pick one found nowhere else in the room.")
+    ap.add_argument(
+        "--record", nargs="?", const="~/petrifeye-recordings", metavar="DIR",
+        help="Record the scene video, gaze, detected tags and screen position "
+             "for offline testing (default folder: ~/petrifeye-recordings).",
+    )
     args = ap.parse_args()
 
     # Applied globally so marker_verts() and /markers/layout.json agree.
@@ -1137,8 +1248,14 @@ async def main():
     MARKER_MODE = args.marker_mode
     FLASH_ON_MS, FLASH_PERIOD_MS = args.flash_on_ms, args.flash_period_ms
     SURFACE_HOLD_MS = args.surface_hold_ms
+    FRAME_PX, FRAME_COLOR = max(0, args.frame_px), args.frame_color
     log.info("markers: %dpx, %dpx inset, mode=%s (hold %dms)",
              IMG_SIZE, IMG_MARGIN, MARKER_MODE, SURFACE_HOLD_MS)
+    if FRAME_PX:
+        log.info("frame: %dpx %s around the screen edge (experimental)", FRAME_PX, FRAME_COLOR)
+    if args.record:
+        from recorder import Recorder
+        RECORDER = Recorder(args.record, args.port, vars(args))
     if MARKER_MODE == "flash":
         duty = 100.0 * FLASH_ON_MS / max(FLASH_PERIOD_MS, 1)
         log.info("flash: %dms every %dms (visible %.0f%% of the time)",
@@ -1153,11 +1270,24 @@ async def main():
     task = asyncio.create_task(
         neon_loop(args.address, args.device_port, args.screen_width, args.screen_height)
     )
+    # The launcher stops bridges with SIGTERM (and closing the Terminal window
+    # sends SIGHUP). Python's default for both is to die on the spot, which
+    # would leave a recording's scene.mp4 without its index — unplayable. So
+    # both become an orderly exit through the finally below.
+    stop = asyncio.Event()
+    import signal
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            asyncio.get_running_loop().add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):
+            pass  # not on every platform; ctrl-c still exits cleanly
     try:
-        await asyncio.Event().wait()
+        await stop.wait()
     finally:
         task.cancel()
         await runner.cleanup()
+        if RECORDER:
+            RECORDER.close()
 
 
 if __name__ == "__main__":

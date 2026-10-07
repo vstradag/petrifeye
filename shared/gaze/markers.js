@@ -35,8 +35,15 @@
   let MODE = "always";
   let FLASH_ON_MS = 260;
   let FLASH_PERIOD_MS = 1800;
+  // EXPERIMENTAL screen frame — {px, color, corner} from the bridge, or null.
+  // A bright line around the viewport edge, candidate replacement for the
+  // tags (see FRAME_PX in neon_bridge.py). Shown whenever the tags are
+  // WANTED, independently of MODE, so it stays up while the tags flash or are
+  // off: that is exactly the configuration it would eventually run in.
+  let FRAME = null;
 
   let layer = null;
+  let frameEl = null;
   let wanted = false;      // has show() been called for the current step?
   let flashTimer = null;
 
@@ -52,8 +59,10 @@
       MODE = cfg.mode || MODE;
       FLASH_ON_MS = cfg.flashOnMs || FLASH_ON_MS;
       FLASH_PERIOD_MS = cfg.flashPeriodMs || FLASH_PERIOD_MS;
+      FRAME = cfg.frame && cfg.frame.px > 0 ? cfg.frame : null;
       // Geometry changed after the layer was built — rebuild it.
       if (layer) { layer.remove(); layer = null; build(); }
+      if (frameEl) { frameEl.remove(); frameEl = null; }
       if (wanted) applyMode();
     })
     .catch(() => {}); // no bridge (webcam mode): markers are never shown anyway
@@ -107,6 +116,38 @@
     if (el) el.classList.toggle("gaze-markers-hidden", !on);
   }
 
+  // Styled inline rather than in gaze-ui.css: it is a measurement target,
+  // and its geometry has to be exactly what the bridge assumes on every page
+  // that loads this file, whichever stylesheets that page has.
+  function buildFrame() {
+    if (frameEl || !FRAME) return frameEl;
+    const t = FRAME.px;
+    frameEl = document.createElement("div");
+    frameEl.className = "gaze-frame";
+    Object.assign(frameEl.style, {
+      position: "fixed", inset: "0", boxSizing: "border-box",
+      border: `${t}px solid ${FRAME.color}`,
+      // Above the tags' layer (1100), below nothing the visitor needs.
+      zIndex: "1101", pointerEvents: "none",
+    });
+    // Orientation mark: a solid square in the top-left corner, so a rotated
+    // or mirrored rectangle can't be mistaken for the right one.
+    const mark = document.createElement("div");
+    const m = t * (FRAME.corner || 2);
+    Object.assign(mark.style, {
+      position: "absolute", top: "0", left: "0",
+      width: `${m}px`, height: `${m}px`, background: FRAME.color,
+    });
+    frameEl.appendChild(mark);
+    document.body.appendChild(frameEl);
+    return frameEl;
+  }
+
+  function setFrameVisible(on) {
+    const el = on ? buildFrame() : frameEl;
+    if (el) el.style.display = on ? "" : "none";
+  }
+
   function stopFlashing() {
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
   }
@@ -126,6 +167,7 @@
 
   function applyMode() {
     stopFlashing();
+    setFrameVisible(wanted);
     if (!wanted || MODE === "off") { setVisible(false); return; }
     if (MODE === "flash") { runFlashCycle(); return; }
     setVisible(true);
@@ -147,7 +189,7 @@
       layoutReady.then(() => { if (wanted) applyMode(); });
       announce();
     },
-    hide() { wanted = false; stopFlashing(); setVisible(false); announce(); },
+    hide() { wanted = false; stopFlashing(); setVisible(false); setFrameVisible(false); announce(); },
     // Whether the tags are WANTED, not whether a flash cycle happens to have
     // them dark this instant — a checkbox must not blink at 1.8s intervals.
     get shown() { return wanted; },

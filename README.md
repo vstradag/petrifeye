@@ -403,6 +403,22 @@ personalization wants k≤9 samples, which the existing 3×3 grid already
 provides. Caveat: it was v0.0.2 at time of writing, so keep
 `webgazer-source.js` around as the fallback.
 
+### Replacing the AprilTags (experimental)
+
+The tags work but sit on top of the artwork. The candidate replacement is a
+thin bright **frame** drawn around the screen edge (`--frame-px`,
+`--frame-color`): four straight edges are easy to find in the scene image and
+pin the screen's corners down more precisely than four small tags.
+
+To judge it on real data rather than guesses, double-click
+**`Record PetrifEye.command`**. It runs the piece normally with the frame
+drawn *alongside* the tags, and each bridge records the scene video, gaze,
+the detected tags and the tag-based screen position to
+`~/petrifeye-recordings/` (`bridge/recorder.py` documents the files). The
+tags give the right answer for every frame, so a frame detector can be
+scored against them offline. Recordings are ~90 MB a minute per pair of
+glasses and stay on the Mac. Stop with ctrl-c so the video is finalised.
+
 ## Keyboard shortcuts (in the running scene)
 
 | Key | Action |
