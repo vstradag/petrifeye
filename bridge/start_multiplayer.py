@@ -367,6 +367,10 @@ def main():
     ap.add_argument("--frame-color", help="colour of that line")
     ap.add_argument("--marker-margin", type=int,
                     help="inset of the on-screen tags from the edge, in CSS px")
+    ap.add_argument("--marker-mode", choices=("always", "flash", "off"),
+                    help="how the page shows the tags")
+    ap.add_argument("--surface-source", choices=("tags", "frame"),
+                    help="EXPERIMENTAL 'frame': locate the screen by the frame, not the tags")
     args = ap.parse_args()
 
     bridge_extra = []
@@ -378,6 +382,10 @@ def main():
         bridge_extra += ["--frame-color", args.frame_color]
     if args.marker_margin is not None:
         bridge_extra += ["--marker-margin", str(args.marker_margin)]
+    if args.marker_mode:
+        bridge_extra += ["--marker-mode", args.marker_mode]
+    if args.surface_source:
+        bridge_extra += ["--surface-source", args.surface_source]
 
     if args.address:
         devices = [{"ip": ip, "name": "(given)", "battery": None, "gaze_ok": True}

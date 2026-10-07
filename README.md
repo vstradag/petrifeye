@@ -419,6 +419,15 @@ tags give the right answer for every frame, so a frame detector can be
 scored against them offline. Recordings are ~90 MB a minute per pair of
 glasses and stay on the Mac. Stop with ctrl-c so the video is finalised.
 
+**Playing without the tags:** double-click **`Frame PetrifEye.command`**. The
+tags are not drawn at all; the bridge finds the screen from the frame alone
+(`--surface-source frame`), tracking it from frame to frame (~2 ms) and only
+searching the whole image when it loses it. Replayed against the tags on real
+recordings, it placed the same gaze a median 3-5 screen px from where the
+tags put it (worst 19 px), in a dim and a lit room. One display per bridge
+for now: LIVE GAZE's multi-screen mode still needs the tags. If anything
+misbehaves, `Start PetrifEye.command` uses the tags as always.
+
 ## Keyboard shortcuts (in the running scene)
 
 | Key | Action |

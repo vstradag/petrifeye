@@ -453,6 +453,11 @@ FRAME_CORNER = 2
 # Set by --record: a recorder.Recorder writing this bridge's session.
 RECORDER = None
 
+# What locates the screen in the scene camera: "tags" (the AprilTags, the
+# proven default) or "frame" (EXPERIMENTAL: the bright line drawn at the
+# screen edge, see frame_detector.py — no tags needed on screen at all).
+SURFACE_SOURCE = "tags"
+
 
 DEFAULT_SCREEN = "main"
 
@@ -518,6 +523,32 @@ def screen_corners_px(mapper, loc):
         np.array([[0, 1], [1, 1], [1, 0], [0, 0]], dtype=np.float64))
     rays = cam.unprojectPoints(np.asarray(undist).reshape(-1, 2), use_distortion=False)
     return cam.projectPoints(rays, use_distortion=True).reshape(-1, 2).tolist()
+
+
+def location_from_frame(mapper, surface, corners_raw):
+    """A surface location from the frame's corners, for the gaze mapper.
+
+    corners_raw are TL, TR, BR, BL of the viewport in RAW scene pixels.
+    They are undistorted first (the screen is a plane, so in the undistorted
+    image a homography is exact), then expressed in the same form the tag
+    tracker produces, so process_gaze and everything after it are unchanged.
+    The surface's normalised space has its origin at the BOTTOM-left.
+    """
+    import numpy as np
+    import cv2
+    from surface_tracker import SurfaceLocation
+    undist = np.asarray(
+        mapper.camera.undistort_points_on_image_plane(np.asarray(corners_raw, np.float64)),
+        np.float64).reshape(4, 2)
+    norm = np.float64([[0, 1], [1, 1], [1, 0], [0, 0]])
+    s2i = cv2.getPerspectiveTransform(np.float32(norm), np.float32(undist))
+    return SurfaceLocation.from_dict({
+        "version": 2,
+        "surface_uid": str(surface.uid),
+        "number_of_markers_detected": 4,
+        "transform_matrix_from_image_to_surface_undistorted": np.linalg.inv(s2i),
+        "transform_matrix_from_surface_to_image_undistorted": s2i,
+    })
 
 
 async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
@@ -639,7 +670,9 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                 elif m >= 4:
                     detail = "surface locked"
                 elif m == 0:
-                    detail = "no markers in view — look at the screen"
+                    detail = ("screen frame not in view — look at the screen"
+                              if SURFACE_SOURCE == "frame" else
+                              "no markers in view — look at the screen")
                 else:
                     detail = f"{m}/4 markers visible"
                 key = ("streaming", detail)
@@ -794,22 +827,32 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                             "worn": worn,
                         })
 
+    tracker = None
+    if FRAME_PX > 0:
+        from frame_detector import FrameTracker
+        tracker = FrameTracker()
+
     def scene_bgr(frame):
         # The same unwrapping process_scene does for a VideoFrame.
         if hasattr(frame, "bgr_pixels"):
             return frame.bgr_pixels
         return frame.bgr_buffer()
 
-    def record_scene(frame, bgr, detected, locations):
+    def record_scene(frame, bgr, detected, locations, frame_corners=None):
         # Never lets an exception out: a recording problem may cost data, it
         # must not cost tracking.
         try:
-            _record_scene(frame, bgr, detected, locations)
+            _record_scene(frame, bgr, detected, locations, frame_corners)
         except Exception as exc:  # noqa: BLE001
             log.warning("recorder: frame skipped (%s)", exc)
 
-    def _record_scene(frame, bgr, detected, locations):
+    def _record_scene(frame, bgr, detected, locations, frame_corners):
         info = {
+            "source": SURFACE_SOURCE,
+            # What the live frame tracker found this frame (raw scene px),
+            # when it ran — scored against the tags offline.
+            "frame_corners_px": (None if frame_corners is None
+                                 else [[float(x), float(y)] for x, y in frame_corners]),
             "t": getattr(frame, "timestamp_unix_seconds", None),
             "viewport": hub.viewport,
             "layout": {"size": IMG_SIZE, "margin": IMG_MARGIN, "mode": MARKER_MODE,
@@ -839,7 +882,7 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # Recording: decode to pixels ONCE and hand the array to both the
             # mapper (which accepts one) and the recorder.
             bgr = None
-            if RECORDER:
+            if RECORDER or tracker:
                 try:
                     bgr = scene_bgr(frame)
                 except Exception:  # noqa: BLE001 - fall back to the normal path
@@ -849,8 +892,44 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # locating the surface would also have meant the very first solve
             # could not happen until gaze was already flowing.
             if current_surface()[0] is None:
-                if bgr is not None:
+                if bgr is not None and RECORDER:
                     record_scene(frame, bgr, [], None)
+                continue
+
+            # The frame tracker runs whenever the page draws a frame: it
+            # drives the mapping with --surface-source frame, and otherwise
+            # only feeds the recording, to be scored against the tags.
+            frame_corners = None
+            if tracker and bgr is not None:
+                try:
+                    frame_corners = tracker.update(bgr, time.monotonic())
+                except Exception as exc:  # noqa: BLE001 - never lose gaze over it
+                    log.warning("frame tracker failed: %s", exc)
+                    frame_corners = None
+
+            if SURFACE_SOURCE == "frame":
+                surface = current_surface()[0]
+                locations = {}
+                if frame_corners is not None:
+                    try:
+                        locations = {surface.uid: location_from_frame(mapper, surface, frame_corners)}
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("frame -> surface failed: %s", exc)
+                n = 4 if locations else 0
+                state["markers"] = n
+                state["per_screen"] = {DEFAULT_SCREEN: n}
+                if RECORDER:
+                    # Tags, if shown, are still detected — only as the
+                    # recording's ground truth, never for the mapping.
+                    detected, tag_locs = [], None
+                    if MARKER_MODE != "off":
+                        mapper.process_scene(bgr)
+                        detected = getattr(mapper, "_detected_markers", None) or []
+                        tag_locs = getattr(mapper, "_surface_locations", None)
+                    record_scene(frame, bgr, detected, tag_locs, frame_corners)
+                if locations:
+                    held["locations"] = locations
+                    held["at"] = time.monotonic()
                 continue
 
             # Split rather than process_frame(): scene and gaze are processed
@@ -897,8 +976,8 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # are public, so splitting them is intended; guarded with getattr so
             # a library change degrades to "no hold" instead of crashing.
             locations = getattr(mapper, "_surface_locations", None)
-            if bgr is not None:
-                record_scene(frame, bgr, detected, locations)
+            if bgr is not None and RECORDER:
+                record_scene(frame, bgr, detected, locations, frame_corners)
             if locations is None:
                 continue
             now = time.monotonic()
@@ -1202,7 +1281,7 @@ async def main():
     # Declared up front: Python requires the global statement before any use
     # of the name in the function, and the argparse defaults below read them.
     global IMG_SIZE, IMG_MARGIN, MARKER_MODE, FLASH_ON_MS, FLASH_PERIOD_MS
-    global SURFACE_HOLD_MS, FRAME_PX, FRAME_COLOR, RECORDER
+    global SURFACE_HOLD_MS, FRAME_PX, FRAME_COLOR, RECORDER, SURFACE_SOURCE
 
     ap = argparse.ArgumentParser(description="Pupil Labs Neon bridge for PetrifEye")
     ap.add_argument("--address", help="Companion phone IP (skips mDNS discovery)")
@@ -1218,7 +1297,7 @@ async def main():
     ap.add_argument("--marker-margin", type=int, default=IMG_MARGIN,
                     help="Inset of each marker from the screen edge, in CSS px.")
     ap.add_argument(
-        "--marker-mode", choices=("always", "flash", "off"), default=MARKER_MODE,
+        "--marker-mode", choices=("always", "flash", "off"), default=None,
         help="always: tags permanently on screen (most accurate). "
              "flash: brief periodic pulses, surface cached between them "
              "(much less intrusive, softer under head movement). "
@@ -1238,6 +1317,13 @@ async def main():
     ap.add_argument("--frame-color", default=FRAME_COLOR,
                     help="Colour of that line; pick one found nowhere else in the room.")
     ap.add_argument(
+        "--surface-source", choices=("tags", "frame"), default=SURFACE_SOURCE,
+        help="What locates the screen: the AprilTags (default) or, EXPERIMENTAL, "
+             "the bright frame at the screen edge. 'frame' turns the frame on "
+             "(10px unless --frame-px says otherwise) and the tags off (unless "
+             "--marker-mode says otherwise).",
+    )
+    ap.add_argument(
         "--record", nargs="?", const="~/petrifeye-recordings", metavar="DIR",
         help="Record the scene video, gaze, detected tags and screen position "
              "for offline testing (default folder: ~/petrifeye-recordings).",
@@ -1246,14 +1332,19 @@ async def main():
 
     # Applied globally so marker_verts() and /markers/layout.json agree.
     IMG_SIZE, IMG_MARGIN = args.marker_size, args.marker_margin
-    MARKER_MODE = args.marker_mode
+    SURFACE_SOURCE = args.surface_source
+    MARKER_MODE = args.marker_mode or ("off" if SURFACE_SOURCE == "frame" else MARKER_MODE)
     FLASH_ON_MS, FLASH_PERIOD_MS = args.flash_on_ms, args.flash_period_ms
     SURFACE_HOLD_MS = args.surface_hold_ms
     FRAME_PX, FRAME_COLOR = max(0, args.frame_px), args.frame_color
+    if SURFACE_SOURCE == "frame" and FRAME_PX == 0:
+        FRAME_PX = 10
     log.info("markers: %dpx, %dpx inset, mode=%s (hold %dms)",
              IMG_SIZE, IMG_MARGIN, MARKER_MODE, SURFACE_HOLD_MS)
     if FRAME_PX:
         log.info("frame: %dpx %s around the screen edge (experimental)", FRAME_PX, FRAME_COLOR)
+    log.info("screen located by: %s", "the FRAME (experimental)" if SURFACE_SOURCE == "frame"
+             else "the AprilTags")
     if args.record:
         from recorder import Recorder
         RECORDER = Recorder(args.record, args.port, vars(args))

@@ -61,14 +61,20 @@ def _order_corners(pts):
 
 
 def _bilinear(img, pts):
-    """Sample a float image at sub-pixel points (N,2) -> (N,)."""
-    h, w = img.shape
+    """Mean brightness of a BGR image at sub-pixel points (N,2) -> (N,).
+
+    Sampled straight from the colour image rather than from a precomputed
+    grey one: converting all 1.9M pixels cost more than every profile put
+    together, and edges are only ever needed at a few hundred points.
+    """
+    h, w = img.shape[:2]
     x = np.clip(pts[:, 0], 0, w - 1.001)
     y = np.clip(pts[:, 1], 0, h - 1.001)
     x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
-    fx, fy = x - x0, y - y0
-    return (img[y0, x0] * (1 - fx) * (1 - fy) + img[y0, x0 + 1] * fx * (1 - fy) +
-            img[y0 + 1, x0] * (1 - fx) * fy + img[y0 + 1, x0 + 1] * fx * fy)
+    fx, fy = (x - x0)[:, None], (y - y0)[:, None]
+    v = (img[y0, x0] * (1 - fx) * (1 - fy) + img[y0, x0 + 1] * fx * (1 - fy) +
+         img[y0 + 1, x0] * (1 - fx) * fy + img[y0 + 1, x0 + 1] * fx * fy)
+    return v.mean(axis=1) if v.ndim == 2 else v
 
 
 def _edge_points(gray, a, b, centre, t0, t1):
@@ -77,6 +83,8 @@ def _edge_points(gray, a, b, centre, t0, t1):
     For each sample, a brightness profile is taken along the outward normal:
     the line's peak lies just inside the rough edge, the bezel's level just
     outside, and the edge is where brightness crosses halfway between them.
+    All profiles are sampled in one vectorised call — a Python loop over them
+    cost ~20 ms a frame, most of the tracker's budget.
     """
     u = (b - a) / np.linalg.norm(b - a)
     n = np.array([-u[1], u[0]])
@@ -86,23 +94,26 @@ def _edge_points(gray, a, b, centre, t0, t1):
     # and anything bright further in (a tag's white border sits only ~7 px
     # inside the edge) must not be mistaken for its peak.
     offs = np.arange(-INNER_PX, 6.01, 0.25)  # negative = inside the screen
-    out = []
-    for t in np.linspace(t0, t1, EDGE_SAMPLES):
-        p = a + t * (b - a)
-        prof = _bilinear(gray, p + offs[:, None] * n)
-        inner = offs <= 1.5
-        k_peak = int(np.argmax(np.where(inner, prof, -1)))
-        peak = prof[k_peak]
-        floor = np.median(prof[offs >= 4.0])
-        if peak - floor < 20:               # no clear line here
-            continue
-        half = (peak + floor) / 2
-        for k in range(k_peak, len(offs) - 1):
-            if prof[k] >= half > prof[k + 1]:
-                f = (prof[k] - half) / (prof[k] - prof[k + 1])
-                out.append(p + (offs[k] + f * 0.25) * n)
-                break
-    return np.array(out)
+    ts = np.linspace(t0, t1, EDGE_SAMPLES)
+    base = a + ts[:, None] * (b - a)                                # (S,2)
+    pts = base[:, None, :] + offs[None, :, None] * n                # (S,O,2)
+    prof = _bilinear(gray, pts.reshape(-1, 2)).reshape(len(ts), len(offs))
+    inner = offs <= 1.5
+    k_peak = np.argmax(np.where(inner, prof, -1), axis=1)            # (S,)
+    peak = prof[np.arange(len(ts)), k_peak]
+    floor = np.median(prof[:, offs >= 4.0], axis=1)
+    half = (peak + floor) / 2
+    # first fall below half-maximum, outward of the peak
+    idx = np.arange(len(offs) - 1)
+    crossing = ((prof[:, :-1] >= half[:, None]) & (prof[:, 1:] < half[:, None]) &
+                (idx[None, :] >= k_peak[:, None]))
+    has = crossing.any(axis=1) & (peak - floor >= 20)   # else: no clear line here
+    k = np.argmax(crossing, axis=1)
+    r = np.arange(len(ts))
+    p0, p1 = prof[r, k], prof[r, k + 1]
+    f = np.where(p0 != p1, (p0 - half) / np.where(p0 != p1, p0 - p1, 1), 0)
+    out = base + ((offs[k] + f * 0.25)[:, None]) * n
+    return out[has]
 
 
 def _fit_line(points):
@@ -246,10 +257,11 @@ def _masks(bgr_small):
 
 
 def detect_frame(bgr):
-    # Edges are located on MEAN brightness: it separates line from bezel in a
-    # dark room (~185 vs ~65) and a lit one (~114 vs ~57) alike, where the
-    # brightest channel alone does not (blue: 175 vs 110 with lights on).
-    gray = bgr.mean(axis=2, dtype=np.float32)
+    # Edges are located on MEAN brightness (see _bilinear): it separates line
+    # from bezel in a dark room (~185 vs ~65) and a lit one (~114 vs ~57)
+    # alike, where the brightest channel alone does not (blue: 175 vs 110
+    # with lights on).
+    gray = bgr
     small = cv2.resize(bgr, None, fx=SEARCH_SCALE, fy=SEARCH_SCALE,
                        interpolation=cv2.INTER_AREA)
     for mask in _masks(small):
@@ -262,3 +274,61 @@ def detect_frame(bgr):
             if corners is not None:
                 return corners
     return None
+
+
+class FrameTracker:
+    """detect_frame over a video stream: cheap while it holds, safe when lost.
+
+    While the screen was found in the previous frame, it is re-located from
+    there — edges and corners only, no image-wide search — which costs a few
+    ms instead of ~30. A full search runs when that fails. A full search
+    that lands far from where the screen just was is held back until the
+    next frame confirms it: a brief wrong rectangle (a tag's white border, a
+    lit window) never reaches the gaze mapping, while a real move survives
+    one frame of doubt.
+    """
+
+    # Beyond this jump (camera px) from the last good solve, a full-search
+    # result needs confirming by the next frame.
+    JUMP_PX = 40
+    # How long a previous solve counts as "where the screen just was".
+    RECENT_S = 0.5
+
+    # Once the screen has been out of view this long, search only every
+    # SEARCH_EVERY-th frame: nobody is looking at it, a full search costs
+    # ~20 ms of the bridge's event loop, and a returning screen is still
+    # picked up within a tenth of a second.
+    LOST_SLOW_S = 1.0
+    SEARCH_EVERY = 3
+
+    def __init__(self):
+        self.corners = None
+        self.at = 0.0
+        self._pending = None
+        self._skipped = 0
+
+    def update(self, bgr, now):
+        recent = self.corners is not None and now - self.at < self.RECENT_S
+        if recent:
+            tracked = _refine(bgr, self.corners)
+            if tracked is not None:
+                return self._accept(tracked, now)
+        if now - self.at > self.LOST_SLOW_S:
+            self._skipped = (self._skipped + 1) % self.SEARCH_EVERY
+            if self._skipped:
+                return None
+        found = detect_frame(bgr)
+        if found is None:
+            self._pending = None
+            return None
+        if recent and np.linalg.norm(found - self.corners, axis=1).max() > self.JUMP_PX:
+            if (self._pending is not None and
+                    np.linalg.norm(found - self._pending, axis=1).max() < self.JUMP_PX / 4):
+                return self._accept(found, now)    # confirmed: the screen did move
+            self._pending = found
+            return None
+        return self._accept(found, now)
+
+    def _accept(self, corners, now):
+        self.corners, self.at, self._pending = corners, now, None
+        return corners
