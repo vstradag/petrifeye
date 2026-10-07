@@ -63,7 +63,9 @@ def _clean(o):
     if isinstance(o, np.ndarray):
         return o.tolist()
     if isinstance(o, np.generic):
-        return o.item()
+        # .item() can itself return bytes (the calibration's serial is a
+        # numpy bytes_), so clean the result too.
+        return _clean(o.item())
     if isinstance(o, Enum):
         return o.name
     if isinstance(o, (bytes, bytearray)):
