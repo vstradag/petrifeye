@@ -19,6 +19,11 @@ What the camera actually sees, measured on real recordings:
     rectangle (a tag's white border) won instead. Hence several thresholds,
     and a COLOUR check on every candidate: the line is pink/purple (blue and
     red above green) while white tag borders and lit walls are not.
+  - With the room lights ON the opposite happens: exposure is set for a
+    bright room, the screen is among the darker things in view (a white wall
+    is far brighter than the line), and the line comes out a dark, strongly
+    SATURATED magenta-purple (saturation ~175) — found by colour instead.
+    Both searches run; whichever finds a pink-edged quad wins.
   - The bright line blooms outward. Thresholding put the edge 1-3.7 camera px
     outside the truth, so edges are located instead at HALF-MAXIMUM: across
     the edge, where brightness falls halfway from the line to the bezel. That
@@ -35,7 +40,12 @@ import numpy as np
 SEARCH_SCALE = 0.5
 THRESHOLDS = (125, 95, 70)
 MIN_AREA_FRAC = 0.01          # smallest screen considered, of the image area
-FILL_MIN = 0.9                # outline area / hull area for a solid quad
+COVER_MIN = 0.7               # share of a candidate's perimeter on the mask
+# Lights-on candidates: saturated magenta-purple, bright enough to exclude the
+# darker purple glow on the bezel just outside the line (V ~110 vs ~175).
+HUE_RANGE = (115, 170)        # OpenCV hue, 0-180; the line measures ~132
+SAT_MIN = 90
+VAL_MIN = 140
 PINK_MIN = 8                  # median min(B,R)-G along the line (real: ~25)
 CORNER_SPAN = 0.25            # fraction of each edge used to fit near a corner
 EDGE_SAMPLES = 24             # half-maximum profiles per edge stretch
@@ -111,7 +121,33 @@ def _intersect(l1, l2):
     return p + t * r
 
 
+def _refit_edges(gray, rough):
+    """Correct the rough quad from whole edges: one bad hull vertex cannot
+    survive three good edges. Lines through the middle 70% of each edge,
+    intersected pairwise. (Lens bowing biases these slightly; the per-corner
+    step afterwards removes that.)"""
+    centre = rough.mean(0)
+    lines = []
+    for k in range(4):
+        a, b = rough[k], rough[(k + 1) % 4]
+        if np.linalg.norm(b - a) < 20:
+            return None
+        lines.append(_fit_line(_edge_points(gray, a, b, centre, 0.15, 0.85)))
+    if any(l is None for l in lines):
+        return None
+    out = []
+    for k in range(4):
+        p = _intersect(lines[(k - 1) % 4], lines[k])
+        if p is None or np.linalg.norm(p - rough[k]) > 40:
+            return None
+        out.append(p)
+    return np.array(out)
+
+
 def _refine(gray, rough):
+    rough = _refit_edges(gray, rough)
+    if rough is None:
+        return None
     centre = rough.mean(0)
     refined = []
     for k in range(4):
@@ -150,29 +186,74 @@ def _pinkness_along(bgr, quad):
     return float(np.median(np.minimum(px[:, 0], px[:, 2]) - px[:, 1]))
 
 
-def _candidates(gray_small, threshold):
-    mask = (gray_small > threshold).astype(np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+def _perimeter_coverage(mask, quad):
+    """Fraction of the quad's perimeter that lies on the mask (1px slack)."""
+    near = cv2.dilate(mask, np.ones((3, 3), np.uint8))
+    h, w = mask.shape
+    hits = total = 0
+    for k in range(4):
+        a, b = quad[k], quad[(k + 1) % 4]
+        n = max(int(np.linalg.norm(b - a)), 8)
+        for t in np.linspace(0.05, 0.95, n):   # corners are rounded: skip
+            x, y = np.round(a + t * (b - a)).astype(int)
+            if 0 <= x < w and 0 <= y < h:
+                total += 1
+                hits += near[y, x] > 0
+    return hits / total if total else 0.0
+
+
+def _quads(mask, close, test):
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((close, close), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     h, w = mask.shape
+    out = []
     for cnt in contours:
-        area = cv2.contourArea(cnt)
+        hull = cv2.convexHull(cnt)
+        area = cv2.contourArea(hull)
         if area < MIN_AREA_FRAC * w * h:
             continue
-        hull = cv2.convexHull(cnt)
-        if area / max(cv2.contourArea(hull), 1) < FILL_MIN:
-            continue
         approx = cv2.approxPolyDP(hull, 0.02 * cv2.arcLength(hull, True), True)
-        if len(approx) == 4:
-            yield area, approx.reshape(4, 2).astype(np.float64)
+        if len(approx) != 4:
+            continue
+        quad = approx.reshape(4, 2).astype(np.float64)
+        if test(mask, cnt, area, quad):
+            out.append((area, quad))
+    return sorted(out, key=lambda c: -c[0])
+
+
+def _candidates(mask):
+    """Quadrilaterals the mask outlines, by two complementary tests.
+
+    SOLID: the outline of a closed bright region fills its hull — robust when
+    the line is unbroken (dim room), since nothing outside it can join in.
+    PERIMETER: most of the quad's edge lies on the mask — needed when the line
+    is ~1 px wide at search resolution and broken in places (lit room), where
+    no closed outline forms at all. Each alone lost a whole recording.
+    """
+    yield from _quads(mask, 3, lambda m, cnt, area, q: cv2.contourArea(cnt) / max(area, 1) >= 0.9)
+    yield from _quads(mask, 5, lambda m, cnt, area, q: _perimeter_coverage(m, q) >= COVER_MIN)
+
+
+def _masks(bgr_small):
+    """Candidate masks, most specific first."""
+    bright = bgr_small.max(axis=2)          # the line is bright in R and B
+    for threshold in THRESHOLDS:
+        yield (bright > threshold).astype(np.uint8)
+    hsv = cv2.cvtColor(bgr_small, cv2.COLOR_BGR2HSV)
+    h, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    yield ((h >= HUE_RANGE[0]) & (h <= HUE_RANGE[1]) &
+           (sat >= SAT_MIN) & (val >= VAL_MIN)).astype(np.uint8)
 
 
 def detect_frame(bgr):
-    gray = bgr.max(axis=2).astype(np.float32)   # the line is bright in R and B
-    small = cv2.resize(gray, None, fx=SEARCH_SCALE, fy=SEARCH_SCALE,
+    # Edges are located on MEAN brightness: it separates line from bezel in a
+    # dark room (~185 vs ~65) and a lit one (~114 vs ~57) alike, where the
+    # brightest channel alone does not (blue: 175 vs 110 with lights on).
+    gray = bgr.mean(axis=2, dtype=np.float32)
+    small = cv2.resize(bgr, None, fx=SEARCH_SCALE, fy=SEARCH_SCALE,
                        interpolation=cv2.INTER_AREA)
-    for threshold in THRESHOLDS:
-        found = sorted(_candidates(small, threshold), key=lambda c: -c[0])
+    for mask in _masks(small):
+        found = sorted(_candidates(mask), key=lambda c: -c[0])
         for _area, quad in found:
             rough = _order_corners(quad / SEARCH_SCALE)
             if _pinkness_along(bgr, rough) < PINK_MIN:
