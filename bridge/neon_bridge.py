@@ -1076,10 +1076,11 @@ async def markers_handler(request):
     # unflipped tag are those of the diagonally opposite corners in screen
     # space. Every tag was effectively matched upside down: the four centres
     # still agreed, so tracking "worked", but the solved screen came out
-    # shrunk and warped — measured on a synthetic scene with known geometry,
-    # mapped gaze was off by 72-78 screen px on average and up to 143 px at
-    # the edges. With the flip: ~1.5 px. (Printed tags from before this change
-    # simply need mounting rotated 180 degrees.)
+    # shrunk and warped. Measured on real recordings (2026-10-07): with this
+    # flip the tag corners fit the solved screen to ~1.5 px; the unflipped
+    # tags fit to ~90 px and put mapped gaze a median 93 screen px off
+    # (90th percentile 164 px, worst 279). (Printed tags from before this
+    # change simply need mounting rotated 180 degrees.)
     pixels = np.asarray(
         marker_generator.generate_marker(marker_id=mid, flip_x=True, flip_y=True),
         dtype="uint8")
