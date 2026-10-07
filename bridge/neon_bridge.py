@@ -985,7 +985,21 @@ async def markers_handler(request):
     # A quiet white border is required too — the detector looks for a light
     # margin around the black frame and won't find tags that bleed to the
     # edge of their own image.
-    pixels = np.asarray(marker_generator.generate_marker(marker_id=mid), dtype="uint8")
+    #
+    # ROTATED 180 degrees (flip_x + flip_y), and this matters a great deal.
+    # The mapper pairs each detected tag corner with a registered one BY NAME
+    # (top-left, top-right, …), and the names it gives the corners of an
+    # unflipped tag are those of the diagonally opposite corners in screen
+    # space. Every tag was effectively matched upside down: the four centres
+    # still agreed, so tracking "worked", but the solved screen came out
+    # shrunk and warped. Measured on real recordings (2026-10-07): with this
+    # flip the tag corners fit the solved screen to ~1.5 px; the unflipped
+    # tags fit to ~90 px and put mapped gaze a median 93 screen px off
+    # (90th percentile 164 px, worst 279). (Printed tags from before this
+    # change simply need mounting rotated 180 degrees.)
+    pixels = np.asarray(
+        marker_generator.generate_marker(marker_id=mid, flip_x=True, flip_y=True),
+        dtype="uint8")
     img = Image.fromarray(pixels, mode="L").resize((480, 480), Image.NEAREST)
     quiet = Image.new("L", (600, 600), 255)
     quiet.paste(img, (60, 60))
