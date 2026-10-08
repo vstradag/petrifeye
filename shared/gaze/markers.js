@@ -220,5 +220,11 @@
     get size() { return SIZE; },
     get margin() { return MARGIN; },
     get mode() { return MODE; },
+    // Whether tags are actually drawn when shown: in "off" mode (the bridge
+    // located by the FRAME) they never appear, and a layout that keeps
+    // their corners clear would shrink the content for nothing.
+    get tagsDrawn() { return wanted && MODE !== "off"; },
+    // Thickness (px) of the frame line around the viewport, 0 without one.
+    get framePx() { return wanted && FRAME ? FRAME.px : 0; },
   };
 })();

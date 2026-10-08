@@ -112,11 +112,15 @@
     const W = window.innerWidth, H = window.innerHeight;
     const img = state.images[state.index];
     const aspect = img && img.w ? img.w / img.h : 1.5;
-    const pad = 12;
+    // Inside the frame line when there is one (Frame mode), with the same
+    // black gap the viewport edge gets: the frame is found by its edges, and
+    // a bright image right against the line would blur the inner one.
+    const pad = 12 + (window.Markers && !state.simMode ? Markers.framePx : 0);
     const fullH = Math.min((W - 2 * pad) / aspect, H - 2 * pad);
     let h = fullH;
 
-    const tagsOn = window.Markers && Markers.shown && !state.simMode;
+    // Only when tags are actually drawn: Frame mode turns them off.
+    const tagsOn = window.Markers && Markers.tagsDrawn && !state.simMode;
     if (tagsOn) {
       const F = (Markers.margin || 24) + (Markers.size || 300) + 10;
       const betweenRows = Math.min((W - 2 * pad) / aspect, H - 2 * F);

@@ -35,6 +35,8 @@
   const STONE_MS = 380;         // petrify animation between targets
   const MAX_OFFSET = 260;       // px: beyond this it is not looking, it is elsewhere
 
+  const med = (a) => { const s = [...a].sort((u, v) => u - v); const k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+
   // ------------------------------------------------------------ offsets
   // One offset per player id. Deliberately NOT saved across page loads: in an
   // installation the next person wearing the glasses is someone else, and
@@ -104,12 +106,19 @@
       const mx = b.reduce((s, q) => s + q.x, 0) / b.length;
       const my = b.reduce((s, q) => s + q.y, 0) / b.length;
       if (b.some((q) => Math.hypot(q.x - mx, q.y - my) > this.spread)) continue;   // still moving
-      // Near THIS target — judged with the previous offset too, so a
-      // recalibration still recognises a visitor whose bias is large.
-      const prev = offsets.get(p.id);
+      // Near THIS target? Judged against where this visitor's gaze is
+      // expected to land, not only against zero offset: a radius centred on
+      // zero rejects exactly the targets where the bias is largest, so a
+      // first calibration kept the small-bias ones and underestimated it.
+      //   - the first target (the centre, nothing else on screen before it)
+      //     accepts up to MAX_OFFSET: that is what seeds the estimate;
+      //   - later ones are judged around the offset measured so far in this
+      //     session, and around a previous calibration's, if any.
       const dRaw = Math.hypot(t.x - mx, t.y - my);
-      const dPrev = prev ? Math.hypot(t.x - (mx + prev.x), t.y - (my + prev.y)) : Infinity;
-      if (Math.min(dRaw, dPrev) > this.radius) continue;
+      const near = (o) => o ? Math.hypot(t.x - (mx + o.x), t.y - (my + o.y)) : Infinity;
+      const ok = (this.i === 0 && dRaw <= Math.max(this.radius, MAX_OFFSET)) ||
+        Math.min(dRaw, near(this._sessionOffset(p.id)), near(offsets.get(p.id))) <= this.radius;
+      if (!ok) continue;
       const r = this.residuals.get(p.id) || [];
       r.push({ dx: t.x - mx, dy: t.y - my });
       this.residuals.set(p.id, r);
@@ -130,6 +139,13 @@
       if (!this.anyoneThisTarget) { this._finish(now); return; }
       this._next(now);
     }
+  };
+
+  // The offset this session has measured for a player so far, or null.
+  Session.prototype._sessionOffset = function (id) {
+    const rs = this.residuals.get(id);
+    if (!rs || !rs.length) return null;
+    return { x: med(rs.map((r) => r.dx)), y: med(rs.map((r) => r.dy)) };
   };
 
   Session.prototype._next = function (now) {
@@ -155,7 +171,6 @@
         summary.push({ id, ok: false, n: rs.length });
         continue;
       }
-      const med = (a) => { const s = [...a].sort((u, v) => u - v); const k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
       let x = med(rs.map((r) => r.dx)), y = med(rs.map((r) => r.dy));
       const spread = med(rs.map((r) => Math.hypot(r.dx - x, r.dy - y)));
       const prev = offsets.get(id);

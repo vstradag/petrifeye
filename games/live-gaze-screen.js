@@ -56,9 +56,9 @@
     minDurationMs: 100,
     img: null,           // index of the image shown, null once this screen is done
     done: false,         // every image this display could show has been closed
-    doneNote: "",
     progress: [],        // the shared queue (LiveGazeStore.progress)
     calib: null,         // GazeTargetCalibration.Session while calibrating
+    calibWaiting: false, // the first calibration, held until fullscreen has settled
     calibNote: null,     // { text, until } — result shown after it
   };
   const detectors = new Map();   // pointerId -> FixationDetector
@@ -125,11 +125,15 @@
   function imageRect() {
     const W = window.innerWidth, H = window.innerHeight;
     const aspect = state.image && state.image.w ? state.image.w / state.image.h : 1.5;
-    const pad = 12;
+    // Inside the frame line when there is one (Frame mode), with the same
+    // black gap the viewport edge gets: the frame is found by its edges, and
+    // a bright image right against the line would blur the inner one.
+    const pad = 12 + (window.Markers && !state.simMode ? Markers.framePx : 0);
     const fullH = Math.min((W - 2 * pad) / aspect, H - 2 * pad);
     let h = fullH;
 
-    const tagsOn = window.Markers && Markers.shown && !state.simMode;
+    // Only when tags are actually drawn: Frame mode turns them off.
+    const tagsOn = window.Markers && Markers.tagsDrawn && !state.simMode;
     if (tagsOn) {
       const F = (Markers.margin || 24) + (Markers.size || 300) + 10;
       const betweenRows = Math.min((W - 2 * pad) / aspect, H - 2 * F);
@@ -268,6 +272,7 @@
       // Starting one screen starts them all: with three projectors up, walking
       // to each window to press start is exactly when visitors are waiting.
       if (m.type === "start" && m.display !== SLOT && !state.started) { start(false); return; }
+      if (m.type === "new-run" && m.display !== SLOT && state.started) { beginRun(false); return; }
       // A calibration done on another screen: a starting point for players
       // who have not calibrated on this one (see adopt()).
       if (m.type === "calib" && m.display !== SLOT && Array.isArray(m.offsets)) {
@@ -305,13 +310,16 @@
     const now = performance.now();
     if (state.done || state.img == null) {
       background(0);
-      drawCaption(state.doneNote || "this screen is done");
-      if (state.calibNote && now < state.calibNote.until) drawCaption(state.calibNote.text, 1);
+      const over = showOver();
+      drawCaption(over ? "all images have been seen — thank you" : "this screen is done");
+      if (over) drawCaption("next visitors: press space to start again", 1);
+      if (state.calibNote && now < state.calibNote.until) drawCaption(state.calibNote.text, over ? 2 : 1);
       return;
     }
     if (state.calib) { drawCalibration(now); return; }
+    if (state.calibWaiting) { background(0); drawCaption("calibration starting — look at the screen"); return; }
 
-    retuneDetectors();                    // rect may have changed size
+    retuneDetectors();                   // rect may have changed size
     // Corrected by this visitor's calibration — x/y AND rawX/rawY, since the
     // measurement below reads the raw position. The tracker's own reading
     // stays on each pointer as uncalX/uncalY.
@@ -387,6 +395,7 @@
 
   function startCalibration(mode = "full") {
     if (!state.started) return;
+    state.calibWaiting = false;
     rect = imageRect();
     flushAll();                // close fixations in progress: what follows isn't data
     detectors.clear();         // their filters hold uncorrected positions
@@ -490,8 +499,12 @@
       // The analysis window renders and saves its panels from this.
       post({ type: "image-closed", fixations, players, total: state.total,
              image: image ? { name: image.name, w: image.w, h: image.h } : null });
+      // The run's folder, read BEFORE closing: the save waits up to 3 s for
+      // the analysis window, and a new run started meanwhile (space, once
+      // this was the last image) must not take this image's results with it.
+      const stamp = await LiveGazeStore.runStamp();
       await LiveGazeStore.close(idx);
-      const saving = saveResults(idx, image, fixations, players);
+      const saving = saveResults(idx, image, fixations, players, stamp);
       const next = goNext ? await LiveGazeStore.claim(SLOT, null, await bridgeBoot()) : null;
       if (next != null) {
         await showImage(next);
@@ -513,17 +526,49 @@
     state.fixations = [];
     detectors.clear();
     await refreshProgress();
-    const allClosed = state.progress.length && state.progress.every((p) => p.status === "closed");
-    state.doneNote = allClosed ? "all images have been seen — thank you"
-                               : "this screen is done";
     updateTitle();
     broadcastSnapshot();
+  }
+
+  // ------------------------------------------------------------ new run
+  // Every image has been closed: the show is over, and starting it again
+  // must not need the app relaunched (which is what a new run used to take —
+  // see BOOT_ID). Space on any screen starts a NEW RUN of the same images:
+  // the queue starts over, unseen, in a new results folder; every screen
+  // takes its image again and calibrates the new visitors. Bridges, glasses
+  // and fullscreen stay as they are.
+  //
+  // Not automatic on a timer: a calibration that starts while nobody is
+  // wearing the glasses gives up after the first eye and shows the image,
+  // recording whoever wanders past, uncalibrated, as data.
+  const showOver = () => state.progress.length > 0 && state.progress.every((p) => p.status === "closed");
+
+  async function newRun() {
+    if (!showOver()) return;
+    if (closing) { note("still saving the last image — press space again in a moment"); return; }
+    await LiveGazeStore.resetProgress();
+    post({ type: "new-run" });
+    beginRun(true);
+  }
+
+  async function beginRun(fromKey) {
+    if (!state.done) return;
+    // New visitors: nobody's correction carries over, on any screen.
+    GazeTargetCalibration.clear();
+    renderCalibInfo();
+    state.calibNote = null;
+    const idx = await LiveGazeStore.claim(SLOT, SLOT, await bridgeBoot());
+    if (idx == null) { await finishScreen(); return; }
+    await showImage(idx);
+    // Only the screen where space was pressed can go fullscreen again (it
+    // has the key press); the others are still fullscreen, or stay as they are.
+    beginVisitors(fromKey ? goFullscreen() : Promise.resolve());
   }
 
   // Data always comes from here; the analysis picture from the analysis
   // window when one is open (it has the drawing), otherwise a plain scanpath
   // picture drawn here, so a closed image never ends up with no picture.
-  async function saveResults(idx, image, fixations, players) {
+  async function saveResults(idx, image, fixations, players, stamp) {
     const name = image ? image.name : `image ${idx + 1}`;
     const W = image ? image.w : 1, H = image ? image.h : 1;
     const rows = ["player,label,order,u,v,x_px,y_px,start_ms,duration_ms"];
@@ -555,7 +600,7 @@
       const png = await scanpathPicture(image, fixations, players);
       if (png) files.push({ name: "scanpath.png", blob: png });
     }
-    const res = await LiveGazeStore.saveResults(idx, name, files);
+    const res = await LiveGazeStore.saveResults(idx, name, files, stamp);
     return res.where;
   }
 
@@ -798,6 +843,7 @@
     else if (k === "x") confirmKey("x", "close this image", () => closeImage(false));
     else if (k === "c" && !state.calib) startCalibration("full");
     else if (k === "v" && !state.calib) startCalibration("check");
+    else if (k === " " && state.done) { e.preventDefault(); newRun(); }
   });
 
   let lastList = PLAYERS.map((p) => ({ ...p, state: "connecting", live: false }));
@@ -808,19 +854,35 @@
   });
 
   // ------------------------------------------------------------- start
+  // Resolves once the viewport is final AND the bridges have had time to
+  // rebuild their surface for it. Entering fullscreen resizes the viewport;
+  // the new size reaches each bridge only after the aggregator's debounce
+  // (fullscreenchange + 120 ms, resize + 250 ms), and the rebuilt surface
+  // maps nothing until its first solve. Calibrating inside that window laid
+  // the targets out for the old viewport and measured them through a
+  // mapping scaled for it — the first calibration was off, a later one not.
+  const VIEWPORT_SETTLE_MS = 700;
+  const FULLSCREEN_WAIT_MS = 2000;   // a request that never completes
   function goFullscreen() {
-    try {
-      if (document.fullscreenElement) return;
-      const p = document.documentElement.requestFullscreen?.();
-      if (p && p.catch) p.catch(() => {});
-    } catch (_) {}
+    return new Promise((resolve) => {
+      const settle = () => setTimeout(resolve, VIEWPORT_SETTLE_MS);
+      if (document.fullscreenElement || !document.documentElement.requestFullscreen) { resolve(); return; }
+      let done = false;
+      const once = () => { if (done) return; done = true; settle(); };
+      document.addEventListener("fullscreenchange", once, { once: true });
+      setTimeout(once, FULLSCREEN_WAIT_MS);
+      try {
+        const p = document.documentElement.requestFullscreen();
+        if (p && p.catch) p.catch(() => { if (!done) { done = true; resolve(); } });
+      } catch (_) { done = true; resolve(); }
+    });
   }
 
   function start(sim) {
     if (state.started) return;
     state.started = true;
     state.simMode = !!sim;
-    goFullscreen();
+    const viewportReady = goFullscreen();
     $("ssBoot").classList.add("hidden");
     $("ssGear").style.display = "";
     wakeGear();
@@ -842,6 +904,7 @@
           { keys: "r", does: "reset this image" },
           { keys: "c / v", does: "calibrate / quick check" },
           { keys: "n / x", does: "next image / close image (press twice)" },
+          { keys: "space", does: "start again, once every image is closed" },
         ], `live gaze · image ${SLOT + 1}`);
       }
     } else {
@@ -853,8 +916,16 @@
     broadcastSnapshot();
     // Every visitor starts with their own calibration. Each screen runs it
     // for whoever is looking at it; a screen nobody looks at gives up after
-    // the first eye and shows its image.
-    if (!state.simMode || CALIB_IN_SIM) startCalibration("full");
+    // the first eye and shows its image. Held until fullscreen has settled
+    // (see goFullscreen); the screen stays black meanwhile, so nothing seen
+    // before the calibration is recorded as data.
+    beginVisitors(viewportReady);
+  }
+
+  function beginVisitors(viewportReady) {
+    if (state.simMode && !CALIB_IN_SIM) return;
+    state.calibWaiting = true;
+    viewportReady.then(() => { if (state.calibWaiting && !state.calib) startCalibration("full"); });
   }
 
   $("ssStart").onclick = async () => {

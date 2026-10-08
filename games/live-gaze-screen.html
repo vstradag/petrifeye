@@ -13,6 +13,11 @@
   .lg-title { font-size: 11px; color: #e8e6e2; margin-top: 6px; letter-spacing: .04em; }
   .lg-tags { font-size: 10px; color: #7a5555; margin-top: 4px; letter-spacing: .1em; }
   .lg-slot { color: var(--gaze-red); }
+  /* Fullscreen is the visitor's view: no cursor over the image. The gear and
+     the settings panel keep theirs, so the operator can still find them. */
+  html:fullscreen, html:fullscreen body, html:fullscreen canvas { cursor: none; }
+  html:fullscreen .tuning-panel { cursor: auto; }
+  html:fullscreen .ss-gear { cursor: pointer; }
 </style>
 </head>
 <body>

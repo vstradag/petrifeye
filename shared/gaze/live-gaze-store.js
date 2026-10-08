@@ -226,9 +226,10 @@
     // written by the bridge (POST /api/save-analysis, accepted from this Mac
     // only). Without a bridge — the webcam-only server has no such endpoint —
     // each file is downloaded instead, so nothing is ever lost silently.
-    // files: [{ name, blob }]. Resolves to { where, how }.
-    async saveResults(index, imageName, files) {
-      const stamp = await this.runStamp();
+    // files: [{ name, blob }]. stamp: the run's folder, when the caller
+    // read it earlier (default: the current run). Resolves to { where, how }.
+    async saveResults(index, imageName, files, stamp = null) {
+      stamp = stamp || await this.runStamp();
       const folder = `${String(index + 1).padStart(2, "0")}-${safeName(imageName || "image")}`;
       try {
         const payload = { session: stamp, image: folder, files: [] };
