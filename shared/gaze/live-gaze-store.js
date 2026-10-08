@@ -66,6 +66,62 @@
     { ids: [8, 9, 10, 11],  key: "screen-3" },
   ];
 
+  function normProgress(p, m) {
+    const n = (m && m.count) || 0;
+    const list = (p && Array.isArray(p.images)) ? p.images.slice(0, n) : [];
+    while (list.length < n) list.push({ status: "queued" });
+    return list;
+  }
+
+  // runAt names the results folder. A RUN is one pass through the images:
+  // it starts at the first image shown after an upload, or when the show is
+  // started over (resetProgress) — so a second run of the same images gets
+  // its own folder instead of overwriting the first one's results.
+  async function mutate(fn, newRun = false) {
+    const db = await openDb();
+    const { t, done } = tx(db, [META], "readwrite");
+    const store = t.objectStore(META);
+    const [p, m] = await Promise.all([request(store.get("progress")), request(store.get("session"))]);
+    const list = normProgress(p, m);
+    const out = fn(list);
+    const runAt = (!newRun && p && p.runAt) || Date.now();
+    store.put({ images: list, at: Date.now(), runAt }, "progress");
+    await done;
+    db.close();
+    if ("BroadcastChannel" in window) {
+      const bus = new BroadcastChannel("live-gaze");
+      bus.postMessage({ type: "progress", images: list, slot: -1 });
+      bus.close();
+    }
+    return out;
+  }
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  function sessionStamp(at) {
+    const d = new Date(at || Date.now());
+    return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-` +
+           `${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`;
+  }
+  const safeName = (s) => String(s).replace(/\.[a-z0-9]+$/i, "")
+    .replace(/[^A-Za-z0-9._ -]+/g, "_").trim().slice(0, 60) || "image";
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",")[1] || "");
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function download(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
   window.LiveGazeStore = {
     MAX_IMAGES,
     CHANNEL: "live-gaze",          // every window, both directions
@@ -91,8 +147,93 @@
       // The generation is how a window that was already open notices the set
       // changed under it; the count lets a window say "image 2 of 3".
       t.objectStore(META).put({ at: Date.now(), count: Math.min(images.length, MAX_IMAGES) }, "session");
+      t.objectStore(META).delete("progress");    // a new set starts unseen
       await done;
       db.close();
+    },
+
+    // ------------------------------------------------------- progress
+    // Which image each display is showing, and which have been closed. Kept
+    // here rather than in any one window because every screen window draws
+    // from the same queue: "next image" must never hand two displays the
+    // same image, and a reloaded window must carry on where it was. Each
+    // change happens inside ONE readwrite transaction, which IndexedDB runs
+    // atomically — two displays pressing "next" at once get different images.
+    //
+    // status per image: "queued" | "showing" (with .display) | "closed"
+    async progress() {
+      const db = await openDb();
+      const { t } = tx(db, [META], "readonly");
+      const [p, m] = await Promise.all([
+        request(t.objectStore(META).get("progress")),
+        request(t.objectStore(META).get("session")),
+      ]);
+      db.close();
+      return normProgress(p, m);
+    },
+
+    // Give `display` an image: `preferred` if it is free (or already this
+    // display's), otherwise the first unseen one. Returns its index, or null
+    // when every image has been shown.
+    async claim(display, preferred) {
+      return mutate((list) => {
+        const mineNow = list.findIndex((x) => x.status === "showing" && x.display === display);
+        if (mineNow >= 0) return mineNow;
+        let i = (preferred != null && list[preferred] && list[preferred].status === "queued")
+          ? preferred : list.findIndex((x) => x.status === "queued");
+        if (i < 0) return null;
+        list[i] = { status: "showing", display };
+        return i;
+      });
+    },
+
+    async close(index) {
+      return mutate((list) => {
+        if (list[index]) list[index] = { status: "closed", closedAt: Date.now() };
+        return null;
+      });
+    },
+
+    // Start the queue over (same images, nothing seen).
+    async resetProgress() {
+      return mutate((list) => { list.forEach((_, i) => { list[i] = { status: "queued" }; }); return null; }, true);
+    },
+
+    async runStamp() {
+      const db = await openDb();
+      const { t } = tx(db, [META], "readonly");
+      const p = await request(t.objectStore(META).get("progress"));
+      db.close();
+      return sessionStamp(p && p.runAt);
+    },
+
+    // ---------------------------------------------------------- saving
+    // Where a closed image's results go:
+    //   ~/petrifeye-recordings/live-gaze/<session>/<NN-image name>/<file>
+    // written by the bridge (POST /api/save-analysis, accepted from this Mac
+    // only). Without a bridge — the webcam-only server has no such endpoint —
+    // each file is downloaded instead, so nothing is ever lost silently.
+    // files: [{ name, blob }]. Resolves to { where, how }.
+    async saveResults(index, imageName, files) {
+      const stamp = await this.runStamp();
+      const folder = `${String(index + 1).padStart(2, "0")}-${safeName(imageName || "image")}`;
+      try {
+        const payload = { session: stamp, image: folder, files: [] };
+        for (const f of files) {
+          payload.files.push({ name: f.name, data: await blobToBase64(f.blob) });
+        }
+        const r = await fetch("/api/save-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const res = await r.json();
+        return { where: res.path, how: "saved" };
+      } catch (_) {
+        for (const f of files) download(f.blob, `live-gaze_${stamp}_${folder}_${f.name}`);
+        return { where: "your Downloads folder", how: "downloaded" };
+      }
     },
 
     async all() {

@@ -27,8 +27,13 @@
   const REVEAL_R = 0.04;
   const REVEAL_MAX = 4;         // cap, in multiples of REVEAL_R
 
-  const SLOT = Math.max(0, Math.min(LiveGazeStore.MAX_IMAGES - 1,
+  // ?slot=N is the DISPLAY this window analyses (screen window N). The image
+  // on it can change — the operator moves a visitor on to the next one — and
+  // this window follows: MINE is the image that display is showing now.
+  const DISPLAY = Math.max(0, Math.min(LiveGazeStore.MAX_IMAGES - 1,
     Number(new URLSearchParams(location.search).get("slot") || 0)));
+  let MINE = DISPLAY;
+  let displayDone = false;
 
   const $ = (id) => document.getElementById(id);
   const bus = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
@@ -52,9 +57,9 @@
     if (!S.slots.has(slot)) S.slots.set(slot, blank(slot));
     return S.slots.get(slot);
   };
-  const mine = () => rec(SLOT);
+  const mine = () => rec(MINE);
   const others = () => [...S.slots.values()]
-    .filter((r) => r.slot !== SLOT && (r.el || r.fixations.length))
+    .filter((r) => r.slot !== MINE && (r.el || r.fixations.length))
     .sort((a, b) => a.slot - b.slot);
 
   let revealDirty = true;
@@ -416,19 +421,45 @@
       target.name = r.name;
       target.w = loaded.w;
       target.h = loaded.h;
-      if (slot === SLOT) {
+      if (slot === MINE) {
         $("q1Title").textContent = `${slot + 1}/${S.total} · ${r.name}`;
         revealDirty = statsDirty = true;
       }
     }
-    $("waitSlot").textContent = String(SLOT + 1);
+    $("waitSlot").textContent = String(DISPLAY + 1);
   }
 
   function onMessage(msg) {
     if (!msg || !msg.type || msg.slot == null) return;
+    if (msg.type === "images-changed") { location.reload(); return; }
+
+    // This window's display moved on (or finished): follow it.
+    if (msg.type === "snapshot" && msg.display === DISPLAY) {
+      if (msg.slot < 0) {
+        displayDone = true;
+        $("waiting").classList.remove("hidden");
+        $("waitingMsg").innerHTML = msg.done
+          ? `Screen <b>${DISPLAY + 1}</b> is done — its images' analyses were saved.`
+          : `Screen <b>${DISPLAY + 1}</b> has no image.`;
+        return;
+      }
+      displayDone = false;
+      if (msg.slot !== MINE) {
+        MINE = msg.slot;
+        revealDirty = statsDirty = true;
+        loadImages().catch(() => {});
+      }
+    }
+    if (msg.slot < 0) return;
     const r = rec(msg.slot);
 
-    if (msg.type === "images-changed") { location.reload(); return; }
+    if (msg.type === "image-closed" && msg.display === DISPLAY) {
+      r.fixations = msg.fixations || r.fixations;
+      if (msg.players) r.players = msg.players;
+      if (msg.image) { r.name = msg.image.name; r.w = msg.image.w; r.h = msg.image.h; }
+      exportAnalysis(msg.slot).catch(() => {});
+      return;
+    }
 
     if (msg.type === "snapshot") {
       r.connected = true;
@@ -443,11 +474,11 @@
         r.name = msg.image.name;
         r.w = msg.image.w; r.h = msg.image.h;
       }
-      if (msg.slot === SLOT) {
-        $("q1Title").textContent = r.name ? `${SLOT + 1}/${S.total} · ${r.name}` : "—";
+      if (msg.slot === MINE && !displayDone) {
+        $("q1Title").textContent = r.name ? `${MINE + 1}/${S.total} · ${r.name}` : "—";
         $("waiting").classList.toggle("hidden", r.started);
         $("waitingMsg").innerHTML = r.started ? "" :
-          `Image <b>${SLOT + 1}</b>'s screen was found, not started yet.<br />` +
+          `Screen <b>${DISPLAY + 1}</b> was found, not started yet.<br />` +
           "Press <b>start</b> (or the mouse test) in that window.";
         revealDirty = statsDirty = true;
       }
@@ -456,7 +487,7 @@
 
     if (msg.type === "fixation") {
       r.fixations.push(msg.fix);
-      if (msg.slot === SLOT) revealDirty = statsDirty = true;
+      if (msg.slot === MINE) revealDirty = statsDirty = true;
       return;
     }
 
@@ -477,9 +508,82 @@
 
   // Ask for the full state, and keep asking until the screens answer: a screen
   // window may be opened after this one, or reloaded while it is open.
-  function hello() { if (bus) bus.postMessage({ type: "hello", slot: SLOT }); }
+  function hello() { if (bus) bus.postMessage({ type: "hello", slot: MINE, display: DISPLAY }); }
   hello();
   setInterval(() => { if (!mine().connected) hello(); }, 1000);
+
+  // ------------------------------------------------------------- export
+  // The analysis of a closed image, as one picture: the four panels as they
+  // stand at closing, the statistics redrawn as text (that panel is HTML,
+  // which a canvas cannot copy), and a header saying what it is. Saved next
+  // to the screen window's fixations.csv / results.json for the same image,
+  // then acknowledged so the screen does not save its plainer fallback.
+  async function exportAnalysis(idx) {
+    const r = rec(idx);
+    revealDirty = statsDirty = true;
+    drawScanpaths(); drawReveal(); drawOthers(); renderStats();
+
+    const W = 1920, HEAD = 64, QH = 520, H = HEAD + 2 * QH;
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#0d0e12"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#e8e6e2"; ctx.font = "600 22px ui-monospace, Menlo, monospace";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`LIVE GAZE · image ${idx + 1}/${S.total} · ${r.name || ""}`, 24, HEAD / 2);
+    ctx.font = "14px ui-monospace, Menlo, monospace"; ctx.fillStyle = "#8a8c94"; ctx.textAlign = "right";
+    ctx.fillText(new Date().toLocaleString(), W - 24, HEAD / 2);
+    ctx.textAlign = "left";
+
+    const quad = (qx, qy, label, canvasEl) => {
+      const x = qx * (W / 2), y = HEAD + qy * QH;
+      ctx.fillStyle = "#7a5555"; ctx.font = "12px ui-monospace, Menlo, monospace";
+      ctx.fillText(label.toUpperCase(), x + 20, y + 16);
+      if (!canvasEl || !canvasEl.width || canvasEl.width < 4) return;
+      const bw = W / 2 - 40, bh = QH - 44;
+      const k = Math.min(bw / canvasEl.width, bh / canvasEl.height);
+      const dw = canvasEl.width * k, dh = canvasEl.height * k;
+      ctx.drawImage(canvasEl, x + 20 + (bw - dw) / 2, y + 32 + (bh - dh) / 2, dw, dh);
+    };
+    quad(0, 0, "scanpaths", $("q1"));
+    quad(0, 1, "what the eyes uncovered", $("q3"));
+    quad(1, 1, others().length ? "the other images" : "", others().length ? $("q4") : null);
+
+    // statistics (top-right), the same figures as the live panel
+    const Wimg = r.w || 1536, Himg = r.h || 1024;
+    const cols = r.players.map((p) => ({ p, s: statsFor(r.fixations.filter((f) => f.p === p.id), Wimg, Himg) }))
+      .filter((c2) => c2.s.n > 0);
+    const x0 = W / 2 + 20, y0 = HEAD + 16;
+    ctx.fillStyle = "#7a5555"; ctx.font = "12px ui-monospace, Menlo, monospace";
+    ctx.fillText("STATISTICS", x0, y0);
+    const rows = [
+      ["fixations", (s) => String(s.n)],
+      ["average fixation (ms)", (s) => s.n ? String(Math.round(s.dur / s.n)) : "—"],
+      ["average distance between fixations (px)", (s) => s.pairs ? String(Math.round(s.dist / s.pairs)) : "—"],
+      ["total scanpath length (px)", (s) => s.pairs ? String(Math.round(s.dist)) : "—"],
+      ["total time fixating (s)", (s) => s.n ? (s.dur / 1000).toFixed(1) : "—"],
+    ];
+    ctx.font = "15px ui-monospace, Menlo, monospace";
+    cols.forEach((c2, j) => {
+      ctx.fillStyle = c2.p.color; ctx.fillText(c2.p.label, x0 + 470 + j * 140, y0 + 40);
+    });
+    rows.forEach(([label, f], i) => {
+      const y = y0 + 76 + i * 34;
+      ctx.fillStyle = "#c9c7c2"; ctx.fillText(label, x0, y);
+      cols.forEach((c2, j) => { ctx.fillStyle = "#e8e6e2"; ctx.fillText(f(c2.s), x0 + 470 + j * 140, y); });
+    });
+    if (!cols.length) { ctx.fillStyle = "#8a8c94"; ctx.fillText("no fixations recorded", x0, y0 + 76); }
+    ctx.fillStyle = "#8a8c94"; ctx.font = "12px ui-monospace, Menlo, monospace";
+    ctx.fillText(`distances in the image's own pixels (${Wimg}×${Himg}); fixation = within ` +
+                 `${r.settings.spreadPct}% of width for ≥${r.settings.minDurationMs}ms`, x0, y0 + 76 + rows.length * 34 + 12);
+
+    const blob = await new Promise((resolve) => c.toBlob(resolve, "image/png"));
+    if (!blob) return;
+    // Acknowledged as soon as the picture exists, not after it is written: the
+    // screen waits only 3 s before saving its own fallback picture.
+    if (bus) bus.postMessage({ type: "analysis-saved", slot: idx, display: DISPLAY });
+    await LiveGazeStore.saveResults(idx, r.name || `image ${idx + 1}`, [{ name: "analysis.png", blob }]);
+  }
 
   // ------------------------------------------------------------- controls
   function fullscreen() {
@@ -488,7 +592,7 @@
   }
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
-    if (k === "r" && bus) bus.postMessage({ type: "cmd", cmd: "reset", slot: SLOT });
+    if (k === "r" && bus) bus.postMessage({ type: "cmd", cmd: "reset", slot: MINE, display: DISPLAY });
     else if (k === "f") fullscreen();
   });
   document.addEventListener("dblclick", fullscreen);
@@ -514,7 +618,9 @@
 
   window.LiveGazeObserver = {
     state: S,
-    slot: SLOT,
+    get slot() { return MINE; },
+    display: DISPLAY,
+    exportAnalysis: (i) => exportAnalysis(i ?? MINE),
     redraw: () => { revealDirty = statsDirty = true; },
     // Render every panel immediately, without waiting for a frame — for the
     // console, and for hidden windows where browsers throttle animation.

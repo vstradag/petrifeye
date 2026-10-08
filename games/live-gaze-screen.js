@@ -20,6 +20,13 @@
 //
 // Everything broadcast is in NORMALISED IMAGE COORDINATES (0..1 across the
 // image), so an analysis window can draw it at any size.
+//
+// SCREEN AND IMAGE ARE SEPARATE. The window's `slot` (URL) is the DISPLAY: it
+// fixes the tags and the bridge registration, which must not change while the
+// glasses are tracking it. The IMAGE it shows (state.img) can: when a visitor
+// is done, the operator closes it (x) or moves on to the next unseen one (n),
+// and its results are saved. Messages carry both — `slot` is the image the
+// data belongs to, `display` the window that sent it.
 (function () {
   const PLAYERS = [
     { id: 0, label: "P1", port: 8443, color: "#ff5f5f" },
@@ -47,6 +54,10 @@
     showTarget: false,
     spreadPct: 3.5,      // fixation dispersion, % of displayed image width
     minDurationMs: 100,
+    img: null,           // index of the image shown, null once this screen is done
+    done: false,         // every image this display could show has been closed
+    doneNote: "",
+    progress: [],        // the shared queue (LiveGazeStore.progress)
     calib: null,         // GazeTargetCalibration.Session while calibrating
     calibNote: null,     // { text, until } — result shown after it
   };
@@ -130,30 +141,45 @@
   }
 
   // ------------------------------------------------------------- image
+  // This display's first image: its own (image N on screen N) unless that
+  // one was already shown, then the next unseen one; if none, this screen is
+  // done. A reloaded window gets back the image it was showing.
   async function loadImage() {
-    const rec = await LiveGazeStore.get(SLOT);
     const session = await LiveGazeStore.session();
     state.total = Math.max(1, session.count || 1);
-    if (!rec) {
-      $("ssSub").innerHTML = `no image in slot ${SLOT + 1} — ` +
+    if (!session.count) {
+      $("ssSub").innerHTML = `no images — ` +
         `<a href="live-gaze.html" style="color:#c98f8f">upload images first</a>`;
       updateTitle();
       return;
     }
-    const loaded = await LiveGazeStore.load(rec);
-    if (loaded) state.image = { ...loaded, name: rec.name };
+    const idx = await LiveGazeStore.claim(SLOT, SLOT);
+    if (idx == null) { await finishScreen(); return; }
+    await showImage(idx);
+  }
+
+  async function showImage(idx) {
+    const rec = await LiveGazeStore.get(idx);
+    const loaded = rec && await LiveGazeStore.load(rec);
+    state.img = idx;
+    state.image = loaded ? { ...loaded, name: rec.name } : null;
+    state.fixations = [];
+    detectors.clear();
+    state.done = false;
     updateTitle();
     broadcastSnapshot();
+    refreshProgress();
   }
 
   function updateTitle() {
     const name = state.image ? state.image.name : "no image";
-    $("lgTitle").textContent = `${SLOT + 1} / ${state.total} — ${name}`;
+    const n = state.img != null ? state.img + 1 : "—";
+    $("lgTitle").textContent = state.done ? "this screen is done" : `${n} / ${state.total} — ${name}`;
     $("lgTags").textContent = `tags ${INFO.ids.join(" · ")} · bridge screen "${INFO.key}"`;
     $("ssSub").innerHTML = state.image
-      ? `image <b class="lg-slot">${SLOT + 1}</b> of ${state.total} — ${name}`
+      ? `image <b class="lg-slot">${n}</b> of ${state.total} — ${name}`
       : $("ssSub").innerHTML;
-    $("ssWhich").textContent = `screen ${SLOT + 1} of ${state.total}`;
+    $("ssWhich").textContent = `screen ${SLOT + 1}`;
   }
 
   function flushAll() {
@@ -188,7 +214,9 @@
   // every message. That is what lets ONE analysis window carry the other
   // images' scanpaths in its fourth panel when displays are short — it hears
   // all of them and picks what it needs.
-  function post(msg) { if (bus) bus.postMessage({ ...msg, slot: SLOT }); }
+  function post(msg) {
+    if (bus) bus.postMessage({ ...msg, slot: state.img == null ? -1 : state.img, display: SLOT });
+  }
 
   function broadcastSnapshot() {
     post({
@@ -200,6 +228,7 @@
       players: PLAYERS.map(({ id, label, color }) => ({ id, label, color })),
       fixations: state.fixations,
       started: state.started,
+      done: state.done,
       settings: { spreadPct: state.spreadPct, minDurationMs: state.minDurationMs },
     });
   }
@@ -215,7 +244,9 @@
       const m = e.data || {};
       if (m.type === "hello") { broadcastSnapshot(); return; }
       if (m.type === "images-changed") { location.reload(); return; }
-      if (m.type === "markerSize" && m.slot !== SLOT) {
+      if (m.type === "progress") { state.progress = m.images || []; renderProgress(); return; }
+      if (m.type === "analysis-saved") { const r = ackWaiters.get(m.slot); if (r) r(m); return; }
+      if (m.type === "markerSize" && m.display !== SLOT) {
         applyingRemote = true;
         const applied = GazeAggregator.setMarkerSize(m.size);
         if (applied) { $("tv-marker").textContent = `${applied}px`; $("slider-marker").value = applied; }
@@ -224,15 +255,16 @@
       }
       // Starting one screen starts them all: with three projectors up, walking
       // to each window to press start is exactly when visitors are waiting.
-      if (m.type === "start" && m.slot !== SLOT && !state.started) { start(false); return; }
+      if (m.type === "start" && m.display !== SLOT && !state.started) { start(false); return; }
       // A calibration done on another screen: a starting point for players
       // who have not calibrated on this one (see adopt()).
-      if (m.type === "calib" && m.slot !== SLOT && Array.isArray(m.offsets)) {
+      if (m.type === "calib" && m.display !== SLOT && Array.isArray(m.offsets)) {
         for (const o of m.offsets) GazeTargetCalibration.adopt(o.id, o);
         renderCalibInfo();
         return;
       }
-      if (m.type === "cmd" && (m.slot === SLOT || m.slot == null)) {
+      // From an analysis window: addressed to its display, or to the image.
+      if (m.type === "cmd" && (m.display === SLOT || (m.display == null && m.slot === state.img))) {
         if (m.cmd === "reset") resetImage();
       }
     };
@@ -259,6 +291,12 @@
     if (!state.started) return;
 
     const now = performance.now();
+    if (state.done || state.img == null) {
+      background(0);
+      drawCaption(state.doneNote || "this screen is done");
+      if (state.calibNote && now < state.calibNote.until) drawCaption(state.calibNote.text, 1);
+      return;
+    }
     if (state.calib) { drawCalibration(now); return; }
 
     retuneDetectors();                    // rect may have changed size
@@ -384,14 +422,151 @@
       : `look at each eye until it turns to stone · ${Math.min(s.i + 1, n)} / ${n}`);
   }
 
-  function drawCaption(text) {
+  function drawCaption(text, line = 0) {
     const ctx = drawingContext;
     ctx.save();
     ctx.font = "15px ui-monospace, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(232, 230, 226, 0.85)";
-    ctx.fillText(text, width / 2, Math.max(28, rect.y - 14));
+    const y = state.done || state.img == null ? height / 2 - 10 : Math.max(28, rect.y - 14);
+    ctx.fillText(text, width / 2, y + line * 26);
     ctx.restore();
+  }
+
+  // --------------------------------------------- closing an image / next
+  // n: close this image and show the next unseen one. x: close it and end
+  // this screen. When nothing unseen is left, closing is the only option.
+  // Keys need a second press within 2 s — a stray key must not end an image.
+  const ackWaiters = new Map();     // image index -> resolve(analysis-saved)
+  let closing = false;
+  let armed = null;                 // { key, until }
+
+  const unseen = () => state.progress.filter((p) => p.status === "queued").length;
+
+  async function refreshProgress() {
+    try { state.progress = await LiveGazeStore.progress(); } catch (_) {}
+    renderProgress();
+  }
+
+  function renderProgress() {
+    const left = unseen();
+    $("lgNext").disabled = state.done || state.img == null || left === 0;
+    $("lgClose").disabled = state.done || state.img == null;
+    $("lgQueue").textContent = state.done ? "all done on this screen"
+      : left ? `${left} image${left === 1 ? "" : "s"} not yet seen` : "no unseen images left — close when done";
+  }
+
+  function note(text, ms = 2500) { state.calibNote = { text, until: performance.now() + ms }; }
+
+  function confirmKey(key, label, action) {
+    const now = performance.now();
+    if (armed && armed.key === key && now < armed.until) { armed = null; action(); return; }
+    armed = { key, until: now + 2000 };
+    note(`press ${key} again to ${label}`, 2000);
+  }
+
+  async function closeImage(goNext) {
+    if (closing || state.img == null || state.calib) return;
+    if (goNext && !unseen()) { note("no more images to show — press x to close this one"); return; }
+    closing = true;
+    try {
+      flushAll();
+      const idx = state.img;
+      const image = state.image;
+      const fixations = state.fixations.slice();
+      const players = PLAYERS.map(({ id, label, color }) => ({ id, label, color }));
+      // The analysis window renders and saves its panels from this.
+      post({ type: "image-closed", fixations, players, total: state.total,
+             image: image ? { name: image.name, w: image.w, h: image.h } : null });
+      await LiveGazeStore.close(idx);
+      const saving = saveResults(idx, image, fixations, players);
+      const next = goNext ? await LiveGazeStore.claim(SLOT, null) : null;
+      if (next != null) {
+        await showImage(next);
+        note(`image ${idx + 1} closed — now image ${next + 1}`);
+      } else {
+        await finishScreen();
+      }
+      const where = await saving;
+      note(`image ${idx + 1} saved to ${where}`, 6000);
+    } finally {
+      closing = false;
+    }
+  }
+
+  async function finishScreen() {
+    state.done = true;
+    state.img = null;
+    state.image = null;
+    state.fixations = [];
+    detectors.clear();
+    await refreshProgress();
+    const allClosed = state.progress.length && state.progress.every((p) => p.status === "closed");
+    state.doneNote = allClosed ? "all images have been seen — thank you"
+                               : "this screen is done";
+    updateTitle();
+    broadcastSnapshot();
+  }
+
+  // Data always comes from here; the analysis picture from the analysis
+  // window when one is open (it has the drawing), otherwise a plain scanpath
+  // picture drawn here, so a closed image never ends up with no picture.
+  async function saveResults(idx, image, fixations, players) {
+    const name = image ? image.name : `image ${idx + 1}`;
+    const W = image ? image.w : 1, H = image ? image.h : 1;
+    const rows = ["player,label,order,u,v,x_px,y_px,start_ms,duration_ms"];
+    const order = new Map();
+    for (const f of fixations) {
+      const k = (order.get(f.p) || 0) + 1; order.set(f.p, k);
+      const pl = players.find((p) => p.id === f.p) || { label: `P${f.p + 1}` };
+      rows.push([f.p, pl.label, k, f.u.toFixed(5), f.v.toFixed(5),
+                 Math.round(f.u * W), Math.round(f.v * H), f.start, f.dur].join(","));
+    }
+    const results = {
+      image: { index: idx, name, w: W, h: H },
+      display: SLOT, closedAt: new Date().toISOString(),
+      players, settings: { spreadPct: state.spreadPct, minDurationMs: state.minDurationMs },
+      calibration: GazeTargetCalibration.all(),
+      coordinates: "u,v are 0..1 across the image; x_px,y_px are in the image's own pixels",
+      fixations,
+    };
+    const files = [
+      { name: "fixations.csv", blob: new Blob([rows.join("\n") + "\n"], { type: "text/csv" }) },
+      { name: "results.json", blob: new Blob([JSON.stringify(results, null, 2)], { type: "application/json" }) },
+    ];
+    // Wait briefly for an analysis window to say it saved its picture.
+    const ack = await new Promise((resolve) => {
+      const timer = setTimeout(() => { ackWaiters.delete(idx); resolve(null); }, 3000);
+      ackWaiters.set(idx, (m) => { clearTimeout(timer); ackWaiters.delete(idx); resolve(m); });
+    });
+    if (!ack && image && image.el) {
+      const png = await scanpathPicture(image, fixations, players);
+      if (png) files.push({ name: "scanpath.png", blob: png });
+    }
+    const res = await LiveGazeStore.saveResults(idx, name, files);
+    return res.where;
+  }
+
+  function scanpathPicture(image, fixations, players) {
+    const scale = Math.min(1, 1600 / Math.max(image.w, image.h));
+    const c = document.createElement("canvas");
+    c.width = Math.round(image.w * scale); c.height = Math.round(image.h * scale);
+    const ctx = c.getContext("2d");
+    ctx.drawImage(image.el, 0, 0, c.width, c.height);
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; ctx.fillRect(0, 0, c.width, c.height);
+    for (const pl of players) {
+      const fs = fixations.filter((f) => f.p === pl.id);
+      ctx.strokeStyle = pl.color; ctx.fillStyle = pl.color; ctx.lineWidth = 2;
+      ctx.beginPath();
+      fs.forEach((f, i) => { const x = f.u * c.width, y = f.v * c.height; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      fs.forEach((f) => {
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath(); ctx.arc(f.u * c.width, f.v * c.height, 4 + Math.sqrt(f.dur) * 0.6, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
+    return new Promise((resolve) => c.toBlob(resolve, "image/png"));
   }
 
   function renderCalibInfo() {
@@ -549,6 +724,8 @@
     }, GEAR_IDLE_MS);
   }
 
+  // The analysis window follows this DISPLAY: when it moves on to the next
+  // image, its analysis window does too (after saving the closed one).
   function openObserver() {
     window.open(`live-gaze-observer.html?slot=${SLOT}`, `lg-obs-${SLOT}`, "popup=yes,width=1280,height=800");
   }
@@ -562,6 +739,8 @@
   $("ssObserverBoot").onclick = openObserver;
   $("lgPick").onclick = () => { location.href = "live-gaze.html"; };
   $("lgCalib").onclick = () => { if (!state.calib) startCalibration("full"); };
+  $("lgNext").onclick = () => closeImage(true);
+  $("lgClose").onclick = () => closeImage(false);
   $("lgCheck").onclick = () => { if (!state.calib) startCalibration("check"); };
 
   $("slider-marker").oninput = (e) => {
@@ -603,6 +782,8 @@
     else if (k === "s") toggleTuning();
     else if (k === "r") resetImage();
     else if (k === "o") openObserver();
+    else if (k === "n") confirmKey("n", "close this image and show the next", () => closeImage(true));
+    else if (k === "x") confirmKey("x", "close this image", () => closeImage(false));
     else if (k === "c" && !state.calib) startCalibration("full");
     else if (k === "v" && !state.calib) startCalibration("check");
   });
@@ -648,6 +829,7 @@
           { keys: "o", does: "open analysis screen" },
           { keys: "r", does: "reset this image" },
           { keys: "c / v", does: "calibrate / quick check" },
+          { keys: "n / x", does: "next image / close image (press twice)" },
         ], `live gaze · image ${SLOT + 1}`);
       }
     } else {
@@ -685,5 +867,6 @@
   if (new URLSearchParams(location.search).has("sim")) start(true);
 
   // Exposed for testing and the console.
-  window.LiveGazeScreen = { state, slot: SLOT, info: INFO, resetImage, imageRect: () => rect, detectors, startCalibration };
+  window.LiveGazeScreen = { state, slot: SLOT, info: INFO, resetImage, imageRect: () => rect, detectors,
+                            startCalibration, closeImage };
 })();

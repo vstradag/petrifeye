@@ -135,7 +135,15 @@
     });
   }
 
-  $("openAll").onclick = () => {
+  $("openAll").onclick = async () => {
+    // Opening every window starts the show over: all images unseen again.
+    // Windows already open reload and pick their images afresh.
+    await LiveGazeStore.resetProgress();
+    if ("BroadcastChannel" in window) {
+      const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
+      bus.postMessage({ type: "images-changed", count: picks.length });
+      bus.close();
+    }
     // Spaced out: a browser that allows several windows per gesture still
     // drops some when they are opened in the same tick.
     let delay = 0;

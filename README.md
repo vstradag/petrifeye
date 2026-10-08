@@ -152,6 +152,23 @@ recalibrate, **v** for a one-eye drift check that moves the correction halfway.
 Unlike MEDUSA it does not learn from what is on screen: inferring where people
 "probably" look would bias exactly what LIVE GAZE measures.
 
+**Moving through the images.** When a visitor is done with an image, press
+**n n** (next — shows the next image nobody has seen yet) or **x x** (close —
+ends this screen); the second press confirms, and both are buttons in the
+settings panel too. Every screen draws from the same queue, so two screens
+never show the same image, and when nothing unseen is left, closing is the
+only option. "Open every window" on the upload page starts the show over.
+
+**Results are saved when an image closes**, to
+`~/petrifeye-recordings/live-gaze/<run date-time>/<NN-image>/`:
+`fixations.csv` (per fixation: player, order, position in the image's own
+pixels, start, duration), `results.json` (the same plus image, players,
+settings and calibration), and `analysis.png` — the analysis window's four
+panels as they stood at closing. Without an analysis window open, a plainer
+`scanpath.png` is saved instead. Each run of the show gets its own folder.
+The bridge writes them, and only for requests from this computer; in
+webcam-only mode (no bridge) they are downloaded instead.
+
 ### If you only want the webcam
 
 No Python, no phones, nothing to install:

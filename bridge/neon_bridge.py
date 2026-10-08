@@ -1192,9 +1192,67 @@ async def layout_handler(_req):
     )
 
 
+# Where LIVE GAZE writes a closed image's results (see save_analysis_handler).
+LIVE_GAZE_OUT = Path("~/petrifeye-recordings/live-gaze").expanduser()
+
+
+async def save_analysis_handler(request):
+    """Write a closed LIVE GAZE image's results to disk.
+
+    POST {session, image, files: [{name, data(base64)}]} ->
+    ~/petrifeye-recordings/live-gaze/<session>/<image>/<name>
+
+    Locked down, because the bridge listens on the whole network (the phones
+    and other screens must reach it): only requests from THIS Mac are
+    accepted, every path component is reduced to a safe name, only .png/.csv/
+    .json files are written, and nothing can land outside that folder.
+    """
+    import base64
+    import re
+    peer = request.remote or ""
+    if peer not in ("127.0.0.1", "::1", "localhost") and not peer.startswith("::ffff:127."):
+        raise web.HTTPForbidden(text="saving is only allowed from this computer")
+    try:
+        body = await request.json()
+    except Exception:
+        raise web.HTTPBadRequest(text="expected JSON")
+
+    def part(v):
+        v = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(v or "")).strip(" .")[:80]
+        return v or "untitled"
+
+    folder = LIVE_GAZE_OUT / part(body.get("session")) / part(body.get("image"))
+    if LIVE_GAZE_OUT.resolve() not in folder.resolve().parents:
+        raise web.HTTPBadRequest(text="bad folder")
+    files = body.get("files") or []
+    if not files or len(files) > 10:
+        raise web.HTTPBadRequest(text="expected 1-10 files")
+    # Everything is checked BEFORE anything touches the disk: a refused
+    # request must not leave even an empty folder behind.
+    decoded = []
+    for f in files:
+        name = str(f.get("name") or "")
+        if not re.fullmatch(r"[a-z0-9_.-]{1,60}\.(png|csv|json)", name):
+            raise web.HTTPBadRequest(text=f"refused file name: {name!r}")
+        try:
+            decoded.append((name, base64.b64decode(f.get("data") or "", validate=True)))
+        except Exception:
+            raise web.HTTPBadRequest(text=f"{name}: not base64")
+    folder.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, data in decoded:
+        (folder / name).write_bytes(data)
+        written.append(name)
+    log.info("live gaze: saved %s to %s", ", ".join(written), folder)
+    return web.json_response({"ok": True, "path": str(folder), "files": written})
+
+
 def build_app():
-    app = web.Application(middlewares=[no_cache])
+    # client_max_size: an analysis PNG is a few MB once base64-encoded, past
+    # aiohttp's 1 MB default.
+    app = web.Application(middlewares=[no_cache], client_max_size=32 * 1024 * 1024)
     app.router.add_get("/gaze", ws_handler)
+    app.router.add_post("/api/save-analysis", save_analysis_handler)
     app.router.add_get("/markers/layout.json", layout_handler)
     app.router.add_get("/markers/{mid}.png", markers_handler)
 
