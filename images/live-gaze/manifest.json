@@ -1,0 +1,7 @@
+{
+  "images": [
+    { "file": "01-manet-a-bar-at-the-folies-bergere.jpg", "title": "Manet - A Bar at the Folies-Bergere" },
+    { "file": "02-holbein-the-ambassadors.jpg",            "title": "Holbein - The Ambassadors" },
+    { "file": "03-degas-woman-at-a-window.jpg",            "title": "Degas - Woman at a Window" }
+  ]
+}

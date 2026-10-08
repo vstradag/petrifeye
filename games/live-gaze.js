@@ -86,6 +86,39 @@
     });
   }
 
+  // ------------------------------------------------------------ included
+  // The images that ship with the project: images/live-gaze/, listed in its
+  // manifest.json. A fresh install starts with them, so a show can run
+  // without anyone carrying files over. To change them, swap the files and
+  // the list in that folder; an empty list ships none. Picking, removing and
+  // reordering here work on them exactly as on uploaded ones.
+  const INCLUDED = "../images/live-gaze/";
+
+  async function includedImages() {
+    try {
+      const r = await fetch(INCLUDED + "manifest.json", { cache: "no-store" });
+      if (!r.ok) return [];
+      const list = ((await r.json()).images || []).slice(0, MAX);
+      const files = await Promise.all(list.map(async (m) => {
+        const res = await fetch(INCLUDED + m.file);
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        return new File([blob], m.title || m.file, { type: blob.type || "image/jpeg" });
+      }));
+      return (await Promise.all(files.filter(Boolean).map(measure))).filter(Boolean);
+    } catch (_) { return []; }
+  }
+
+  async function useIncluded(quiet = false) {
+    const got = await includedImages();
+    if (!got.length) { if (!quiet) err("no included images — images/live-gaze/ lists none."); return; }
+    picks.forEach((p) => URL.revokeObjectURL(p.url));
+    picks = got;
+    renderPicks();
+    await commit();
+    err("");
+  }
+
   // ------------------------------------------------------------- storing
   async function commit() {
     await LiveGazeStore.save(picks);
@@ -165,6 +198,7 @@
 
   // --------------------------------------------------------------- events
   $("drop").onclick = () => $("file").click();
+  $("useIncluded").onclick = () => useIncluded();
   $("file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
 
   const drop = $("drop");
@@ -187,7 +221,8 @@
   (async () => {
     try {
       const saved = await LiveGazeStore.all();
-      if (!saved.length) return;
+      // Nothing picked yet on this computer: start from the included images.
+      if (!saved.length) { await useIncluded(true); return; }
       picks = saved.map((r) => ({
         name: r.name, type: r.type, blob: r.blob, w: r.w, h: r.h,
         url: URL.createObjectURL(r.blob),

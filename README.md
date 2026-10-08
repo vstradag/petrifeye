@@ -174,6 +174,13 @@ recalibrate, **v** for a one-eye drift check that moves the correction halfway.
 Unlike MEDUSA it does not learn from what is on screen: inferring where people
 "probably" look would bias exactly what LIVE GAZE measures.
 
+**The images.** A fresh install starts with the paintings in
+`images/live-gaze/` (Manet, Holbein, Degas), listed in its `manifest.json`.
+On the upload page they can be removed, reordered or replaced by your own
+files like any upload, and **use the included images** brings them back. To
+change what ships, swap the files in that folder and edit the list (`file` and
+`title`, at most three; an empty list ships none).
+
 **Moving through the images.** When a visitor is done with an image, press
 **n n** (next — shows the next image nobody has seen yet) or **x x** (close —
 ends this screen); the second press confirms, and both are buttons in the
