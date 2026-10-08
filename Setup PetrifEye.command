@@ -66,9 +66,11 @@ desktop_shortcut() {
 # flag from the rest of the project here means Start, Frame and Record open
 # normally from now on. A git clone carries no flag, so this does nothing.
 unquarantine() {
-  if xattr -r -p com.apple.quarantine . >/dev/null 2>&1; then
-    xattr -dr com.apple.quarantine . 2>/dev/null \
-      && say "Lifted the download quarantine from the project folder."
+  # Listed rather than probed with `xattr -p`, which fails as soon as ONE file
+  # lacks the flag; and the delete's exit status is ignored for the same reason.
+  if xattr -lr . 2>/dev/null | grep -q com.apple.quarantine; then
+    xattr -dr com.apple.quarantine . 2>/dev/null
+    say "Lifted the download quarantine from the project folder."
   fi
 }
 
