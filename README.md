@@ -30,20 +30,42 @@ or 3.13, open the `.pkg`, click through. Nothing else is needed.
 git clone https://github.com/vstradag/petrifeye.git
 ```
 
-A zip downloaded in a browser works too, but macOS marks anything from the web
-as quarantined and then refuses to open an unsigned `.command` by
-double-clicking ("unidentified developer"). If that happens: **right-click the
-file → Open**, and confirm once. `git clone` does not set that flag at all, which
-is why it is the easier route.
+A zip works too: on the [GitHub page](https://github.com/vstradag/petrifeye),
+**Code → Download ZIP**, and double-click it to unzip (you get a
+`petrifeye-main` folder; move it anywhere outside Google Drive/Dropbox/iCloud
+if you can). macOS marks anything downloaded in a browser as quarantined and
+refuses to open an unsigned `.command` by double-clicking ("not opened" /
+"unidentified developer"). Allow it **once**:
+
+- **macOS 15 (Sequoia) and later:** double-click `Setup PetrifEye.command`,
+  click **Done** on the warning, then open **System Settings → Privacy &
+  Security**, scroll down to *"Setup PetrifEye.command" was blocked* and click
+  **Open Anyway** (then confirm with your password).
+- **macOS 14 and earlier:** **right-click the file → Open**, and confirm.
+- Or, in Terminal: `xattr -dr com.apple.quarantine ~/Downloads/petrifeye-main`
+  (adjust the path to where the folder is).
+
+Setup then lifts the flag from the whole folder, so Start, Frame and Record —
+and the Desktop shortcuts — open normally from then on. `git clone` sets no
+flag at all, which is why it is the easier route.
 
 **3. Double-click `Start PetrifEye.command`.** On the first run it sets itself up
 — it finds a suitable Python by asking each candidate its version, builds the
 environment outside the project folder, installs the dependencies and checks them
 — then discovers the phones and opens the menu. Every run after that just starts.
-Setup also puts a **`PetrifEye.command` shortcut on your Desktop**, so from then
-on you start it from there. It points to wherever the project folder is, so if
-you move the folder, double-click `Setup PetrifEye.command` in its new place
-to update the shortcut. Set `MEDUSA_NO_SHORTCUT=1` if you'd rather not have it.
+Setup also puts **two shortcuts on your Desktop**, so from then on you start
+it from there:
+
+- **`PetrifEye.command`** — the piece as always, with the AprilTags on screen
+  (same as `Start PetrifEye.command`);
+- **`PetrifEye Frame.command`** — no tags: the screen is found by the thin
+  bright frame around its edge (same as `Frame PetrifEye.command`, see
+  *Playing without the tags* below).
+
+They point to wherever the project folder is, so if you move the folder,
+double-click `Setup PetrifEye.command` in its new place to update them (also
+the way to get the Frame shortcut on a Mac set up before it existed). Set
+`MEDUSA_NO_SHORTCUT=1` if you'd rather not have them.
 Leave its Terminal window open for the session; `ctrl-c` there stops everything.
 
 `Setup PetrifEye.command` does only the setup half, if you want to install ahead
@@ -157,7 +179,11 @@ Unlike MEDUSA it does not learn from what is on screen: inferring where people
 ends this screen); the second press confirms, and both are buttons in the
 settings panel too. Every screen draws from the same queue, so two screens
 never show the same image, and when nothing unseen is left, closing is the
-only option. "Open every window" on the upload page starts the show over.
+only option. Once every image has been closed, the screens say so and
+**space** on any of them starts a new run for the next visitors — the same
+images, unseen again, results in a new folder, each screen calibrating first —
+with no need to quit and relaunch. "Open every window" on the upload page
+also starts the show over.
 
 **Results are saved when an image closes**, to
 `~/petrifeye-recordings/live-gaze/<run date-time>/<NN-image>/`:

@@ -23,32 +23,53 @@ MIN="3.10"
 say() { printf '%s\n' "$*"; }
 rule() { say "------------------------------------------------------------"; }
 
-# A double-clickable PetrifEye.command on the Desktop, so after the first run
-# nobody has to dig the project folder out again. Not a symlink: Start finds
-# the project from its own path, which through a link would be the Desktop.
-# This tiny script runs the real one instead. Rewritten on every setup, so
-# running Setup from a moved project re-points it. Opt out with
-# MEDUSA_NO_SHORTCUT=1.
-desktop_shortcut() {
-  [ -z "${MEDUSA_NO_SHORTCUT:-}" ] || return 0
-  local desk="${MEDUSA_DESKTOP:-$HOME/Desktop}"
-  [ -d "$desk" ] || return 0
-  local link="$desk/PetrifEye.command"
-  local start
-  start="$(pwd)/Start PetrifEye.command"
+# Double-clickable shortcuts on the Desktop, so after the first run nobody has
+# to dig the project folder out again:
+#   PetrifEye.command        -> Start PetrifEye.command  (the AprilTags)
+#   PetrifEye Frame.command  -> Frame PetrifEye.command  (no tags, the frame)
+# Not symlinks: Start finds the project from its own path, which through a
+# link would be the Desktop. Each is a tiny script that runs the real one.
+# Rewritten on every setup, so running Setup from a moved project re-points
+# them. Opt out with MEDUSA_NO_SHORTCUT=1.
+one_shortcut() {   # $1 shortcut name, $2 launcher in the project
+  local link="$DESK/$1"
+  local target
+  target="$(pwd)/$2"
   {
     printf '#!/bin/bash\n'
     printf '# Shortcut made by Setup PetrifEye.command. Safe to delete.\n'
-    printf 'START=%q\n' "$start"
+    printf 'TARGET=%q\n' "$target"
     printf '%s\n' \
-      'if [ -f "$START" ]; then exec bash "$START"; fi' \
+      'if [ -f "$TARGET" ]; then exec bash "$TARGET"; fi' \
       'echo "PetrifEye is no longer at:"' \
-      'echo "  $START"' \
+      'echo "  $TARGET"' \
       'echo "Open the project where it is now and double-click Setup PetrifEye.command"' \
-      'echo "there - that puts a working shortcut back on the Desktop."' \
+      'echo "there - that puts working shortcuts back on the Desktop."' \
       'read -r -p "Press return to close."'
   } > "$link" && chmod +x "$link" \
-    && say "Desktop shortcut:  $link  — double-click it to start PetrifEye."
+    && say "Desktop shortcut:  $link"
+}
+
+desktop_shortcut() {
+  [ -z "${MEDUSA_NO_SHORTCUT:-}" ] || return 0
+  DESK="${MEDUSA_DESKTOP:-$HOME/Desktop}"
+  [ -d "$DESK" ] || return 0
+  one_shortcut "PetrifEye.command" "Start PetrifEye.command"
+  one_shortcut "PetrifEye Frame.command" "Frame PetrifEye.command"
+  say "  PetrifEye.command        starts the piece with the AprilTags"
+  say "  PetrifEye Frame.command  starts it with no tags (the screen frame)"
+}
+
+# A project downloaded as a zip in a browser is QUARANTINED: macOS then
+# refuses to open each unsigned .command by double-click until it has been
+# allowed one by one. Getting this script open was that once; lifting the
+# flag from the rest of the project here means Start, Frame and Record open
+# normally from now on. A git clone carries no flag, so this does nothing.
+unquarantine() {
+  if xattr -r -p com.apple.quarantine . >/dev/null 2>&1; then
+    xattr -dr com.apple.quarantine . 2>/dev/null \
+      && say "Lifted the download quarantine from the project folder."
+  fi
 }
 
 say ""
@@ -66,6 +87,8 @@ if [ ! -f "$REQS" ]; then
   say "Keep this file inside the petrifeye folder and run it from there."
   exit 1
 fi
+# Only now, inside what is certainly the project folder.
+unquarantine
 
 # The venv must not live inside the project when the project is in Google
 # Drive: Drive serves those files through a virtual filesystem, and when it
