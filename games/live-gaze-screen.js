@@ -153,9 +153,21 @@
       updateTitle();
       return;
     }
-    const idx = await LiveGazeStore.claim(SLOT, SLOT);
+    const idx = await LiveGazeStore.claim(SLOT, SLOT, await bridgeBoot());
     if (idx == null) { await finishScreen(); return; }
     await showImage(idx);
+  }
+
+  // Which run of the bridge served this page (null without a bridge): how
+  // the shared queue tells a new session from a reload. See BOOT_ID.
+  let bootId;
+  async function bridgeBoot() {
+    if (bootId !== undefined) return bootId;
+    try {
+      const r = await fetch("/markers/layout.json", { cache: "no-store" });
+      bootId = r.ok ? ((await r.json()).boot ?? null) : null;
+    } catch (_) { bootId = null; }
+    return bootId;
   }
 
   async function showImage(idx) {
@@ -480,7 +492,7 @@
              image: image ? { name: image.name, w: image.w, h: image.h } : null });
       await LiveGazeStore.close(idx);
       const saving = saveResults(idx, image, fixations, players);
-      const next = goNext ? await LiveGazeStore.claim(SLOT, null) : null;
+      const next = goNext ? await LiveGazeStore.claim(SLOT, null, await bridgeBoot()) : null;
       if (next != null) {
         await showImage(next);
         note(`image ${idx + 1} closed — now image ${next + 1}`);

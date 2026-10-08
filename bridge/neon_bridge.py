@@ -1187,10 +1187,17 @@ async def layout_handler(_req):
             "flashPeriodMs": FLASH_PERIOD_MS,
             "frame": ({"px": FRAME_PX, "color": FRAME_COLOR, "corner": FRAME_CORNER}
                       if FRAME_PX > 0 else None),
+            "boot": BOOT_ID,
         },
         headers={"Cache-Control": "no-store"},
     )
 
+
+# Identifies this run of the bridge. LIVE GAZE keeps which images have been
+# seen in the browser, which outlives the app — so a new launch has to be
+# recognisable as one, or a show that ended yesterday (or in the previous
+# Frame/Start session) leaves every image "already seen" today.
+BOOT_ID = str(int(time.time() * 1000))
 
 # Where LIVE GAZE writes a closed image's results (see save_analysis_handler).
 LIVE_GAZE_OUT = Path("~/petrifeye-recordings/live-gaze").expanduser()

@@ -77,15 +77,23 @@
   // it starts at the first image shown after an upload, or when the show is
   // started over (resetProgress) — so a second run of the same images gets
   // its own folder instead of overwriting the first one's results.
-  async function mutate(fn, newRun = false) {
+  //
+  // boot: the bridge's BOOT_ID, when there is a bridge. The queue lives in
+  // the browser and outlives the app, so a queue recorded under a different
+  // bridge run belongs to an earlier session: it is started over, all
+  // images unseen. A reload within the same session keeps it.
+  async function mutate(fn, newRun = false, boot = null) {
     const db = await openDb();
     const { t, done } = tx(db, [META], "readwrite");
     const store = t.objectStore(META);
     const [p, m] = await Promise.all([request(store.get("progress")), request(store.get("session"))]);
     const list = normProgress(p, m);
+    // A queue with NO boot recorded predates this check: also an old session.
+    const stale = boot != null && p && p.boot !== boot;
+    if (stale) list.forEach((_, i) => { list[i] = { status: "queued" }; });
     const out = fn(list);
-    const runAt = (!newRun && p && p.runAt) || Date.now();
-    store.put({ images: list, at: Date.now(), runAt }, "progress");
+    const runAt = (!newRun && !stale && p && p.runAt) || Date.now();
+    store.put({ images: list, at: Date.now(), runAt, boot: boot ?? (p && p.boot) ?? null }, "progress");
     await done;
     db.close();
     if ("BroadcastChannel" in window) {
@@ -175,8 +183,13 @@
     // Give `display` an image: `preferred` if it is free (or already this
     // display's), otherwise the first unseen one. Returns its index, or null
     // when every image has been shown.
-    async claim(display, preferred) {
+    async claim(display, preferred, boot = null) {
       return mutate((list) => {
+        // No bridge to tell sessions apart (webcam-only): a window opened
+        // after every image was closed starts the show over.
+        if (boot == null && list.length && list.every((x) => x.status === "closed")) {
+          list.forEach((_, i) => { list[i] = { status: "queued" }; });
+        }
         const mineNow = list.findIndex((x) => x.status === "showing" && x.display === display);
         if (mineNow >= 0) return mineNow;
         let i = (preferred != null && list[preferred] && list[preferred].status === "queued")
@@ -184,7 +197,7 @@
         if (i < 0) return null;
         list[i] = { status: "showing", display };
         return i;
-      });
+      }, false, boot);
     },
 
     async close(index) {
