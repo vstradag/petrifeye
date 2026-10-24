@@ -17,8 +17,9 @@ a comment:
 - **Nothing under the AprilTags**: the HUD moved from the corners to the middle
   of the top and bottom edges, the corner links are off (`links: false`), and a
   duck never picks a destination under a tag (`Stage.isBlocked`, fed by the page).
-- **Slower ducks** (`slowdown`, 3 by default, set live in the settings panel):
-  two people have to find and follow the same duck by eye.
+- **Slower ducks** (`pace`, 0.5 = half the original speed on every level, set
+  live in the settings panel): two people have to find and follow the same duck
+  by eye.
 - The page owns the keyboard (`keys: false`); `?sim` no longer counts as a
   level-creator URL; audio is found relative to this folder (`assetBase`).
 

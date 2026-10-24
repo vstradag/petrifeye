@@ -10,10 +10,11 @@
 //   nobody on it      nothing
 //   one player on it  a cross on the duck, in that player's colour — "I've
 //                     got this one, find it"
-//   both on it        the cross closes to red; held for HOLD seconds, it fires
+//   both on it        it fires, that instant
 //
-// The hold is short (0.3s) and only stops a gaze sweeping across a duck the
-// other player happens to be on from counting as agreement.
+// HOLD_SEC (settings, 0 by default) can require the two to stay together a
+// moment first — the red closing reticle shows it filling — if a gaze
+// sweeping across a duck the other player is on turns out to fire too easily.
 (function () {
   // ------------------------------------------------------------ p5 globals
   // Tracking's mouse and arrow-key stand-in was written for p5 sketches and
@@ -35,7 +36,7 @@
 
   // ------------------------------------------------------------- settings
   const PRECISE_POINTER_IDS = new Set(["mouse", "sim2"]);
-  let HOLD_SEC = 0.3;          // both on the duck this long → shot
+  let HOLD_SEC = 0;            // both on the duck this long → shot
   let NEEDED = 2;              // players who must agree
   let GAZE_ASSIST_RADIUS = 170;
   // Agreement drains faster than it builds, so a broken look starts over
@@ -233,7 +234,10 @@
 
     const g = game();
     const pointers = Tracking.update();
-    const targets = g && g.started && !g.paused ? g.duckTargets() : [];
+    // Only ducks that can be shot right now. When a wave's time runs out the
+    // survivors fly away still "alive"; marking them would promise a shot the
+    // game will refuse.
+    const targets = g && g.shootable() ? g.duckTargets() : [];
 
     const gazeMode = pointers.some((p) => !PRECISE_POINTER_IDS.has(p.id));
     attention.captureRadius = gazeMode ? GAZE_ASSIST_RADIUS : 0;
@@ -464,19 +468,19 @@
 
   document.getElementById("slider-hold").oninput = (e) => {
     HOLD_SEC = Number(e.target.value);
-    document.getElementById("tv-hold").textContent = `${HOLD_SEC.toFixed(2)}s`;
+    document.getElementById("tv-hold").textContent = HOLD_SEC ? `${HOLD_SEC.toFixed(2)}s` : "instant";
   };
   document.getElementById("select-needed").onchange = (e) => {
     NEEDED = Number(e.target.value);
     document.getElementById("tv-needed").textContent = String(NEEDED);
   };
   // Takes effect from the next wave: a duck in flight keeps its speed.
-  document.getElementById("slider-slow").oninput = (e) => {
-    const v = Number(e.target.value);
-    document.getElementById("tv-slow").textContent = v ? `−${v}` : "original";
-    window.DuckHuntConfig.slowdown = v;
+  document.getElementById("slider-pace").oninput = (e) => {
+    const pct = Number(e.target.value);
+    document.getElementById("tv-pace").textContent = pct === 100 ? "original" : `${pct}% of original`;
+    window.DuckHuntConfig.pace = pct / 100;
     const g = game();
-    if (g) g.slowdown = v;
+    if (g) g.pace = pct / 100;
   };
   document.getElementById("slider-assist").oninput = (e) => {
     GAZE_ASSIST_RADIUS = Number(e.target.value);

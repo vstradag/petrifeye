@@ -32,14 +32,14 @@ class Game {
     //                 under the bottom-right AprilTag); the page binds keys
     //   keys          false: the page owns the keyboard
     //   autoStart     false: wait for begin()
-    //   slowdown      subtracted from every level's speed (0-10 scale) — gaze
-    //                 has to follow a duck, and two people have to agree on it
+    //   pace          share of the original flight speed, 0-1 (1 = upstream)
+    //                 — gaze has to follow a duck, and two people find it
     //   parent        element to put the canvas in
     this.clickToShoot = opts.clickToShoot !== false;
     this.showLinks = opts.links !== false;
     this.bindKeys = opts.keys !== false;
     this.autoStart = opts.autoStart !== false;
-    this.slowdown = opts.slowdown || 0;
+    this.pace = opts.pace > 0 ? opts.pace : 1;
     this.parent = opts.parent || null;
     this.started = false;
     this.levelIndex = 0;
@@ -545,7 +545,7 @@ class Game {
     this.ducksShotThisWave = 0;
     this.waveEnding = false;
 
-    this.stage.addDucks(this.level.ducks, Math.max(0, this.level.speed - this.slowdown));
+    this.stage.addDucks(this.level.ducks, this.level.speed, this.pace);
     window.dispatchEvent(new CustomEvent('duckhunt-wave', {
       detail: {level: this.level.id, wave: this.wave, ducks: this.level.ducks}
     }));

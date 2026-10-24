@@ -122,7 +122,9 @@ class Duck extends Character {
     this.speed = options.speed;
 
     const direction = Utils.directionOfTravel(this.position, options.point);
-    const tweenSeconds = (this.flightAnimationMs + _random(0, 300)) / 1000;
+    // PetrifEye: options.pace stretches every leg by the same share, so each
+    // level keeps its relative speed (the 0-10 table is far from linear).
+    const tweenSeconds = (this.flightAnimationMs / (this.options.pace || 1) + _random(0, 300)) / 1000;
 
     this.timeline.to(this.position, {
       duration: tweenSeconds,

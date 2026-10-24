@@ -195,7 +195,7 @@ class Stage extends Container {
    * @param {Number} numDucks - How many ducks to add to the stage
    * @param {Number} speed - Value from 0 (slow) to 10 (fast) that determines how fast the ducks will fly
    */
-  addDucks(numDucks, speed) {
+  addDucks(numDucks, speed, pace) {
     for (let i = 0; i < numDucks; i++) {
       const duckColor = i % 2 === 0 ? 'red' : 'black';
 
@@ -205,7 +205,8 @@ class Stage extends Container {
         colorProfile: duckColor,
         maxX: MAX_X,
         maxY: MAX_Y,
-        isBlocked: this.isBlocked.bind(this)
+        isBlocked: this.isBlocked.bind(this),
+        pace: pace || 1
       });
       newDuck.duckId = 'duck-' + (nextDuckId++);
       newDuck.position.set(DUCK_POINTS.ORIGIN.x, DUCK_POINTS.ORIGIN.y);
