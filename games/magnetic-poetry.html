@@ -82,9 +82,13 @@
     <input type="checkbox" id="toggle-hints" checked />
     <span>hint the next word when stuck</span>
   </label>
-  <label class="tuning-checkbox">
-    <input type="checkbox" id="toggle-read" checked />
-    <span>read the finished poem aloud</span>
+  <label>
+    <div class="tuning-row"><span>read the finished poem</span></div>
+    <select id="select-read">
+      <option value="recorded" selected>recorded voice</option>
+      <option value="computer">computer voice</option>
+      <option value="off">not at all</option>
+    </select>
   </label>
   <label class="mp-toggle-row">
     <input type="checkbox" id="toggle-target" checked />

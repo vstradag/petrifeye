@@ -33,7 +33,7 @@
   let CAPTURE = 70;            // px around a word that still counts, for gaze
   let NEEDED = 2;              // 2: the midpoint writes; 1: player 1 alone (solo test)
   let HINTS = true;
-  let READ_ALOUD = true;
+  let READ = "recorded";      // "recorded" | "computer" | "off" — see the voice section
   const HINT_AFTER = 15;       // s without progress before the next word glows
   const HINT_STRONG = 30;
   const NEXT_DELAY = 3.5;      // s after completion before "next" can be taken
@@ -232,7 +232,8 @@
     magnets = []; flights = []; nextMagnet = null; final = null; focusId = null;
     phase = "play";
     poemStart = lastProgressAt = performance.now();
-    if (window.speechSynthesis) speechSynthesis.cancel();
+    stopReading();
+    reading = recordingFor(poem);
     layoutPoem();
     scatter();
   }
@@ -363,19 +364,66 @@
   }
 
   // ---------------------------------------------------------------- voice
-  // The finished poem read aloud by the machine's own voice, line by line,
-  // then its author. Offline: macOS speaks with its built-in voices.
-  // macOS also ships joke voices (Bad News, Bubbles, Zarvox …) that a plain
-  // "first English voice" would happily pick on some machines.
-  const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Fred|Good News|Jester|Junior|Kathy|Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/;
-  function pickVoice() {
-    const voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang) && !NOVELTY.test(v.name));
-    const prefer = ["Daniel", "Moira", "Karen", "Tessa", "Samantha", "Serena", "Rishi"];
-    return prefer.map((n) => voices.find((v) => v.name.startsWith(n))).find(Boolean) || voices[0] || null;
+  // The finished poem is read aloud, then who wrote it. The reading is a
+  // recording made once, ahead of time, with an ElevenLabs voice
+  // (magnetic-poetry/make-voices.mjs) and shipped with the piece: a person's
+  // voice rather than the machine's, and at the venue just a file — no network,
+  // no key. A poem with no recording yet is simply not read, unless the
+  // computer voice is chosen in settings.
+  const VOICE_DIR = "magnetic-poetry/voice/";
+  let voices = null;           // the recordings' manifest, once loaded
+  let reading = null;          // <audio> for the current poem, preloaded
+  fetch(VOICE_DIR + "manifest.json")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((m) => {
+      voices = m && m.poems ? m : null;
+      if (poem && !reading) reading = recordingFor(poem);
+      const opt = document.querySelector('#select-read option[value="recorded"]');
+      if (opt) opt.textContent = voices ? `recorded voice — ${voices.voice.name}` : "recorded voice (none made yet)";
+    })
+    .catch(() => {});
+
+  // Must match slug() in magnetic-poetry/make-voices.mjs.
+  function slug(title) {
+    return title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+
+  function recordingFor(p) {
+    const entry = voices && voices.poems[slug(p.title)];
+    if (!entry) return null;
+    const a = new Audio(VOICE_DIR + entry.file);
+    a.preload = "auto";
+    return a;
+  }
+
+  function stopReading() {
+    if (reading) { reading.pause(); reading.currentTime = 0; }
+    if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
   }
 
   function speak(p) {
-    if (!READ_ALOUD || Sound.muted || !window.speechSynthesis || p !== poem) return;
+    if (READ === "off" || Sound.muted || p !== poem) return;
+    if (READ === "recorded") {
+      if (!reading) reading = recordingFor(p);
+      if (reading) { reading.currentTime = 0; reading.play().catch(() => {}); }
+      return;
+    }
+    computerVoice(p);
+  }
+
+  // The fallback: the browser's own synthesis. macOS also ships joke voices
+  // (Bad News, Bubbles, Zarvox …) that a plain "first English voice" would
+  // happily pick on some machines.
+  const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Fred|Good News|Jester|Junior|Kathy|Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/;
+  function pickVoice() {
+    const all = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang) && !NOVELTY.test(v.name));
+    const prefer = ["Daniel", "Moira", "Karen", "Tessa", "Samantha", "Serena", "Rishi"];
+    return prefer.map((n) => all.find((v) => v.name.startsWith(n))).find(Boolean) || all[0] || null;
+  }
+
+  function computerVoice(p) {
+    if (!window.speechSynthesis) return;
     // Chrome drops a speak() issued in the same breath as cancel(), so cancel
     // only what is actually playing and queue the lines a moment later.
     if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
@@ -422,7 +470,6 @@
       toggle() {
         muted = !muted;
         if (out) out.gain.setTargetAtTime(muted ? 0 : 0.7, ac.currentTime, 0.05);
-        if (muted && window.speechSynthesis) speechSynthesis.cancel();
         return muted;
       },
       click() {
@@ -742,7 +789,11 @@
 
   // ------------------------------------------------------------- controls
   const $ = (id) => document.getElementById(id);
-  function toggleSound() { $("mpSound").textContent = Sound.toggle() ? "sound off (u)" : "sound (u)"; }
+  function toggleSound() {
+    const muted = Sound.toggle();
+    if (muted) stopReading();
+    $("mpSound").textContent = muted ? "sound off (u)" : "sound (u)";
+  }
   function shuffle() { if (phase === "play") scatter(); }
   $("mpNext").onclick = () => loadPoem(poemIndex + 1);
   $("mpShuffle").onclick = shuffle;
@@ -767,7 +818,11 @@
     if (DuoSession.started) loadPoem(0); else poemIndex = 0;
   };
   $("toggle-hints").onchange = (e) => { HINTS = e.target.checked; };
-  $("toggle-read").onchange = (e) => { READ_ALOUD = e.target.checked; if (!READ_ALOUD && window.speechSynthesis) speechSynthesis.cancel(); };
+  $("select-read").onchange = (e) => {
+    READ = e.target.value;
+    stopReading();
+    if (phase === "complete") speak(poem);
+  };
 
   DuoSession.init({
     players: PLAYERS,
@@ -783,6 +838,9 @@
     onStart: () => {
       Sound.start();
       if (window.speechSynthesis) speechSynthesis.getVoices();
+      // Unlock <audio> inside the click, as for the AudioContext: a browser
+      // may refuse play() later otherwise.
+      new Audio().play().catch(() => {});
       introAt = null;
       loadPoem(poemIndex);
     },

@@ -19,3 +19,6 @@ node_modules/
 # bridge/fetch_wheels.sh and published as a GitHub Release asset, not in git.
 bridge/wheels/
 bridge/petrifeye-offline-packages-*.zip
+
+# MAGNETIC POETRY voice auditions (make-voices.mjs audition) — scratch, not shipped
+games/magnetic-poetry/voice/_audition/

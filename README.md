@@ -234,9 +234,19 @@ is taken when the pen rests on it for 0.9 s, its brackets closing and a
 confidence readout climbing. Words must be taken in the poem's order; a wrong
 one shakes and stays, and if nothing has moved for 15 s the next word glows.
 When the last word lands the poem is shown whole with its title, author and
-first edition, the last word pulsing like a bulb to a heartbeat, and a
-synthesised voice reads it aloud (macOS's own voices, offline). Then both look
-at **next →**. The look borrows from Rafael Lozano-Hemmer's tracking pieces.
+first edition, the last word pulsing like a bulb to a heartbeat, and it is
+read aloud. Then both look at **next →**.
+
+*The readings* are recordings, made once with an ElevenLabs voice and shipped
+with the piece, so the venue needs no network and no key — the piece just plays
+files from `games/magnetic-poetry/voice/`. To make or remake them (only what
+changed is re-recorded), put your key where the script looks for it — copy it
+from elevenlabs.io, then
+`mkdir -p ~/.config/elevenlabs && pbpaste > ~/.config/elevenlabs/api_key && chmod 600 ~/.config/elevenlabs/api_key` —
+and run `node games/magnetic-poetry/make-voices.mjs` for its three commands:
+`voices` (what your account offers), `audition "A,B,C" --play` (one poem in
+each, to compare by ear) and `record "A"`. A poem without a recording is not
+read at all, unless *computer voice* is chosen in settings. The look borrows from Rafael Lozano-Hemmer's tracking pieces.
 The poems (`games/magnetic-poetry-poems.js`) are short on purpose: fourteen of
 8–22 words — Bashō's frog in Lafcadio Hearn's 1898 version, Amy Lowell's
 hokku, Christina Rossetti's *Sing-Song*, Adelaide Crapsey, Dickinson,
