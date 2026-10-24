@@ -363,20 +363,43 @@
 
   // Each player's gaze, in their own colour, so the two can tell which
   // marker is whose. The mouse in a test is a player too, so it is drawn.
+  // MEDUSA's size (44px ring, crosshair, centre dot), with a dark outline under
+  // every stroke: a thin coloured ring alone vanished against the sky — the
+  // teal one most of all.
   function drawPointers(pointers) {
+    const d = 44;
+    const arm = d * 0.64;
+    const shape = () => {
+      ctx.beginPath();
+      ctx.arc(p0.x, p0.y, d / 2, 0, Math.PI * 2);
+      ctx.moveTo(p0.x - arm, p0.y); ctx.lineTo(p0.x - d * 0.2, p0.y);
+      ctx.moveTo(p0.x + d * 0.2, p0.y); ctx.lineTo(p0.x + arm, p0.y);
+      ctx.moveTo(p0.x, p0.y - arm); ctx.lineTo(p0.x, p0.y - d * 0.2);
+      ctx.moveTo(p0.x, p0.y + d * 0.2); ctx.lineTo(p0.x, p0.y + arm);
+    };
+    let p0 = null;
     ctx.save();
-    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.font = "700 13px ui-monospace, Menlo, monospace";
     for (const p of pointers) {
       const player = byPointer[p.id];
       if (!player || !Number.isFinite(p.x)) continue;
-      const d = 34;
-      ctx.globalAlpha = p.held ? 0.35 : 0.9;
+      p0 = p;
+      ctx.globalAlpha = p.held ? 0.4 : 1;
+      shape();
+      ctx.strokeStyle = "rgba(0,0,0,.7)";
+      ctx.lineWidth = 6.5;
+      ctx.stroke();
       ctx.strokeStyle = player.color;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = player.color; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.stroke();
+      ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,.75)";
+      ctx.strokeText(player.label, p.x + arm + 4, p.y - arm + 4);
       ctx.fillStyle = player.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, d / 2, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
-      ctx.font = "600 11px ui-monospace, Menlo, monospace";
-      ctx.fillText(player.label, p.x + d / 2 + 4, p.y - d / 2);
+      ctx.fillText(player.label, p.x + arm + 4, p.y - arm + 4);
     }
     ctx.restore();
   }
