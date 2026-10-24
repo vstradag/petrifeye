@@ -238,15 +238,34 @@ if (cmd === "sheet") {
   const args = [arg, ...rest].filter((x) => x != null);
   const get = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
   const flagged = new Set(args.flatMap((x, i) => (x.startsWith("--") ? [i, i + 1] : [])));
-  const folder = (args.find((x, i) => !x.startsWith("--") && !flagged.has(i)) || path.join(os.homedir(), "Downloads")).replace(/^~/, os.homedir());
+  let folder = (args.find((x, i) => !x.startsWith("--") && !flagged.has(i)) || path.join(os.homedir(), "Downloads")).replace(/^~/, os.homedir());
+  // A zip from ElevenLabs' History download is unpacked to a scratch folder.
+  if (/\.zip$/i.test(folder)) {
+    const into = fs.mkdtempSync(path.join(os.tmpdir(), "mp-import-"));
+    execFileSync("unzip", ["-q", "-o", folder, "-d", into]);
+    folder = into;
+  }
   const { short, longer } = loadSets();
   let poems = get("--set") === "all" ? [...short, ...longer] : short;
   if (get("--count")) poems = poems.slice(0, Number(get("--count")));
-  // The newest MP3s, oldest first: the order they were made in.
-  const mp3s = fs.readdirSync(folder).filter((f) => /\.mp3$/i.test(f))
-    .map((f) => ({ f, full: path.join(folder, f), at: fs.statSync(path.join(folder, f)).mtimeMs }))
-    .sort((a, b) => a.at - b.at).slice(-poems.length);
-  if (mp3s.length < poems.length) fail(`Found ${mp3s.length} MP3s in ${folder}, need ${poems.length}. Use --count ${mp3s.length} if you made only the first ${mp3s.length}.`);
+  // ElevenLabs names each download after the moment it was GENERATED
+  // (ElevenLabs_2026-10-24T18_27_07_Vince_…), which is the order the poems
+  // were made in whatever order they were downloaded; other files fall back
+  // to their modification time. Only ElevenLabs files, when there are any,
+  // so an unrelated MP3 in Downloads is never taken for a poem.
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);
+  let found = walk(folder).filter((f) => /\.mp3$/i.test(f) && !path.basename(f).startsWith("._"));
+  if (found.some((f) => /^ElevenLabs_/.test(path.basename(f)))) found = found.filter((f) => /^ElevenLabs_/.test(path.basename(f)));
+  const made = (f) => { const m = path.basename(f).match(/(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})/); return m ? m[1] : new Date(fs.statSync(f).mtimeMs).toISOString(); };
+  const mp3s = found.map((full) => ({ f: path.basename(full), full, at: made(full) }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).slice(-poems.length);
+  if (mp3s.length < poems.length) fail(`Found ${mp3s.length} recordings in ${folder}, need ${poems.length}. Use --count ${mp3s.length} if you made only the first ${mp3s.length}.`);
+  // The voice and speed are in the name too: …_Vince_ivc_sp100_… is the voice
+  // "Vince" at 100% speed. The piece slows playback to its reading pace
+  // relative to this, so a take made at normal speed is not slowed twice.
+  const voiceName = (mp3s[0].f.match(/^ElevenLabs_\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}_(.+?)_(?:ivc|pvc|pre|gen|cl)(?:_|\.)/) || [])[1];
+  const speedPct = (mp3s[0].f.match(/_sp(\d+)(?:_|\.)/) || [])[1];
   let doubtful = 0;
   console.log(`  #  poem${" ".repeat(30)} expected  file length  file`);
   poems.forEach((p, i) => {
@@ -266,8 +285,8 @@ if (cmd === "sheet") {
       fs.copyFileSync(mp3s[i].full, path.join(OUT, `${key}.mp3`));
       manifest.poems[key] = { file: `${key}.mp3`, hash: crypto.createHash("sha1").update(text).digest("hex").slice(0, 12), title: p.title, chars: text.length };
     }
-    manifest.voice = { name: get("--voice") || "ElevenLabs", id: null };
-    manifest.settings = { made: "by hand on elevenlabs.io" };
+    manifest.voice = { name: get("--voice") || voiceName || "ElevenLabs", id: null };
+    manifest.settings = { made: "by hand on elevenlabs.io", speed: speedPct ? Number(speedPct) / 100 : 1 };
     writeManifest(manifest);
     console.log(`\n${poems.length} recordings in ${path.relative(process.cwd(), OUT)}/`);
   }

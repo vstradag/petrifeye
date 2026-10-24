@@ -34,6 +34,7 @@
   let NEEDED = 2;              // 2: the midpoint writes; 1: player 1 alone (solo test)
   let HINTS = true;
   let READ = "recorded";      // "recorded" | "computer" | "off" — see the voice section
+  let PACE = 0.9;              // reading speed, relative to normal speech
   const HINT_AFTER = 15;       // s without progress before the next word glows
   const HINT_STRONG = 30;
   const NEXT_DELAY = 3.5;      // s after completion before "next" can be taken
@@ -394,6 +395,7 @@
     if (!entry) return null;
     const a = new Audio(VOICE_DIR + entry.file);
     a.preload = "auto";
+    a.preservesPitch = true;
     return a;
   }
 
@@ -406,7 +408,14 @@
     if (READ === "off" || Sound.muted || p !== poem) return;
     if (READ === "recorded") {
       if (!reading) reading = recordingFor(p);
-      if (reading) { reading.currentTime = 0; reading.play().catch(() => {}); }
+      if (reading) {
+        // Played at PACE relative to the speed the take was made at, so a take
+        // already made slower (the API's 0.9) is not slowed a second time.
+        const made = (voices && voices.settings && voices.settings.speed) || 1;
+        reading.playbackRate = clamp(PACE / made, 0.6, 1.2);
+        reading.currentTime = 0;
+        reading.play().catch(() => {});
+      }
       return;
     }
     computerVoice(p);
@@ -818,6 +827,14 @@
     if (DuoSession.started) loadPoem(0); else poemIndex = 0;
   };
   $("toggle-hints").onchange = (e) => { HINTS = e.target.checked; };
+  $("slider-pace").oninput = (e) => {
+    PACE = Number(e.target.value);
+    $("tv-pace").textContent = `${PACE.toFixed(2)}×`;
+    if (reading && !reading.paused) {
+      const made = (voices && voices.settings && voices.settings.speed) || 1;
+      reading.playbackRate = clamp(PACE / made, 0.6, 1.2);
+    }
+  };
   $("select-read").onchange = (e) => {
     READ = e.target.value;
     stopReading();
