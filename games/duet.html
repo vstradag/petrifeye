@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DUET — each gaze is a voice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<link rel="stylesheet" href="../tuning.css" />
+<link rel="stylesheet" href="../shared/gaze/duo.css" />
+<style>
+  html, body { margin:0; overflow:hidden; background:#000; }
+  #duet { position:fixed; inset:0; display:block; }
+  /* The boot card in the piece's own colours: the two voices, and the
+     harmony where they meet. */
+  .mp-boot h1 span { color:#F0E442; }
+  .mp-boot .rule b.p1 { color:#E69F00; }
+  .mp-boot .rule b.p2 { color:#56B4E9; }
+  .mp-boot .rule b.h  { color:#F0E442; }
+</style>
+</head>
+<body>
+
+<canvas id="duet"></canvas>
+
+<div class="mp-boot" id="mpBoot">
+  <div class="mp-boot-inner" id="mpBootInner">
+    <h1>DU<span>ET</span></h1>
+    <p class="sub">each gaze is a voice</p>
+    <p class="rule">Where you look is what you sing — <b class="p1">higher</b> as you look up,
+      <b class="p2">lower</b> as you look down.<br />
+      Apart, your two voices search. Find each other, and they turn to <b class="h">harmony</b>.<br />
+      Sound on, please.</p>
+    <div class="mp-srcs" id="mpSrcs"></div>
+    <pre id="mpBootCmd"></pre>
+    <p class="note" id="mpBootState">checking bridges…</p>
+    <button class="mp-btn" id="mpStart" disabled>waiting for bridges</button>
+    <button class="mp-btn ghost" id="mpSim">test with mouse + arrows</button>
+  </div>
+</div>
+
+<div class="mp-cal" id="mpCal">
+  <p class="mp-cal-msg" id="mpCalMsg"></p>
+</div>
+
+<div class="mp-panel" id="mpPanel" style="display:none"></div>
+<button class="mp-gear" id="mpGear" title="settings (s)" style="display:none">&#9881;</button>
+
+<div class="tuning-panel tuning-panel-hidden" id="tuning-panel">
+  <div class="ma-row">
+    <button class="ma-mini" id="duNew">new piece (r)</button>
+    <button class="ma-mini" id="duSound">sound (u)</button>
+  </div>
+  <label>
+    <div class="tuning-row"><span>mood</span></div>
+    <select id="select-mood">
+      <option value="dawn" selected>dawn — major pentatonic</option>
+      <option value="dusk">dusk — minor pentatonic</option>
+      <option value="mist">mist — hirajōshi</option>
+    </select>
+  </label>
+  <label>
+    <div class="tuning-row"><span>partner</span></div>
+    <select id="select-partner">
+      <option value="person" selected>a second person</option>
+      <option value="echo">an echo that follows P1 (solo test)</option>
+    </select>
+  </label>
+  <label title="How close the two gazes must be to count as together, as a share of the screen's height.">
+    <div class="tuning-row"><span>together within</span><span id="tv-meet">13%</span></div>
+    <input type="range" id="slider-meet" min="6" max="25" value="13" step="1" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>harmony takes</span><span id="tv-harmony">2.5s</span></div>
+    <input type="range" id="slider-harmony" min="1" max="6" value="2.5" step="0.5" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>volume</span><span id="tv-volume">80%</span></div>
+    <input type="range" id="slider-volume" min="0" max="100" value="80" step="5" />
+  </label>
+  <label class="tuning-checkbox">
+    <input type="checkbox" id="toggle-bells" checked />
+    <span>a bell for every fixation</span>
+  </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-target" checked />
+    <span>show the eyes (g)</span>
+  </label>
+  <label class="mp-toggle-row">
+    <input type="checkbox" id="toggle-assist" checked />
+    <span>motion assist (a)</span>
+  </label>
+  <label class="mp-toggle-row" title="Tags must be on screen for gaze to map. Hiding them stops tracking once the cached surface expires.">
+    <input type="checkbox" id="toggle-markers" checked />
+    <span>screen markers (m)</span>
+  </label>
+  <label title="Smaller frees screen space but shortens detection range — the tag must still span ~25-30px in the scene camera.">
+    <div class="tuning-row"><span>marker size</span><span id="tv-marker">300px</span></div>
+    <input type="range" id="slider-marker" min="80" max="600" value="300" step="10" />
+  </label>
+  <label>
+    <div class="tuning-row"><span>feel like</span><span id="tv-profile">auto</span></div>
+    <select id="select-profile">
+      <option value="">auto (per input)</option>
+      <option value="mouse">mouse — precise</option>
+      <option value="neon">neon glasses</option>
+      <option value="webgazer">webcam — worst case</option>
+    </select>
+  </label>
+</div>
+
+<script src="../vendor/webgazer.js"></script>
+<script src="../shared/tracking.js"></script>
+<script src="../shared/gaze/gaze-assist.js"></script>
+<script src="../shared/gaze/markers.js"></script>
+<script src="../shared/gaze/webgazer-source.js"></script>
+<script src="../shared/gaze/gaze-aggregator.js"></script>
+<script src="../shared/gaze/fixations.js"></script>
+<script src="../shared/controls-hint.js"></script>
+<script src="../shared/gaze/duo-session.js"></script>
+
+<script>
+// Add a player by adding a row: each needs its own bridge on its own port.
+// Okabe & Ito's orange and sky blue: told apart with every common colour
+// vision deficiency, and white light where they add up.
+const PLAYERS = [
+  { id: 0, label: "P1", port: 8443, color: "#E69F00" },
+  { id: 1, label: "P2", port: 8444, color: "#56B4E9" },
+];
+</script>
+<script src="duet-sound.js"></script>
+<script src="duet.js"></script>
+</body>
+</html>

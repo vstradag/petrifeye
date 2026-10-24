@@ -213,6 +213,20 @@ to find and follow the same one) and never head for a spot under a tag. **r** or
 speed, the gaze assist and a *1 player needed* solo test mode can be changed.
 `?sim` plays with the mouse as P1 and the arrow keys as P2.
 
+**DUET is sung together — sound on.** Each gaze is a voice: height is pitch
+(faint staff lines mark the notes), left–right is where it sits between the
+speakers. Apart, the two voices waver slightly out of tune and the rings they
+send out wobble; coming closer pulls both onto pure intervals; where the two
+meet, a chord blooms, drawn as the Lissajous figure of the interval being sung.
+Held for a moment somewhere new, it stays as a glyph and fills a dot; after
+eight the piece plays itself back as a chord progression and begins again.
+Every fixation rings a bell. Colours are the Okabe–Ito colour-blind-safe set
+(P1 orange, P2 sky blue, harmony yellow), and P2's rings are dashed so colour
+is never the only cue. **r** starts a new piece, **u** sound, **s** settings —
+mood (major/minor pentatonic or hirajōshi), how close counts as together, how
+long a harmony takes, volume, and an *echo* partner that follows P1, for
+trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
+
 ### If you only want the webcam
 
 No Python, no phones, nothing to install:
@@ -395,6 +409,13 @@ WebGazer can be replaced later without touching the rest of the app:
 
 - **`shared/fur-field.js`** — the background fur rendering/physics.
   Decorative, no coupling to tracking.
+
+- **`shared/gaze/duo-session.js`** (+ `duo.css`) — everything around a
+  two-player game that is not the game: the boot card with each player's
+  Neon/webcam choice, the webcam calibration, the settings gear and its common
+  toggles and keys, the trouble panel, and the mouse + arrow-key stand-in.
+  DUCK HUNT and DUET are built on it; a new two-player piece only writes its
+  own frame loop and passes `onStart` / `onKey`.
 
 - **`sketch.js`** — the actual scene (p5.js). Reads `Tracking.getPointers()`
   and `DwellTarget`, knows nothing about WebGazer.
