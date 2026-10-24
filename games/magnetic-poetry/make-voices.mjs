@@ -5,6 +5,15 @@
 // here, ahead of time, and committed with the project, so the piece itself
 // never needs the network or an API key: at the venue it just plays files.
 //
+// BY HAND, on the ElevenLabs website — no API key at all:
+//   node games/magnetic-poetry/make-voices.mjs sheet --open
+//       a page with every poem's exact text, a copy button each, in order
+//   node games/magnetic-poetry/make-voices.mjs import [~/Downloads] [--voice "George"] [--yes]
+//       takes the newest MP3s from Downloads, in the order they were made,
+//       checks each one's length against its poem, and puts them in place
+//       (--count N if you made only the first N; --set all for both sets)
+//
+// OR WITH THE API, all at once:
 //   node games/magnetic-poetry/make-voices.mjs voices [search]
 //       the voices your account can use: name, accent, description, id
 //   node games/magnetic-poetry/make-voices.mjs audition "George,Alice,Brian" [--poem 12]
@@ -47,10 +56,101 @@ function apiKey() {
 
 function fail(msg) { console.error(msg); process.exit(1); }
 
-function loadPoems() {
+function loadSets() {
   const sandbox = { window: {} };
   vm.runInNewContext(fs.readFileSync(POEMS_FILE, "utf8"), sandbox);
-  return [...sandbox.window.POEMS, ...sandbox.window.POEMS_LONGER];
+  return { short: sandbox.window.POEMS, longer: sandbox.window.POEMS_LONGER };
+}
+function loadPoems() { const { short, longer } = loadSets(); return [...short, ...longer]; }
+
+const MANIFEST = path.join(OUT, "manifest.json");
+const readManifest = () => (fs.existsSync(MANIFEST) ? JSON.parse(fs.readFileSync(MANIFEST, "utf8")) : { poems: {} });
+const writeManifest = (m) => fs.writeFileSync(MANIFEST, JSON.stringify(m, null, 2) + "\n");
+
+// Seconds a careful reading of `text` should take, roughly: ~12 characters a
+// second, plus a breath at each line. Only used to catch a file that plainly
+// belongs to a different poem.
+const expectedSeconds = (text) => text.length / 12 + text.split("\n").length * 0.35;
+
+function durationOf(file) {
+  try {
+    const out = execFileSync("afinfo", [file], { encoding: "utf8" });
+    const m = out.match(/estimated duration:\s*([\d.]+)/);
+    return m ? Number(m[1]) : null;
+  } catch (_) { return null; }
+}
+
+const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// The recording sheet: one card per poem, in order, with the exact text to
+// paste and a copy button — and a tick box, remembered in the browser, for
+// keeping track over 14 poems.
+function sheetHtml(sets) {
+  const card = (p, n) => `
+  <section class="card" data-key="${slug(p.title)}">
+    <header><span class="n">${String(n).padStart(2, "0")}</span>
+      <span class="t">${esc(p.title)}</span><span class="a">${esc(p.author)}</span>
+      <label class="done"><input type="checkbox"> done</label></header>
+    <pre>${esc(script(p))}</pre>
+    <button class="copy">copy text</button>
+  </section>`;
+  let n = 0;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Magnetic Poetry — recording sheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#0b0c10; color:#e8e6e2; font:15px/1.55 -apple-system, "Helvetica Neue", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 18px 80px; }
+  h1 { font-weight:300; letter-spacing:.2em; font-size:22px; margin:0 0 6px; }
+  h1 b { color:#FFC36B; font-weight:300; }
+  h2 { font-weight:400; font-size:13px; letter-spacing:.2em; text-transform:uppercase; color:#8d8b88; margin:40px 0 12px; }
+  ol.steps { padding-left: 20px; color:#c9c7c4; } ol.steps li { margin: 6px 0; }
+  code { background:#1a1c22; padding:1px 6px; border-radius:4px; color:#FFC36B; }
+  .card { border:1px solid #23252c; background:#111318; padding:14px 16px; margin:12px 0; }
+  .card.is-done { opacity:.45; }
+  header { display:flex; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  .n { font-family: ui-monospace, Menlo, monospace; color:#FFC36B; }
+  .t { font-size:16px; } .a { color:#8d8b88; font-size:13px; }
+  .done { margin-left:auto; font-size:13px; color:#8d8b88; cursor:pointer; }
+  pre { white-space:pre-wrap; font: 16px/1.6 -apple-system, "Helvetica Neue", sans-serif; margin:10px 0; color:#fff1da; }
+  button { font: 12px ui-monospace, Menlo, monospace; letter-spacing:.12em; text-transform:uppercase;
+           background:transparent; color:#FFC36B; border:1px solid #FFC36B; padding:7px 14px; cursor:pointer; }
+  button.ok { color:#0b0c10; background:#FFC36B; }
+</style></head><body><main>
+<h1>MAGNETIC <b>POETRY</b> — recording sheet</h1>
+<ol class="steps">
+  <li>Sign in at <b>elevenlabs.io</b> and open <b>Text to Speech</b>.</li>
+  <li>Choose <b>one voice</b> and keep it for every poem. Settings: the newest model on offer
+      (Eleven v4 if listed), <b>speed a little below normal (≈0.9)</b>, the rest as they are.</li>
+  <li>For each poem below, <b>in this order</b>: <i>copy text</i> → paste into ElevenLabs → generate →
+      listen → <b>download</b> → tick <i>done</i>. If a take is bad, delete that download and make it again.</li>
+  <li>Leave the files in Downloads with whatever names ElevenLabs gives them, and say when you are done —
+      they are matched to the poems by the order you made them.</li>
+</ol>
+<h2>The piece — ${sets.short.length} short poems</h2>
+${sets.short.map((p) => card(p, ++n)).join("")}
+<h2>Optional — the ${sets.longer.length} longer poems (settings → poems → longer)</h2>
+${sets.longer.map((p) => card(p, ++n)).join("")}
+</main>
+<script>
+  const KEY = "mp-recording-sheet";
+  let done = {}; try { done = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (_) {}
+  for (const card of document.querySelectorAll(".card")) {
+    const k = card.dataset.key, box = card.querySelector("input");
+    box.checked = !!done[k]; card.classList.toggle("is-done", box.checked);
+    box.onchange = () => { done[k] = box.checked; card.classList.toggle("is-done", box.checked);
+      try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (_) {} };
+    const btn = card.querySelector("button.copy"), text = card.querySelector("pre").textContent;
+    btn.onclick = async () => {
+      try { await navigator.clipboard.writeText(text); }
+      catch (_) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      btn.textContent = "copied"; btn.classList.add("ok");
+      setTimeout(() => { btn.textContent = "copy text"; btn.classList.remove("ok"); }, 1500);
+    };
+  }
+</script></body></html>
+`;
 }
 
 // Must match slug() in games/magnetic-poetry.js: the piece finds a poem's
@@ -129,7 +229,49 @@ function options(args) {
 
 const [cmd, arg, ...rest] = process.argv.slice(2);
 
-if (cmd === "voices") {
+if (cmd === "sheet") {
+  const file = path.join(HERE, "recording-sheet.html");
+  fs.writeFileSync(file, sheetHtml(loadSets()));
+  console.log(file);
+  if ([arg, ...rest].includes("--open")) execFileSync("open", [file]);
+} else if (cmd === "import") {
+  const args = [arg, ...rest].filter((x) => x != null);
+  const get = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+  const flagged = new Set(args.flatMap((x, i) => (x.startsWith("--") ? [i, i + 1] : [])));
+  const folder = (args.find((x, i) => !x.startsWith("--") && !flagged.has(i)) || path.join(os.homedir(), "Downloads")).replace(/^~/, os.homedir());
+  const { short, longer } = loadSets();
+  let poems = get("--set") === "all" ? [...short, ...longer] : short;
+  if (get("--count")) poems = poems.slice(0, Number(get("--count")));
+  // The newest MP3s, oldest first: the order they were made in.
+  const mp3s = fs.readdirSync(folder).filter((f) => /\.mp3$/i.test(f))
+    .map((f) => ({ f, full: path.join(folder, f), at: fs.statSync(path.join(folder, f)).mtimeMs }))
+    .sort((a, b) => a.at - b.at).slice(-poems.length);
+  if (mp3s.length < poems.length) fail(`Found ${mp3s.length} MP3s in ${folder}, need ${poems.length}. Use --count ${mp3s.length} if you made only the first ${mp3s.length}.`);
+  let doubtful = 0;
+  console.log(`  #  poem${" ".repeat(30)} expected  file length  file`);
+  poems.forEach((p, i) => {
+    const want = expectedSeconds(script(p)), got = durationOf(mp3s[i].full);
+    const off = got != null && (got < want * 0.5 || got > want * 2);
+    if (off) doubtful++;
+    console.log(`${String(i + 1).padStart(3)}  ${p.title.slice(0, 32).padEnd(34)} ~${want.toFixed(0).padStart(3)}s    ${got == null ? "  ?" : got.toFixed(1).padStart(5) + "s"}${off ? "  ← doesn't look like this poem" : "  "}  ${mp3s[i].f}`);
+  });
+  if (doubtful) console.log(`\n${doubtful} file(s) look wrong for their poem — probably a take that was downloaded twice or out of order.`);
+  if (!args.includes("--yes")) {
+    console.log(`\nNothing copied yet. If the pairs above are right, run the same command with --yes.`);
+  } else {
+    fs.mkdirSync(OUT, { recursive: true });
+    const manifest = readManifest();
+    for (const [i, p] of poems.entries()) {
+      const key = slug(p.title), text = script(p);
+      fs.copyFileSync(mp3s[i].full, path.join(OUT, `${key}.mp3`));
+      manifest.poems[key] = { file: `${key}.mp3`, hash: crypto.createHash("sha1").update(text).digest("hex").slice(0, 12), title: p.title, chars: text.length };
+    }
+    manifest.voice = { name: get("--voice") || "ElevenLabs", id: null };
+    manifest.settings = { made: "by hand on elevenlabs.io" };
+    writeManifest(manifest);
+    console.log(`\n${poems.length} recordings in ${path.relative(process.cwd(), OUT)}/`);
+  }
+} else if (cmd === "voices") {
   const voices = await listVoices(arg);
   for (const v of voices.sort((a, b) => a.name.localeCompare(b.name))) {
     const l = v.labels || {};
@@ -152,8 +294,7 @@ if (cmd === "voices") {
   const { s, force } = options(rest);
   const voice = await resolveVoice(arg);
   fs.mkdirSync(OUT, { recursive: true });
-  const manifestFile = path.join(OUT, "manifest.json");
-  const manifest = fs.existsSync(manifestFile) ? JSON.parse(fs.readFileSync(manifestFile, "utf8")) : { poems: {} };
+  const manifest = readManifest();
   let chars = 0, made = 0;
   for (const p of loadPoems()) {
     const text = script(p);
@@ -169,8 +310,8 @@ if (cmd === "voices") {
   }
   manifest.voice = { name: voice.name, id: voice.voice_id };
   manifest.settings = { ...s, format: FORMAT };
-  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+  writeManifest(manifest);
   console.log(`\n${made} recorded, ${chars} characters, in ${path.relative(process.cwd(), OUT)}/ — voice: ${voice.name}, model: ${s.model}`);
 } else {
-  console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 17).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+  console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 28).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
 }
