@@ -77,8 +77,11 @@
   }
 
   // ---------------------------------------------------------------- state
+  // The short poems are the piece; the longer set is for players who have
+  // the hang of it (settings → poems).
+  let set = window.POEMS;
   let poemIndex = 0;
-  let poem = null;             // { ...POEMS[i], tokens }
+  let poem = null;             // { ...set[i], tokens }
   let magnets = [];            // floating words
   let flights = [];            // words on their way into the poem
   let phase = "idle";          // "idle" | "play" | "complete"
@@ -203,14 +206,29 @@
         if (ok) break;
       }
       if (!ok && !force) return false;
-      if (!ok) { m.hx = lerp(field.x0, field.x1, Math.random()); m.hy = lerp(field.y0, field.y1, Math.random()); }
+      if (!ok) {
+        // Out of room even at the smallest type (a small screen behind big
+        // tags): the spot that overlaps least, rather than any spot at all.
+        const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+                                  Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+        let best = null, bestCost = Infinity;
+        for (let tries = 0; tries < 600; tries++) {
+          const box = { x: lerp(field.x0, field.x1 - m.w, Math.random()), y: lerp(field.y0, field.y1 - m.h, Math.random()), w: m.w, h: m.h };
+          const grown = { x: box.x - 10, y: box.y - 10, w: box.w + 20, h: box.h + 20 };
+          const cost = placed.reduce((c, p) => c + overlap(grown, p), 0) + blocked.reduce((c, b) => c + 4 * overlap(box, b), 0);
+          if (cost < bestCost) { bestCost = cost; best = box; }
+        }
+        m.hx = best.x + m.w / 2; m.hy = best.y + m.h / 2; placed.push(best);
+      }
     }
     return true;
   }
 
   function loadPoem(i) {
-    poemIndex = (i + POEMS.length) % POEMS.length;
-    poem = { ...POEMS[poemIndex], tokens: tokenize(POEMS[poemIndex].text) };
+    poemIndex = (i + set.length) % set.length;
+    poem = { ...set[poemIndex], tokens: tokenize(set[poemIndex].text) };
+    const sel = document.getElementById("select-poem");
+    if (sel) sel.value = String(poemIndex);
     magnets = []; flights = []; nextMagnet = null; final = null; focusId = null;
     phase = "play";
     poemStart = lastProgressAt = performance.now();
@@ -365,7 +383,7 @@
       if (p !== poem) return;
       const voice = pickVoice();
       const lines = p.text.split("\n").map((s) => s.trim().replace(/[“”"]/g, ""))
-        .concat([`${p.title}. ${p.author}.`]);
+        .concat([p.translator ? `${p.title}. ${p.author}, translated by ${p.translator}.` : `${p.title}. ${p.author}.`]);
       for (const line of lines) {
         const u = new SpeechSynthesisUtterance(line);
         if (voice) u.voice = voice;
@@ -490,7 +508,7 @@
   function drawHeader() {
     ctx.textAlign = "center";
     mono(10, C.dim, 4);
-    ctx.fillText(`MAGNETIC POETRY  ·  SHARED DICTATION  ·  POEM ${String(poemIndex + 1).padStart(2, "0")} / ${String(POEMS.length).padStart(2, "0")}`, W / 2, H * 0.05);
+    ctx.fillText(`MAGNETIC POETRY  ·  SHARED DICTATION  ·  POEM ${String(poemIndex + 1).padStart(2, "0")} / ${String(set.length).padStart(2, "0")}`, W / 2, H * 0.05);
     plain();
   }
 
@@ -566,7 +584,8 @@
     mono(12, `rgba(255,195,107,${0.95 * a})`, 5);
     ctx.fillText(`${poem.author.toUpperCase()}   ${poem.dates}`, W / 2, y + final.size * 0.75);
     mono(10, `rgba(255,255,255,${0.35 * a})`, 3);
-    ctx.fillText(`${poem.source.toUpperCase()}  ·  PUBLIC DOMAIN`, W / 2, y + final.size * 0.75 + 22);
+    const credit = poem.translator ? `TRANSLATED BY ${poem.translator.toUpperCase()}  ·  ` : "";
+    ctx.fillText(`${credit}${poem.source.toUpperCase()}  ·  PUBLIC DOMAIN`, W / 2, y + final.size * 0.75 + 22);
     plain();
   }
 
@@ -737,8 +756,16 @@
     $("tv-capture").textContent = `${CAPTURE}px`;
   };
   $("select-needed").onchange = (e) => { NEEDED = Number(e.target.value); introAt = null; };
-  $("select-poem").innerHTML = POEMS.map((p, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${p.title} — ${p.author}</option>`).join("");
+  function listPoems() {
+    $("select-poem").innerHTML = set.map((p, i) => `<option value="${i}">${String(i + 1).padStart(2, "0")} · ${p.title} — ${p.author}</option>`).join("");
+  }
+  listPoems();
   $("select-poem").onchange = (e) => loadPoem(Number(e.target.value));
+  $("select-set").onchange = (e) => {
+    set = e.target.value === "longer" ? window.POEMS_LONGER : window.POEMS;
+    listPoems();
+    if (DuoSession.started) loadPoem(0); else poemIndex = 0;
+  };
   $("toggle-hints").onchange = (e) => { HINTS = e.target.checked; };
   $("toggle-read").onchange = (e) => { READ_ALOUD = e.target.checked; if (!READ_ALOUD && window.speechSynthesis) speechSynthesis.cancel(); };
 

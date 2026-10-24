@@ -237,10 +237,14 @@ When the last word lands the poem is shown whole with its title, author and
 first edition, the last word pulsing like a bulb to a heartbeat, and a
 synthesised voice reads it aloud (macOS's own voices, offline). Then both look
 at **next →**. The look borrows from Rafael Lozano-Hemmer's tracking pieces.
-The twelve poems (`games/magnetic-poetry-poems.js`) — Dickinson, Amy Lowell,
-Adelaide Crapsey, Stephen Crane, T. E. Hulme — are public domain in the EU and
-the US and were checked word for word against their first or early editions;
-each reads naturally until it turns at the end. **n** next poem, **r** shuffle
+The poems (`games/magnetic-poetry-poems.js`) are short on purpose: fourteen of
+8–22 words — Bashō's frog in Lafcadio Hearn's 1898 version, Amy Lowell's
+hokku, Christina Rossetti's *Sing-Song*, Adelaide Crapsey, Dickinson,
+Stevenson — easiest first, guessable from rhyme, repetition or plain sense
+until they turn at the end. A second set of nine longer ones (Crane, Hulme,
+more Dickinson and Crapsey) is in settings → poems. All are public domain in
+the EU and the US and were checked word for word against their first or early
+editions. **n** next poem, **r** shuffle
 the words, **u** sound and voice, **s** settings — the poem, how long a word
 takes, how near the pen must be, hints, reading aloud, and *1 player* for
 trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
