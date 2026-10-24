@@ -227,6 +227,24 @@ mood (major/minor pentatonic or hirajōshi), how close counts as together, how
 long a harmony takes, volume, and an *echo* partner that follows P1, for
 trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
 
+**MAGNETIC POETRY is written together.** The words of a short poem float on a
+black field, framed like objects a camera has detected. The pen is the point
+**halfway between the two gazes** — neither player can write alone — and a word
+is taken when the pen rests on it for 0.9 s, its brackets closing and a
+confidence readout climbing. Words must be taken in the poem's order; a wrong
+one shakes and stays, and if nothing has moved for 15 s the next word glows.
+When the last word lands the poem is shown whole with its title, author and
+first edition, the last word pulsing like a bulb to a heartbeat, and a
+synthesised voice reads it aloud (macOS's own voices, offline). Then both look
+at **next →**. The look borrows from Rafael Lozano-Hemmer's tracking pieces.
+The twelve poems (`games/magnetic-poetry-poems.js`) — Dickinson, Amy Lowell,
+Adelaide Crapsey, Stephen Crane, T. E. Hulme — are public domain in the EU and
+the US and were checked word for word against their first or early editions;
+each reads naturally until it turns at the end. **n** next poem, **r** shuffle
+the words, **u** sound and voice, **s** settings — the poem, how long a word
+takes, how near the pen must be, hints, reading aloud, and *1 player* for
+trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
+
 ### If you only want the webcam
 
 No Python, no phones, nothing to install:
