@@ -20,19 +20,25 @@ const DOG_POINTS = {
   SNIFF_START: new Point(0, MAX_Y - 130),
   SNIFF_END: new Point(MAX_X / 2, MAX_Y - 130)
 };
+// PetrifEye: the four corners belong to the AprilTags, which are drawn over
+// the game and would hide anything under them, so the score, bullets and duck
+// counts live in the middle band of the top and bottom edges instead. The
+// links are only shown when the game runs without tags (links: true).
 const HUD_LOCATIONS = {
-  SCORE: new Point(MAX_X - 10, 10),
-  WAVE_STATUS: new Point(MAX_X - 11, MAX_Y - 30),
+  SCORE: new Point(MAX_X / 2 + 110, 10),
+  WAVE_STATUS: new Point(MAX_X / 2 + 110, 54),
   LEVEL_CREATOR_LINK: new Point(MAX_X - 11, MAX_Y - 10),
   FULL_SCREEN_LINK: new Point(MAX_X - 130, MAX_Y - 10),
   PAUSE_LINK: new Point(MAX_X - 318, MAX_Y - 10),
   MUTE_LINK: new Point(MAX_X - 236, MAX_Y - 10),
   GAME_STATUS: new Point(MAX_X / 2, MAX_Y * 0.45),
   REPLAY_BUTTON: new Point(MAX_X / 2, MAX_Y * 0.56),
-  BULLET_STATUS: new Point(10, 10),
-  DEAD_DUCK_STATUS: new Point(10, MAX_Y * 0.91),
-  MISSED_DUCK_STATUS: new Point(10, MAX_Y * 0.95)
+  BULLET_STATUS: new Point(MAX_X / 2 - 110, 12),
+  DEAD_DUCK_STATUS: new Point(MAX_X / 2 - 140, MAX_Y * 0.91),
+  MISSED_DUCK_STATUS: new Point(MAX_X / 2 - 140, MAX_Y * 0.95)
 };
+
+let nextDuckId = 1;
 
 const FLASH_MS = 60;
 const FLASH_SCREEN = new Graphics();
@@ -198,8 +204,10 @@ class Stage extends Container {
         spritesheet: this.spritesheet,
         colorProfile: duckColor,
         maxX: MAX_X,
-        maxY: MAX_Y
+        maxY: MAX_Y,
+        isBlocked: this.isBlocked.bind(this)
       });
+      newDuck.duckId = 'duck-' + (nextDuckId++);
       newDuck.position.set(DUCK_POINTS.ORIGIN.x, DUCK_POINTS.ORIGIN.y);
       this.addChildAt(newDuck, 0);
       newDuck.randomFlight({
@@ -239,6 +247,48 @@ class Stage extends Container {
       }
     }
     return ducksShot;
+  }
+
+  /**
+   * shootDuck
+   * One shot at exactly one duck — for aiming that has already decided which
+   * duck it means (PetrifEye: both players looking at it), rather than a
+   * click whose blast radius might take two.
+   * @param {Duck} duck
+   * @returns {Number} - The number of ducks hit (0 or 1)
+   */
+  shootDuck(duck) {
+    this.flashScreen.visible = true;
+    _delay(() => {
+      this.flashScreen.visible = false;
+    }, FLASH_MS);
+
+    if (!duck || !duck.alive || this.ducks.indexOf(duck) === -1) {
+      return 0;
+    }
+    duck.shot();
+    duck.timeline.call(() => {
+      if (!this.isLocked()) {
+        this.dog.retrieve();
+      }
+    });
+    return 1;
+  }
+
+  /**
+   * isBlocked
+   * Whether a point (stage coordinates) is somewhere a duck should not fly to:
+   * under one of the corner AprilTags, where nobody can see it. The page
+   * supplies the screen rectangles as window.DuckHuntBlocked(); without it
+   * nothing is blocked.
+   * @param {{x:Number, y:Number}} point
+   * @returns {Boolean}
+   */
+  isBlocked(point) {
+    const blocked = typeof window.DuckHuntBlocked === 'function' ? window.DuckHuntBlocked() : [];
+    const x = point.x * this.scale.x;
+    const y = point.y * this.scale.y;
+    return blocked.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
   }
 
   clickedReplay(clickPoint) {
@@ -311,6 +361,9 @@ class Stage extends Container {
    */
   cleanUpDucks() {
     for (let i = 0; i < this.ducks.length; i++) {
+      // A duck still flying keeps re-scheduling its next leg forever otherwise
+      // — only possible when a game is restarted mid-wave.
+      this.ducks[i].stopAndClearTimeline();
       this.removeChild(this.ducks[i]);
     }
     this.ducks = [];

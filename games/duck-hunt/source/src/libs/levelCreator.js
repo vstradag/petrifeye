@@ -18,6 +18,10 @@ module.exports.parseLevelQueryString = function() {
   };
 };
 
+// PetrifEye: only a query that actually describes a level — the page's own
+// flags (?sim) used to turn every game into a one-wave "Generated Level".
+const LEVEL_PARAMS = ['title', 'waves', 'ducks', 'points', 'speed', 'bullets', 'radius', 'time'];
+
 module.exports.urlContainsLevelData = function() {
-  return window.location.href.indexOf('?') !== -1;
+  return LEVEL_PARAMS.some((param) => urlQueryString.has(param));
 };

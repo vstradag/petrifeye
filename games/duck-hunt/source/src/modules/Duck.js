@@ -81,14 +81,18 @@ class Duck extends Character {
       speed: 1
     }, opts);
 
-    let distance, destination;
+    // PetrifEye: never aim for a spot under a corner tag (options.isBlocked).
+    // Bounded, so a screen almost entirely covered by tags still flies.
+    const isBlocked = this.options.isBlocked || (() => false);
+    let distance, destination, tries = 0;
     do {
       destination = {
         x: _random(options.minX, options.maxX),
         y: _random(options.minY, options.maxY)
       };
       distance = Utils.pointDistance(this.position, destination);
-    } while (distance < options.randomFlightDelta);
+      tries++;
+    } while (distance < options.randomFlightDelta || (tries < 60 && isBlocked(destination)));
 
     this.flyTo({
       point: destination,

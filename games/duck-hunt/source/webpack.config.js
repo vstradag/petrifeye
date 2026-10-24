@@ -7,11 +7,15 @@ module.exports = {
   entry: {
     duckhunt: './main.js',
   },
+  // PetrifEye: built straight into games/duck-hunt/, next to the sprites and
+  // audio, and committed — so running the piece never needs Node.
+  mode: 'production',
   output: {
-    path: path.join(__dirname, 'dist'),
+    path: path.join(__dirname, '..'),
     filename: '[name].js',
+    chunkFilename: 'chunks/[name].js',
   },
-  devtool: 'source-map',
+  devtool: false,
   cache: {
     type: 'filesystem',
   },

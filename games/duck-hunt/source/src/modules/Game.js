@@ -25,6 +25,23 @@ class Game {
    */
   constructor(opts) {
     this.spritesheet = opts.spritesheet;
+    // PetrifEye options. Upstream behaviour is the default for each, so the
+    // game still plays as the original when none are passed.
+    //   clickToShoot  false: a click no longer fires; the page calls shootDuck()
+    //   links         false: no pause/mute/fullscreen/creator links (they sit
+    //                 under the bottom-right AprilTag); the page binds keys
+    //   keys          false: the page owns the keyboard
+    //   autoStart     false: wait for begin()
+    //   slowdown      subtracted from every level's speed (0-10 scale) — gaze
+    //                 has to follow a duck, and two people have to agree on it
+    //   parent        element to put the canvas in
+    this.clickToShoot = opts.clickToShoot !== false;
+    this.showLinks = opts.links !== false;
+    this.bindKeys = opts.keys !== false;
+    this.autoStart = opts.autoStart !== false;
+    this.slowdown = opts.slowdown || 0;
+    this.parent = opts.parent || null;
+    this.started = false;
     this.levelIndex = 0;
     this.maxScore = 0;
     this.timePaused = 0;
@@ -247,21 +264,117 @@ class Game {
   }
 
   onLoad() {
-    document.body.appendChild(this.renderer.canvas);
+    (this.parent || document.body).appendChild(this.renderer.canvas);
 
     this.stage = new Stage({
       spritesheet: this.spritesheet
     });
 
     this.scaleToWindow();
-    this.addLinkToLevelCreator();
-    this.addPauseLink();
-    this.addMuteLink();
-    this.addFullscreenLink();
+    if (this.showLinks) {
+      this.addLinkToLevelCreator();
+      this.addPauseLink();
+      this.addMuteLink();
+      this.addFullscreenLink();
+    }
     this.bindEvents();
-    this.startLevel();
+    if (this.autoStart) {
+      this.begin();
+    }
     this.animate();
 
+  }
+
+  /**
+   * begin
+   * Starts the first level. Called on load unless autoStart is false.
+   */
+  begin() {
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+    this.startLevel();
+  }
+
+  /**
+   * restart
+   * A new game from level 1 without reloading the page — upstream's replay
+   * reloads, which here would also throw away the boot card, the webcam
+   * calibration and every bridge connection.
+   */
+  restart() {
+    if (this.stage.hud.replayButton) {
+      this.stage.hud.replayButton = '';
+    }
+    sound.stop();
+    this.activeSounds = [];
+    this.stage.dog.stopAndClearTimeline();
+    this.stage.dog.visible = false;
+    this.stage.cleanUpDucks();
+    this.stage.unlock();
+    this.renderer.background.color = BLUE_SKY_COLOR;
+    this.levelIndex = 0;
+    this.maxScore = 0;
+    this.score = 0;
+    this.wave = 0;
+    this.gameStatus = '';
+    this.started = true;
+    this.startLevel();
+  }
+
+  get over() {
+    return !!this.stage.hud.replayButton;
+  }
+
+  /**
+   * shootable
+   * Whether a shot would count right now — the same conditions a click had.
+   * @returns {Boolean}
+   */
+  shootable() {
+    return this.started && !this.over && !this.outOfAmmo() && !this.shouldWaveEnd() && !this.paused && !this.waveEnding;
+  }
+
+  /**
+   * duckTargets
+   * Live ducks in SCREEN pixels, for aiming with something other than a click.
+   * The stage is stretched to the window on each axis separately, so the
+   * radius is the sprite's own half-size on the smaller axis.
+   * @returns {{id:String, duck:Duck, x:Number, y:Number, radius:Number}[]}
+   */
+  duckTargets() {
+    if (!this.stage) {
+      return [];
+    }
+    const sx = this.stage.scale.x;
+    const sy = this.stage.scale.y;
+    return this.stage.ducks
+      .filter((duck) => duck.alive && duck.visible)
+      .map((duck) => ({
+        id: duck.duckId,
+        duck,
+        x: duck.position.x * sx,
+        y: duck.position.y * sy,
+        radius: Math.min(duck.width * sx, duck.height * sy) / 2
+      }));
+  }
+
+  /**
+   * shootDuck
+   * Fires one shot at exactly this duck: the gun sound, the flash, a bullet
+   * and the score, as a click on it would have. Returns whether it counted.
+   * @param {Duck} duck
+   * @returns {Boolean}
+   */
+  shootDuck(duck) {
+    if (!this.shootable() || !duck || !duck.alive) {
+      return false;
+    }
+    sound.play('gunSound');
+    this.bullets -= 1;
+    this.updateScore(this.stage.shootDuck(duck));
+    return true;
   }
 
   addFullscreenLink() {
@@ -317,6 +430,9 @@ class Game {
     this.renderer.canvas.addEventListener('pointerdown', this.handleClick.bind(this));
 
     document.addEventListener('keypress', (event) => {
+      if (!this.bindKeys) {
+        return;
+      }
       event.stopImmediatePropagation();
 
       if (event.key === 'p') {
@@ -359,7 +475,9 @@ class Game {
   }
 
   pause() {
-    this.stage.hud.pauseLink = this.paused ? 'pause (p)' : 'unpause (p)';
+    if (this.showLinks) {
+      this.stage.hud.pauseLink = this.paused ? 'pause (p)' : 'unpause (p)';
+    }
     // SetTimeout, woof. Thing is here we need to leave enough animation frames for the HUD status to be updated
     // before pausing all rendering, otherwise the text update we need above won't be shown to the user.
     setTimeout(() => {
@@ -387,7 +505,9 @@ class Game {
   }
 
   mute() {
-    this.stage.hud.muteLink = this.muted ? 'mute (m)' : 'unmute (m)';
+    if (this.showLinks) {
+      this.stage.hud.muteLink = this.muted ? 'mute (m)' : 'unmute (m)';
+    }
     this.muted = !this.muted;
     sound.mute(this.muted);
   }
@@ -425,7 +545,10 @@ class Game {
     this.ducksShotThisWave = 0;
     this.waveEnding = false;
 
-    this.stage.addDucks(this.level.ducks, this.level.speed);
+    this.stage.addDucks(this.level.ducks, Math.max(0, this.level.speed - this.slowdown));
+    window.dispatchEvent(new CustomEvent('duckhunt-wave', {
+      detail: {level: this.level.id, wave: this.wave, ducks: this.level.ducks}
+    }));
   }
 
   endWave() {
@@ -496,12 +619,14 @@ class Game {
     sound.play('champ');
     this.gameStatus = 'You Win!';
     this.showReplay(this.getScoreMessage());
+    window.dispatchEvent(new CustomEvent('duckhunt-over', {detail: {won: true, score: this.score}}));
   }
 
   loss() {
     sound.play('loserSound');
     this.gameStatus = 'You Lose!';
     this.showReplay(this.getScoreMessage());
+    window.dispatchEvent(new CustomEvent('duckhunt-over', {detail: {won: false, score: this.score}}));
   }
 
   getScoreMessage() {
@@ -557,27 +682,29 @@ class Game {
       y: event.clientY
     };
 
-    if (this.stage.clickedPauseLink(clickPoint)) {
-      this.pause();
-      return;
+    if (this.showLinks) {
+      if (this.stage.clickedPauseLink(clickPoint)) {
+        this.pause();
+        return;
+      }
+
+      if (this.stage.clickedMuteLink(clickPoint)) {
+        this.mute();
+        return;
+      }
+
+      if (this.stage.clickedFullscreenLink(clickPoint)) {
+        this.fullscreen();
+        return;
+      }
+
+      if (this.stage.clickedLevelCreatorLink(clickPoint)) {
+        this.openLevelCreator();
+        return;
+      }
     }
 
-    if (this.stage.clickedMuteLink(clickPoint)) {
-      this.mute();
-      return;
-    }
-
-    if (this.stage.clickedFullscreenLink(clickPoint)) {
-      this.fullscreen();
-      return;
-    }
-
-    if (this.stage.clickedLevelCreatorLink(clickPoint)) {
-      this.openLevelCreator();
-      return;
-    }
-
-    if (!this.stage.hud.replayButton && !this.outOfAmmo() && !this.shouldWaveEnd() && !this.paused) {
+    if (this.clickToShoot && !this.stage.hud.replayButton && !this.outOfAmmo() && !this.shouldWaveEnd() && !this.paused) {
       sound.play('gunSound');
       this.bullets -= 1;
       this.updateScore(this.stage.shotsFired(clickPoint, this.level.radius));
@@ -585,7 +712,11 @@ class Game {
     }
 
     if (this.stage.hud.replayButton && this.stage.clickedReplay(clickPoint)) {
-      window.location = window.location.pathname;
+      if (this.clickToShoot) {
+        window.location = window.location.pathname;
+      } else {
+        this.restart();
+      }
     }
   }
 

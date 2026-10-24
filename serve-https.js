@@ -24,6 +24,9 @@ const MIME = {
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
   ".json": "application/json",
+  // Duck Hunt's sound sprite.
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
   // WebGazer's face-mesh model (vendor/mediapipe). Anything else served as
   // octet-stream makes the browser fall back to a slower wasm compile.
   ".wasm": "application/wasm",

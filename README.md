@@ -202,6 +202,18 @@ panels as they stood at closing. Without an analysis window open, a plainer
 The bridge writes them, and only for requests from this computer; in
 webcam-only mode (no bridge) they are downloaded instead.
 
+**DUCK HUNT is played together.** It is the classic Duck Hunt (DuckHunt-JS,
+MIT — see `games/duck-hunt/README.md`) set up like MEDUSA: same boot card,
+same per-player glasses or webcam, same tags. There is no trigger: a duck is
+shot only when **both** players look at it at once. One player on a duck marks
+it with a cross in their colour and an empty slot for the other; when both are
+on it the cross turns into a red reticle and fires after 0.3 s. Ducks fly
+slower than the original (two people have to find and follow the same one) and
+never head for a spot under a tag. **r** or **space** starts a new game,
+**p** pauses, **u** sound, **s** settings — where the hold time, the duck
+speed, the gaze assist and a *1 player needed* solo test mode can be changed.
+`?sim` plays with the mouse as P1 and the arrow keys as P2.
+
 ### If you only want the webcam
 
 No Python, no phones, nothing to install:
