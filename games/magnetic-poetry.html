@@ -78,9 +78,17 @@
     <div class="tuning-row"><span>word reach</span><span id="tv-capture">70px</span></div>
     <input type="range" id="slider-capture" min="10" max="160" value="70" step="5" />
   </label>
+  <label title="The next word is lit, and only it can be taken, so the two only have to agree on where to look.">
+    <div class="tuning-row"><span>show the next word</span></div>
+    <select id="select-guide">
+      <option value="0.75" selected>for all but the last quarter</option>
+      <option value="1">for every word</option>
+      <option value="0">never</option>
+    </select>
+  </label>
   <label class="tuning-checkbox">
     <input type="checkbox" id="toggle-hints" checked />
-    <span>hint the next word when stuck</span>
+    <span>hint the next word when stuck (15 s)</span>
   </label>
   <label>
     <div class="tuning-row"><span>read the finished poem</span></div>

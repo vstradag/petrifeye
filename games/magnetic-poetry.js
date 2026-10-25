@@ -33,6 +33,10 @@
   let CAPTURE = 70;            // px around a word that still counts, for gaze
   let NEEDED = 2;              // 2: the midpoint writes; 1: player 1 alone (solo test)
   let HINTS = true;
+  // The next word is shown for this share of each poem's words, so the two
+  // players only have to agree on WHERE to look, not also on what comes next.
+  // The rest — the last quarter, where these poems turn — is theirs to find.
+  let GUIDE = 0.75;
   let READ = "recorded";      // "recorded" | "computer" | "off" — see the voice section
   let PACE = 0.9;              // reading speed, relative to normal speech
   const HINT_AFTER = 15;       // s without progress before the next word glows
@@ -93,6 +97,7 @@
   let nextMagnet = null;
   let introAt = null, lastPresentAt = performance.now();
   let lastFrame = performance.now();
+  let wasGuided = false, guideEndedAt = -Infinity;
 
   // ---------------------------------------------------------------- layout
   function resize() {
@@ -185,7 +190,7 @@
     const blocked = DuoSession.markerRects().map((r) => ({ x: r.x - 18, y: r.y - 18, w: r.w + 36, h: r.h + 36 }))
       .concat([
         { x: assembly.x0 - 36, y: top - 24, w: assembly.blockW + 72, h: assembly.height + 56 },   // the poem
-        { x: W / 2 - 280, y: H - 118, w: 560, h: 118 },                                          // status
+        { x: W / 2 - 300, y: H - 150, w: 600, h: 150 },                                          // messages and status
       ]);
     const hit = (a, b, p) => a.x < b.x + b.w + p && a.x + a.w + p > b.x && a.y < b.y + b.h + p && a.y + a.h + p > b.y;
     const placed = [];
@@ -201,7 +206,7 @@
           const x = lerp(field.x0, field.x1 - m.w, Math.random());
           const y = lerp(field.y0, field.y1 - m.h, Math.random());
           const box = { x, y, w: m.w, h: m.h };
-          if (placed.some((p) => hit(box, p, gap)) || blocked.some((b) => hit(box, b, 0))) continue;
+          if (placed.some((p) => hit(box, p, gap)) || blocked.some((b) => hit(box, b, 8))) continue;
           m.hx = x + m.w / 2; m.hy = y + m.h / 2; placed.push(box); ok = true;
         }
         if (ok) break;
@@ -233,6 +238,7 @@
     magnets = []; flights = []; nextMagnet = null; final = null; focusId = null;
     phase = "play";
     poemStart = lastProgressAt = performance.now();
+    wasGuided = false; guideEndedAt = -Infinity;
     stopReading();
     reading = recordingFor(poem);
     layoutPoem();
@@ -265,7 +271,12 @@
     const gaze = byPlayer.some((p) => p && !DuoSession.isPrecise(p.id));
 
     // What the pen is resting on.
-    const targets = phase === "play" ? magnets.filter((m) => !m.flying && !(m.cooldownUntil > now))
+    // While guided, only the next word can be taken: a gaze drifting across
+    // another word on its way costs nothing.
+    const isGuided = guided();
+    if (wasGuided && !isGuided && phase === "play") guideEndedAt = now;
+    wasGuided = isGuided;
+    const targets = phase === "play" ? magnets.filter((m) => !m.flying && !(m.cooldownUntil > now) && (!isGuided || isNext(m)))
       : phase === "complete" && nextMagnet && now - completeAt > NEXT_DELAY * 1000 ? [nextMagnet] : [];
     focusId = mid ? pick(mid, targets, gaze ? CAPTURE : 2) : null;
 
@@ -655,6 +666,11 @@
     const idle = (now - lastProgressAt) / 1000;
     const hinted = HINTS && phase === "play" && idle > HINT_AFTER && isNext(m);
     const hintPulse = hinted ? 0.5 + 0.5 * Math.sin(now / 380) : 0;
+    // Guided: the next word lit and labelled, everything else stepped back.
+    const isGuided = m !== nextMagnet && guided();
+    const lit = isGuided && isNext(m);
+    const dimmed = isGuided && !lit;
+    const litPulse = lit ? 0.5 + 0.5 * Math.sin(now / 420) : 0;
 
     // Brackets.
     const inset = 7 * progress;
@@ -662,7 +678,10 @@
     const bx = b.x + inset, by = b.y + inset, bw = b.w - 2 * inset, bh = b.h - 2 * inset;
     ctx.lineWidth = focused ? 1.5 : 1;
     ctx.strokeStyle = focused && progress > 0 ? mixHex("#8a8a8a", C.amber, progress)
+      : lit ? `rgba(255,195,107,${0.6 + 0.4 * litPulse})`
+      : dimmed ? "rgba(255,255,255,.1)"
       : hinted ? `rgba(255,195,107,${0.25 + 0.5 * hintPulse})` : "rgba(255,255,255,.3)";
+    if (lit) ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (const [cx, cy, sx, sy] of [[bx, by, 1, 1], [bx + bw, by, -1, 1], [bx + bw, by + bh, -1, -1], [bx, by + bh, 1, -1]]) {
       ctx.moveTo(cx, cy + sy * arm); ctx.lineTo(cx, cy); ctx.lineTo(cx + sx * arm, cy);
@@ -673,9 +692,13 @@
     ctx.textAlign = "center";
     ctx.font = `300 ${m.fs}px ${SANS}`;
     ctx.fillStyle = rejected ? "rgba(236,236,236,.45)"
+      : lit ? mixHex("#ECECEC", C.amber, 0.55 + 0.25 * litPulse + 0.2 * progress)
+      : dimmed ? "rgba(236,236,236,.26)"
       : hinted && idle > HINT_STRONG ? mixHex("#ECECEC", C.amber, 0.4 + 0.4 * hintPulse)
       : focused ? mixHex("#ECECEC", C.amber, progress * 0.6) : C.ink;
+    if (lit) { ctx.save(); ctx.shadowColor = C.amber; ctx.shadowBlur = 10 + 10 * litPulse; }
     ctx.fillText(m.norm, b.cx, b.cy + m.fs * 0.35);
+    if (lit) ctx.restore();
 
     // Label: ID at rest; confidence while being taken; the verdict after.
     ctx.textAlign = "left";
@@ -685,14 +708,26 @@
     } else if (focused && progress > 0) {
       mono(9, C.amber, 2);
       ctx.fillText(`ACQUIRING  ${pad(progress * 100, 3)}%`, b.x, b.y - 6);
+    } else if (lit) {
+      mono(10, C.amber, 3);
+      ctx.fillText("NEXT", b.x, b.y - 6);
     } else {
-      mono(9, "rgba(255,255,255,.22)", 2);
+      mono(9, dimmed ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.22)", 2);
       ctx.fillText(m.hex, b.x, b.y - 6);
     }
     plain();
   }
 
   const isNext = (m) => { const tok = poem.tokens.find((x) => !x.claimed); return tok && tok.norm === m.norm; };
+
+  // How many of the poem's words are guided: all but the last (1 - GUIDE),
+  // rounded so that the unguided end is never empty while GUIDE < 1.
+  const guidedCount = () => poem.tokens.length - Math.ceil(poem.tokens.length * (1 - GUIDE) - 1e-9);
+  function guided() {
+    if (!poem || phase !== "play") return false;
+    const k = poem.tokens.findIndex((x) => !x.claimed);
+    return k >= 0 && k < guidedCount();
+  }
 
   function drawFlights(now) {
     for (const f of flights) {
@@ -764,6 +799,7 @@
       ? [`COMPLETE`, `${poem.tokens.length} WORDS`, `${String(Math.floor(el / 60)).padStart(2, "0")}:${String(el % 60).padStart(2, "0")}`,
          now - completeAt > NEXT_DELAY * 1000 ? `LOOK TOGETHER AT  NEXT →` : ``]
       : [`WORD ${String(placed).padStart(2, "0")} / ${String(poem.tokens.length).padStart(2, "0")}`,
+         guided() ? `GUIDED` : GUIDE > 0 ? `ON YOUR OWN · ${poem.tokens.filter((x) => !x.claimed).length} LEFT` : ``,
          mid && NEEDED === 2 ? `SEPARATION ${pad(mid.sep)} PX` : NEEDED === 1 ? `SOLO TEST` : `WAITING FOR TWO GAZES`,
          `${String(Math.floor(el / 60)).padStart(2, "0")}:${String(el % 60).padStart(2, "0")}`];
     ctx.textAlign = "center";
@@ -777,12 +813,26 @@
     if (introAt == null || (now - lastPresentAt > 15000 && now - introAt > 14000)) introAt = now;
     const el = (now - introAt) / 1000;
     const a = el < 1 ? el : el < 10 ? 1 : clamp(1 - (el - 10) / 2, 0, 1);
-    if (a <= 0 || phase !== "play") return;
+    if (phase !== "play") return;
+    // The moment the guidance stops, say so — it would otherwise look as if
+    // the piece had simply stopped helping.
+    const since = (now - guideEndedAt) / 1000;
+    if (since < 5) {
+      const b = since < 0.6 ? since / 0.6 : since < 4 ? 1 : clamp(1 - (since - 4), 0, 1);
+      ctx.textAlign = "center";
+      mono(12, `rgba(255,195,107,${0.95 * b})`, 5);
+      ctx.fillText("THE LAST WORDS ARE YOURS TO FIND", W / 2, H - 128);
+      mono(10, `rgba(255,255,255,${0.5 * b})`, 3);
+      ctx.fillText("NO MORE HINTS — WHERE DOES IT TURN?", W / 2, H - 110);
+      plain();
+      return;
+    }
+    if (a <= 0) return;
     ctx.textAlign = "center";
     mono(11, `rgba(255,195,107,${0.85 * a})`, 4);
-    ctx.fillText(NEEDED === 2 ? "THE POINT HALFWAY BETWEEN YOUR TWO GAZES IS THE PEN" : "SOLO TEST · YOUR GAZE IS THE PEN", W / 2, H - 100);
+    ctx.fillText(NEEDED === 2 ? "THE POINT HALFWAY BETWEEN YOUR TWO GAZES IS THE PEN" : "SOLO TEST · YOUR GAZE IS THE PEN", W / 2, H - 128);
     mono(10, `rgba(255,255,255,${0.45 * a})`, 3);
-    ctx.fillText("TAKE THE WORDS IN THE POEM’S ORDER", W / 2, H - 100 + 18);
+    ctx.fillText(GUIDE > 0 ? "REST IT ON THE LIT WORD, TOGETHER" : "TAKE THE WORDS IN THE POEM’S ORDER", W / 2, H - 110);
     plain();
   }
 
@@ -827,6 +877,7 @@
     if (DuoSession.started) loadPoem(0); else poemIndex = 0;
   };
   $("toggle-hints").onchange = (e) => { HINTS = e.target.checked; };
+  $("select-guide").onchange = (e) => { GUIDE = Number(e.target.value); wasGuided = guided(); };
   $("slider-pace").oninput = (e) => {
     PACE = Number(e.target.value);
     $("tv-pace").textContent = `${PACE.toFixed(2)}×`;

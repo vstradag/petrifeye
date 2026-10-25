@@ -231,8 +231,13 @@ trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
 black field, framed like objects a camera has detected. The pen is the point
 **halfway between the two gazes** — neither player can write alone — and a word
 is taken when the pen rests on it for 0.9 s, its brackets closing and a
-confidence readout climbing. Words must be taken in the poem's order; a wrong
-one shakes and stays, and if nothing has moved for 15 s the next word glows.
+confidence readout climbing. Words must be taken in the poem's order. For the
+first three quarters of each poem **the next word is lit** (NEXT) and the rest
+step back — only it can be taken — so the two only have to agree on where to
+look; the last quarter, where the poem turns, they find on their own ("the
+last words are yours"), where a wrong word shakes and stays and, after 15 s
+without progress, the next word glows. Settings → *show the next word* changes
+how much is guided (all but the last quarter, every word, never).
 When the last word lands the poem is shown whole with its title, author and
 first edition, the last word pulsing like a bulb to a heartbeat, and it is
 read aloud. Then both look at **next →**.
