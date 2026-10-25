@@ -1,0 +1,150 @@
+{
+  "poems": {
+    "furu-ike-ya": {
+      "file": "furu-ike-ya.mp3",
+      "hash": "0747f5887b8d",
+      "title": "Furu iké ya",
+      "chars": 101
+    },
+    "moon-haze": {
+      "file": "moon-haze.mp3",
+      "hash": "dc428504df4b",
+      "title": "Moon Haze",
+      "chars": 75
+    },
+    "nuance": {
+      "file": "nuance.mp3",
+      "hash": "6e849351181a",
+      "title": "Nuance",
+      "chars": 73
+    },
+    "motherless-baby-and-babyless-mother": {
+      "file": "motherless-baby-and-babyless-mother.mp3",
+      "hash": "e5d6ecaa58e0",
+      "title": "Motherless baby and babyless mother",
+      "chars": 135
+    },
+    "the-sun-dial": {
+      "file": "the-sun-dial.mp3",
+      "hash": "57e2f8044a1e",
+      "title": "The Sun-Dial",
+      "chars": 105
+    },
+    "poetry": {
+      "file": "poetry.mp3",
+      "hash": "ee5afdbe39fa",
+      "title": "Poetry",
+      "chars": 88
+    },
+    "nuit-blanche": {
+      "file": "nuit-blanche.mp3",
+      "hash": "1f452f6afede",
+      "title": "Nuit Blanche",
+      "chars": 110
+    },
+    "niagara": {
+      "file": "niagara.mp3",
+      "hash": "fefc784e2daa",
+      "title": "Niagara",
+      "chars": 114
+    },
+    "autumn-haze": {
+      "file": "autumn-haze.mp3",
+      "hash": "4730a1ab8f3c",
+      "title": "Autumn Haze",
+      "chars": 100
+    },
+    "faith-is-a-fine-invention": {
+      "file": "faith-is-a-fine-invention.mp3",
+      "hash": "110330b93e88",
+      "title": "Faith is a fine invention",
+      "chars": 138
+    },
+    "wrens-and-robins-in-the-hedge": {
+      "file": "wrens-and-robins-in-the-hedge.mp3",
+      "hash": "e0143343478d",
+      "title": "Wrens and robins in the hedge",
+      "chars": 168
+    },
+    "peace": {
+      "file": "peace.mp3",
+      "hash": "cd75a5ed9385",
+      "title": "Peace",
+      "chars": 116
+    },
+    "happy-thought": {
+      "file": "happy-thought.mp3",
+      "hash": "25f1bfbef5b6",
+      "title": "Happy Thought",
+      "chars": 128
+    },
+    "mix-a-pancake": {
+      "file": "mix-a-pancake.mp3",
+      "hash": "a8fb534523a1",
+      "title": "Mix a pancake",
+      "chars": 142
+    },
+    "susanna-and-the-elders": {
+      "file": "susanna-and-the-elders.mp3",
+      "hash": "1c35afcaa07e",
+      "title": "Susanna and the Elders",
+      "chars": 136
+    },
+    "the-pedigree-of-honey": {
+      "file": "the-pedigree-of-honey.mp3",
+      "hash": "1d5bff78e30a",
+      "title": "The pedigree of honey",
+      "chars": 131
+    },
+    "a-word": {
+      "file": "a-word.mp3",
+      "hash": "670b886973da",
+      "title": "A Word",
+      "chars": 106
+    },
+    "triad": {
+      "file": "triad.mp3",
+      "hash": "bf46cfc5065b",
+      "title": "Triad",
+      "chars": 137
+    },
+    "amaze": {
+      "file": "amaze.mp3",
+      "hash": "96bc0c48f043",
+      "title": "Amaze",
+      "chars": 120
+    },
+    "a-man-said-to-the-universe": {
+      "file": "a-man-said-to-the-universe.mp3",
+      "hash": "8557efc5a25d",
+      "title": "A man said to the universe",
+      "chars": 176
+    },
+    "water-is-taught-by-thirst": {
+      "file": "water-is-taught-by-thirst.mp3",
+      "hash": "d1457dbdd5d9",
+      "title": "Water is taught by thirst",
+      "chars": 193
+    },
+    "to-make-a-prairie": {
+      "file": "to-make-a-prairie.mp3",
+      "hash": "90cf87323e17",
+      "title": "To make a prairie",
+      "chars": 163
+    },
+    "above-the-dock": {
+      "file": "above-the-dock.mp3",
+      "hash": "6aa907645a02",
+      "title": "Above the Dock",
+      "chars": 194
+    }
+  },
+  "voice": {
+    "name": "Vince",
+    "id": null
+  },
+  "settings": {
+    "made": "by hand on elevenlabs.io",
+    "speed": 1
+  }
+}

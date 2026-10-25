@@ -257,14 +257,16 @@ if (cmd === "sheet") {
     e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]);
   let found = walk(folder).filter((f) => /\.mp3$/i.test(f) && !path.basename(f).startsWith("._"));
   if (found.some((f) => /^ElevenLabs_/.test(path.basename(f)))) found = found.filter((f) => /^ElevenLabs_/.test(path.basename(f)));
-  const made = (f) => { const m = path.basename(f).match(/(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2})/); return m ? m[1] : new Date(fs.statSync(f).mtimeMs).toISOString(); };
+  // Single downloads write the time with underscores (T18_27_07), History's
+  // zip export with colons (T18:27:07); both sort the same once evened out.
+  const made = (f) => { const m = path.basename(f).match(/(\d{4}-\d{2}-\d{2}T\d{2}[_:]\d{2}[_:]\d{2})/); return m ? m[1].replace(/:/g, "_") : new Date(fs.statSync(f).mtimeMs).toISOString(); };
   const mp3s = found.map((full) => ({ f: path.basename(full), full, at: made(full) }))
     .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).slice(-poems.length);
   if (mp3s.length < poems.length) fail(`Found ${mp3s.length} recordings in ${folder}, need ${poems.length}. Use --count ${mp3s.length} if you made only the first ${mp3s.length}.`);
   // The voice and speed are in the name too: …_Vince_ivc_sp100_… is the voice
   // "Vince" at 100% speed. The piece slows playback to its reading pace
   // relative to this, so a take made at normal speed is not slowed twice.
-  const voiceName = (mp3s[0].f.match(/^ElevenLabs_\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}_(.+?)_(?:ivc|pvc|pre|gen|cl)(?:_|\.)/) || [])[1];
+  const voiceName = (mp3s[0].f.match(/^ElevenLabs_\d{4}-\d{2}-\d{2}T\d{2}[_:]\d{2}[_:]\d{2}_(.+?)_(?:ivc|pvc|pre|gen|cl)(?:_|\.)/) || [])[1];
   const speedPct = (mp3s[0].f.match(/_sp(\d+)(?:_|\.)/) || [])[1];
   let doubtful = 0;
   console.log(`  #  poem${" ".repeat(30)} expected  file length  file`);

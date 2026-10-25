@@ -237,9 +237,13 @@ When the last word lands the poem is shown whole with its title, author and
 first edition, the last word pulsing like a bulb to a heartbeat, and it is
 read aloud. Then both look at **next →**.
 
-*The readings* are recordings, made once with an ElevenLabs voice and shipped
-with the piece, so the venue needs no network and no key — the piece just plays
-files from `games/magnetic-poetry/voice/`. To make or remake them (only what
+*The readings* are recordings, made once with an ElevenLabs voice ("Vince") and
+shipped with the piece, so the venue needs no network and no key — the piece
+just plays files from `games/magnetic-poetry/voice/`, at the *reading pace* set
+in settings (0.9× by default, same pitch). Made by hand on the website, they
+come in with `make-voices.mjs sheet --open` (the texts, in order, to paste) and
+`make-voices.mjs import <the History zip> --set all` (matched by the time each
+take was generated, every length checked against its poem). To make or remake them (only what
 changed is re-recorded), put your key where the script looks for it — copy it
 from elevenlabs.io, then
 `mkdir -p ~/.config/elevenlabs && pbpaste > ~/.config/elevenlabs/api_key && chmod 600 ~/.config/elevenlabs/api_key` —
