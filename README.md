@@ -14,47 +14,33 @@ behind the latest commit).
 
 ## Installing on another computer
 
-Tested on macOS with Python 3.12. Everything below is one-time except the last
-step, which is how you start the piece every session.
-
-### The short way
-
-**1. Make sure the Mac has Python 3.10 or newer.** macOS ships 3.9, which is too
-old. Check with `python3 --version`; if it is below 3.10, install one from the
-[python.org installer](https://www.python.org/downloads/macos/) — download 3.12
-or 3.13, open the `.pkg`, click through. Nothing else is needed.
-
-**2. Get the project.** Use `git clone`, not the zip, if you have the choice:
+**One line in Terminal** — open *Applications → Utilities → Terminal*, paste,
+press Return:
 
 ```bash
-git clone https://github.com/vstradag/petrifeye.git
+curl -fsSL https://raw.githubusercontent.com/vstradag/petrifeye/main/install.sh | bash
 ```
 
-A zip works too: on the [GitHub page](https://github.com/vstradag/petrifeye),
-**Code → Download ZIP**, and double-click it to unzip (you get a
-`petrifeye-main` folder; move it anywhere outside Google Drive/Dropbox/iCloud
-if you can). macOS marks anything downloaded in a browser as quarantined and
-refuses to open an unsigned `.command` by double-clicking ("not opened" /
-"unidentified developer"). Allow it **once**:
+That is the whole installation, on any Mac with macOS 11 or newer and an
+internet connection. It checks for everything the piece needs and installs
+only what is missing, saying what it does as it goes (`install.sh` in this
+folder is the same script):
 
-- **macOS 15 (Sequoia) and later:** double-click `Setup PetrifEye.command`,
-  click **Done** on the warning, then open **System Settings → Privacy &
-  Security**, scroll down to *"Setup PetrifEye.command" was blocked* and click
-  **Open Anyway** (then confirm with your password).
-- **macOS 14 and earlier:** **right-click the file → Open**, and confirm.
-- Or, in Terminal: `xattr -dr com.apple.quarantine ~/Downloads/petrifeye-main`
-  (adjust the path to where the folder is).
+1. **Python 3.10 or newer** — reused if the Mac has one. Otherwise Python 3.12:
+   with Homebrew if you have it, else python.org's official installer, used only
+   once its Python Software Foundation signature checks out. macOS asks for
+   **the Mac's password** for that — nothing appears as you type it.
+2. **The project**, into `~/petrifeye` — downloaded directly, so neither git
+   nor Apple's developer tools are needed (a git checkout already there is
+   updated with `git pull`).
+3. **The eye-tracker bridge** — its Python environment in
+   `~/dev/medusa-bridge-venv` and its packages, then checked by actually
+   importing them; and the Desktop shortcuts.
+4. **Google Chrome**, offered if it is missing — the piece is set up and tested
+   in Chrome, and the launcher opens it when it is there.
 
-Setup then lifts the flag from the whole folder, so Start, Frame and Record —
-and the Desktop shortcuts — open normally from then on. `git clone` sets no
-flag at all, which is why it is the easier route.
-
-**3. Double-click `Start PetrifEye.command`.** On the first run it sets itself up
-— it finds a suitable Python by asking each candidate its version, builds the
-environment outside the project folder, installs the dependencies and checks them
-— then discovers the phones and opens the menu. Every run after that just starts.
-Setup also puts **two shortcuts on your Desktop**, so from then on you start
-it from there:
+At the end it offers to start the piece. **Every session after that:**
+double-click **`PetrifEye`** on the Desktop:
 
 - **`PetrifEye.command`** — the piece as always, with the AprilTags on screen
   (same as `Start PetrifEye.command`);
@@ -62,21 +48,27 @@ it from there:
   bright frame around its edge (same as `Frame PetrifEye.command`, see
   *Playing without the tags* below).
 
-They point to wherever the project folder is, so if you move the folder,
-double-click `Setup PetrifEye.command` in its new place to update them (also
-the way to get the Frame shortcut on a Mac set up before it existed). Set
-`MEDUSA_NO_SHORTCUT=1` if you'd rather not have them.
-Leave its Terminal window open for the session; `ctrl-c` there stops everything.
+Leave its Terminal window open for the session; `ctrl-c` there stops
+everything. The shortcuts point to wherever the project folder is; if you move
+the folder, double-click `Setup PetrifEye.command` in its new place to re-point
+them (`MEDUSA_NO_SHORTCUT=1` to do without).
 
-`Setup PetrifEye.command` does only the setup half, if you want to install ahead
-of time or re-check an environment. Running it twice is safe: one that already
-works is left alone.
+**To update:** run the same line again, or double-click
+**`Update PetrifEye.command`** in the `petrifeye` folder. It fetches the latest
+version and installs only what is new; the environment and the local
+certificate are kept.
 
-**No internet at the venue?** Run step 3 once while you still have internet,
-and that's it. Setup is the only part that downloads anything; once it has
-finished, the piece runs fully offline — the browser libraries and the
-face-mesh model ship in `vendor/`, and the bridge talks to the phones over the
-local network only.
+*Options*, for the rare case: put them before `bash`, e.g.
+`curl -fsSL …/install.sh | PETRIFEYE_DIR=~/Art/petrifeye bash` to install
+elsewhere. `install.sh` lists them all. The project and the environment must
+not be inside Google Drive, Dropbox or iCloud — the installer refuses that (see
+below for why).
+
+**No internet at the venue?** Install while you still have internet, and
+that's it. Installing is the only part that downloads anything; afterwards the
+piece runs fully offline — the browser libraries and the face-mesh model ship
+in `vendor/`, the readings of MAGNETIC POETRY are files in the project, and the
+bridge talks to the phones over the local network only.
 
 *Setting up a Mac that never gets internet* (rare): download
 `petrifeye-offline-packages-macos-arm64.zip` from the
@@ -87,6 +79,29 @@ network. The packages cover Apple Silicon Macs on macOS 14+ with Python 3.12
 or 3.13 — and the Python installer itself has to come along too. On any other
 Mac the script falls back to installing online. To rebuild the zip after
 changing the bridge's packages, see `bridge/fetch_wheels.sh`.
+
+### By hand, without the installer
+
+**Downloading the zip** from the [GitHub page](https://github.com/vstradag/petrifeye)
+(*Code → Download ZIP*) works too, but macOS marks anything a browser downloads
+as quarantined and refuses to open an unsigned `.command` by double-clicking
+("not opened" / "unidentified developer"). Allow it **once**:
+
+- **macOS 15 (Sequoia) and later:** double-click `Setup PetrifEye.command`,
+  click **Done** on the warning, then open **System Settings → Privacy &
+  Security**, scroll down to *"Setup PetrifEye.command" was blocked* and click
+  **Open Anyway** (then confirm with your password).
+- **macOS 14 and earlier:** **right-click the file → Open**, and confirm.
+- Or, in Terminal: `xattr -dr com.apple.quarantine ~/Downloads/petrifeye-main`
+  (adjust the path to where the folder is).
+
+Setup then lifts the flag from the whole folder, so Start, Frame and Record —
+and the Desktop shortcuts — open normally from then on. (The one-line installer
+and `git clone` never set the flag, which is why they are the easier routes.)
+`Setup PetrifEye.command` needs Python 3.10+ to be there already; it finds one
+by asking each candidate its version, builds the environment outside the
+project folder, installs the dependencies and checks them. Running it twice is
+safe: an environment that already works is left alone.
 
 The manual route, and what those scripts are protecting you from:
 

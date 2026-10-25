@@ -97,8 +97,11 @@ unquarantine
 # stalls an `import` blocks FOREVER instead of failing — indistinguishable
 # from the bridge hanging. Refuse rather than build something that will
 # mystify someone later.
-case "$VENV" in
-  *"CloudStorage"*|*"Google Drive"*|*"Dropbox"*|*"iCloud"*|*"Library/Mobile Documents"*)
+# Matched by where sync clients serve files from, not by a word anywhere in
+# the path — that also refused ordinary folders with "Drive" in their name.
+case "$VENV/" in
+  "$HOME/Library/CloudStorage/"*|*"/Library/Mobile Documents/"*|"$HOME/Dropbox/"*|"$HOME/Dropbox ("*|\
+  "/Volumes/GoogleDrive/"*|*"/Google Drive/"*)
     say "REFUSING: that path is inside a synced folder (Drive/Dropbox/iCloud)."
     say "An import from there can hang forever instead of failing."
     say "Use a local path, e.g.  MEDUSA_VENV=\$HOME/dev/medusa-bridge-venv"

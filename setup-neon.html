@@ -124,19 +124,16 @@ const steps = [
     title: "Install the bridge dependencies",
     html: `
       <p>The browser cannot read Neon's gaze stream directly — it arrives over RTSP, which no browser supports, and in scene-camera coordinates rather than screen coordinates. A small Python bridge handles both.</p>
-      <div class="note"><strong>Already done for you</strong> — the dependencies are installed in <code>bridge/.venv</code>. Nothing to do here; press continue.</div>
-      <p>For reference, this is what was run (a self-contained venv, so your Anaconda base environment stays untouched):</p>
-      <pre><code>python3 -m venv bridge/.venv
-bridge/.venv/bin/python -m pip install -r bridge/requirements.txt</code></pre>
-      <p>It pulls in <code>pupil-labs-realtime-api</code> (RTSP), <code>real-time-screen-gaze</code> (AprilTag → screen mapping), and <code>aiohttp</code> (serves the app + gaze socket on one origin).</p>`,
+      <div class="note"><strong>Done by the installer.</strong> If you installed PetrifEye with the one line below, the bridge and everything it needs are already there — press continue. Otherwise paste it into Terminal now: it installs Python if the Mac has none, the project, and the bridge's packages, and checks them.</div>
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/vstradag/petrifeye/main/install.sh | bash</code></pre>
+      <p>The bridge lives in its own environment, <code>~/dev/medusa-bridge-venv</code>, outside the project (and never inside Google Drive, Dropbox or iCloud). It holds <code>pupil-labs-realtime-api</code> (RTSP), <code>real-time-screen-gaze</code> (AprilTag → screen mapping) and <code>aiohttp</code> (serves the app + gaze socket on one origin).</p>`,
   },
   {
     title: "Start the bridge",
     html: `
-      <p>Stop <code>serve-https.js</code> if it's running — the bridge serves the app itself, on the same port and the same certificate. Then, from the <code>code/</code> folder:</p>
-      <pre><code>bridge/.venv/bin/python bridge/neon_bridge.py</code></pre>
-      <p>It will try to discover the phone automatically. If discovery fails, pass the IP from step 3 directly, and tell it your real screen size — that's the coordinate space gaze gets mapped into:</p>
-      <pre><code>bridge/.venv/bin/python bridge/neon_bridge.py \
+      <p>Double-click <strong>PetrifEye</strong> on the Desktop (or <code>Start PetrifEye.command</code> in the project). It finds every phone on the network, starts one bridge per pair of glasses — each pinned to its own phone — and opens the menu in Chrome. Stop <code>serve-https.js</code> first if it's running: the bridge serves the app itself, on the same port and certificate.</p>
+      <p>By hand, for one pair of glasses — with the phone's IP from step 3, and your real screen size, which is the coordinate space gaze gets mapped into:</p>
+      <pre><code>~/dev/medusa-bridge-venv/bin/python bridge/neon_bridge.py \
   --address 192.168.1.42 \
   --screen-width 1920 --screen-height 1080</code></pre>
       <div class="note">Leave it running. Watch its log — it prints <code>status: connected</code>, then <code>status: streaming</code> once the glasses are live.</div>

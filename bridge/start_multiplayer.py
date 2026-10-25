@@ -141,6 +141,27 @@ def local_networks():
     return nets
 
 
+def open_browser(url):
+    """Chrome when it is installed, else the default browser.
+
+    The piece is set up and tested in Chrome, and the certificate steps in the
+    guide are Chrome's; another default browser (Safari, typically) can refuse
+    the self-signed WebSocket to the bridge without saying so.
+    """
+    for app in ("/Applications/Google Chrome.app",
+                os.path.expanduser("~/Applications/Google Chrome.app")):
+        if sys.platform == "darwin" and os.path.isdir(app):
+            try:
+                subprocess.run(["open", "-a", app, url], check=True)
+                return
+            except Exception:
+                break
+    try:
+        webbrowser.open(url)
+    except Exception:
+        print("  (could not open a browser — open that URL yourself)")
+
+
 def port_open(host, port, timeout=0.4):
     """Blocking 'is anything listening yet' check, for the pre-browser wait."""
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sk:
@@ -480,10 +501,7 @@ def main():
 
     print(f"\nopening {url}")
     if not args.no_browser:
-        try:
-            webbrowser.open(url)
-        except Exception:
-            print("  (could not open a browser — open that URL yourself)")
+        open_browser(url)
     print("\nThe browser will warn about the certificate: it is self-signed,")
     print("served by the bridge on your own machine. Click through it.")
 
