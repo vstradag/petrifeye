@@ -10,6 +10,45 @@
 
   let picks = [];   // [{ name, type, blob, w, h, url }]
 
+  // ------------------------------------------------------- the questions
+  // AprilTags or the purple frame, collect data or not: asked here, at the
+  // start of the show, and read by every screen and analysis window it opens
+  // (SessionSetup.remembered). This page has no gaze stack, so the screens
+  // are the ones that switch the bridges.
+  const SETUP_NOTES = {
+    surface: "In LIVE GAZE the frame can find only <b>one screen</b>: with it, screen 1 shows " +
+             "the images one after another. One screen per image needs the AprilTags.",
+    collect: "Saved on this Mac, in <b>petrifeye-recordings/live-gaze/</b>, one folder per run: " +
+             "each image's fixations, results and analysis picture, written as the image closes. " +
+             "Every visitor is calibrated either way.",
+  };
+  let setup = SessionSetup.remembered("live-gaze");
+  const frameMode = () => setup.surface === "frame";
+
+  function renderSetup() {
+    $("setupLine").innerHTML =
+      `screen found by <b>${frameMode() ? "the purple frame" : "AprilTags"}</b> · ` +
+      `data <b>${setup.collect ? "collected" : "not collected"}</b> · ` +
+      `<button class="mini" id="setupChange">change</button>`;
+    $("setupChange").onclick = askSetup;
+    $("frameNote").classList.toggle("hidden", !frameMode() || picks.length < 2);
+  }
+
+  async function askSetup() {
+    const before = setup;
+    setup = await SessionSetup.ask({ app: "live-gaze", notes: SETUP_NOTES });
+    renderSetup();
+    renderScreens();
+    // Windows already open reload to take new answers — only new ones: this
+    // page reopened mid-show must not restart every screen.
+    if (setup.surface === before.surface && setup.collect === before.collect) return;
+    if ("BroadcastChannel" in window) {
+      const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
+      bus.postMessage({ type: "images-changed", count: picks.length });
+      bus.close();
+    }
+  }
+
   // ------------------------------------------------------------- picking
   function err(msg) {
     const el = $("err");
@@ -147,16 +186,23 @@
   const observerUrl = (i) => `live-gaze-observer.html?slot=${i}`;
 
   function renderScreens() {
+    // With the frame there is one screen: image 1's window shows them all.
+    const one = frameMode();
+    $("frameNote").classList.toggle("hidden", !one || picks.length < 2);
     $("screens").innerHTML = picks.map((p, i) => {
       const slot = LiveGazeStore.slotInfo(i);
+      const off = one && i > 0 ? " disabled title=\"the purple frame finds one screen: this image follows on screen 1\"" : "";
+      const sub = one
+        ? (i === 0 ? "the purple frame · bridge screen <b>main</b>" : "shown on screen 1, after the one before")
+        : `tags <b>${slot.ids.join(" ")}</b> · bridge screen <b>${slot.key}</b>`;
       return `<div class="scr">
         <div class="n">${i + 1}</div>
         <div>
           <div class="nm">${p.name}</div>
-          <div class="sub">${p.w}×${p.h} · tags <b>${slot.ids.join(" ")}</b> · bridge screen <b>${slot.key}</b></div>
+          <div class="sub">${p.w}×${p.h} · ${sub}</div>
         </div>
-        <button data-screen="${i}">image ${i + 1}</button>
-        <button data-obs="${i}">analysis ${i + 1}</button>
+        <button data-screen="${i}"${off}>image ${i + 1}</button>
+        <button data-obs="${i}"${off}>analysis ${i + 1}</button>
       </div>`;
     }).join("");
 
@@ -180,7 +226,7 @@
     // Spaced out: a browser that allows several windows per gesture still
     // drops some when they are opened in the same tick.
     let delay = 0;
-    picks.forEach((_, i) => {
+    picks.slice(0, frameMode() ? 1 : picks.length).forEach((_, i) => {
       setTimeout(() => openWin(screenUrl(i), `lg-screen-${i}`, 1280, 800), delay);
       setTimeout(() => openWin(observerUrl(i), `lg-obs-${i}`, 1280, 800), delay + 220);
       delay += 440;
@@ -213,6 +259,9 @@
   // NAVIGATE to the dropped file and lose the session.
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => e.preventDefault());
+
+  renderSetup();
+  askSetup();
 
   // ---------------------------------------------------------------- resume
   // A previous session's images are still in the database. Offering them back

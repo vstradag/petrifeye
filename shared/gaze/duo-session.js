@@ -6,12 +6,20 @@
 // first worked out (games/medusa-analysis.html); it keeps its own copy.
 //
 //   DuoSession.init({
+//     app,                     // folder name for collected data, e.g. "duck-hunt"
+//     partLabel,               // what one round is called there, e.g. "game"
 //     players,                 // [{ id, label, port, color }]
 //     title,                   // control legend title
 //     hintRows(sim),           // game rows for the legend
 //     onStart(sim),            // the game begins (sim: mouse + arrows)
 //     onKey(e),                // a key pressed after start, not a common one
 //   })
+//
+// It also asks the two start-up questions (session-setup.js: AprilTags or the
+// purple frame; collect data or not) and, when collecting, calibrates the
+// players and records them (data-collection.js) — so the game begins only
+// after that calibration. A game marks its own rounds with
+// DataCollection.newPart(label).
 //
 // The page provides the standard elements (mpBoot, mpSrcs, mpStart, mpSim,
 // mpCal, mpPanel, mpGear, tuning-panel …, see games/duck-hunt.html) and styles
@@ -44,7 +52,10 @@
 
   let cfg = null;
   let players = [];
+  // started: the game is running. booting: START was pressed and the boot
+  // card is gone, but a data-collection calibration may still be running.
   let started = false;
+  let booting = false;
   let simMode = false;
   let showTarget = true;
   let calibratedWebcam = false;
@@ -308,8 +319,8 @@
   }
 
   function start(sim) {
-    if (started) return;
-    started = true;
+    if (started || booting) return;
+    booting = true;
     simMode = !!sim;
     goFullscreen();
     $("mpBoot").classList.add("hidden");
@@ -337,19 +348,31 @@
       );
     }
 
-    if (cfg.onStart) cfg.onStart(simMode);
+    // Collecting data: the players calibrate first (fullscreen was asked for
+    // above, inside the click), and nothing they do before it ends is data or
+    // play. Not collecting: this resolves at once.
+    const dc = window.DataCollection;
+    (dc ? dc.calibrate({ sim: simMode }) : Promise.resolve()).then(() => {
+      started = true;
+      if (dc) dc.begin({ sim: simMode });
+      if (cfg.onStart) cfg.onStart(simMode);
+    });
   }
 
   window.DuoSession = {
     init(config) {
       cfg = config;
       players = config.players;
+      if (window.DataCollection) {
+        DataCollection.init({ app: config.app, title: config.title, players, partLabel: config.partLabel });
+      }
+      if (window.SessionSetup) SessionSetup.ask({ app: config.app });
       players.forEach((p) => (byPointer[`player-${p.id}`] = p));
       lastList = players.map((p) => ({ ...p, state: "connecting", live: false }));
 
       window.addEventListener("gaze-players", (e) => {
         lastList = e.detail;
-        if (started) renderPanel(lastList);
+        if (started || booting) renderPanel(lastList);
         else { renderSources(lastList); renderBootState(lastList); renderBootCmd(); }
       });
 

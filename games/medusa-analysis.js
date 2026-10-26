@@ -265,6 +265,8 @@
   // Clearing analysis without the score (or the reverse) would leave the
   // second screen describing a game that is no longer the one on screen.
   function newRound() {
+    // The round that ends is saved, with its score, before the score resets.
+    if (window.DataCollection) DataCollection.newPart("round");
     for (const k of Object.keys(scores)) scores[k] = 0;
     blobs.forEach((b) => b.unpetrify());
     A.fixations = []; A.pending.clear(); A.petrifiedAt.clear();

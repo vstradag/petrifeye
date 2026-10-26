@@ -70,6 +70,7 @@
 <div class="wrap">
   <h1>LIVE <span>GAZE</span></h1>
   <p class="lede">upload images · one screen each</p>
+  <p class="note" id="setupLine" style="text-align:center; margin:-8px 0 26px"></p>
 
   <section class="step" id="step1">
     <h2>1 · <b>choose the images</b> for this session</h2>
@@ -101,6 +102,12 @@
       never moves image 1's pointer. Open a window, drag it to its monitor or
       projector, then press <b>start</b> in it (starting one starts the others).
     </p>
+    <p class="note warn hidden" id="frameNote">
+      <b>Purple frame:</b> the frame can find only one screen, so everything
+      runs on <b>screen 1</b> — the images follow one another there (press
+      <b>n n</b> for the next), each saved on its own as it closes. For one
+      screen per image, choose the AprilTags.
+    </p>
     <div class="screens" id="screens"></div>
     <div class="hr"></div>
     <div class="row-btns">
@@ -122,6 +129,7 @@
 </div>
 
 <script src="../shared/gaze/live-gaze-store.js"></script>
+<script src="../shared/gaze/session-setup.js"></script>
 <script src="live-gaze.js"></script>
 </body>
 </html>

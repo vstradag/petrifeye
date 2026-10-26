@@ -457,7 +457,8 @@
       r.fixations = msg.fixations || r.fixations;
       if (msg.players) r.players = msg.players;
       if (msg.image) { r.name = msg.image.name; r.w = msg.image.w; r.h = msg.image.h; }
-      exportAnalysis(msg.slot).catch(() => {});
+      // Data collection off (asked on the upload page): nothing is saved.
+      if (msg.collect !== false) exportAnalysis(msg.slot).catch(() => {});
       return;
     }
 

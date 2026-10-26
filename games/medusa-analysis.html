@@ -242,6 +242,9 @@
 <script src="../shared/gaze/webgazer-source.js"></script>
 <script src="../shared/gaze/gaze-aggregator.js"></script>
 <script src="../shared/controls-hint.js"></script>
+<script src="../shared/gaze/target-calibration.js"></script>
+<script src="../shared/gaze/session-setup.js"></script>
+<script src="../shared/gaze/data-collection.js"></script>
 
 <script>
 // Presentation. Read by sketch.js when it loads (below), so it must be set
@@ -615,6 +618,16 @@ function start(sim) {
       "medusa multiplayer"
     );
   }
+
+  // Collecting data: the players calibrate first (fullscreen was asked for
+  // above, inside the click). The game keeps running under the calibration
+  // screen, so whatever was petrified meanwhile is undone with a new round —
+  // the data and the score start together. Not collecting: no calibration,
+  // and begin() does nothing.
+  DataCollection.calibrate({ sim }).then((calibrated) => {
+    if (calibrated && window.MedusaAnalysis) MedusaAnalysis.newRound();
+    DataCollection.begin({ sim });
+  });
 }
 
 document.getElementById("mpStart").onclick = async () => {
@@ -632,6 +645,19 @@ document.getElementById("mpSim").onclick = () => start(true);
 
 renderBootCmd();
 GazeAggregator.init({ players: PLAYERS });
+
+// The two start-up questions (AprilTags or the purple frame; collect data or
+// not), as pop-ups over the boot card. Recorded per round: the analysis
+// screen's "new round" starts the next part.
+DataCollection.init({
+  app: "medusa",
+  title: "MEDUSA (+2 players)",
+  players: PLAYERS,
+  playerOf: (pid) => byPointer[pid] || null,
+  extra: () => ({ scores: { ...scores } }),
+  partLabel: "round",
+});
+SessionSetup.ask({ app: "medusa" });
 
 // Draw the tags DURING the boot card, not after starting. Each player's
 // scene camera has to see them before any gaze can be mapped, so the boot

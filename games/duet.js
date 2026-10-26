@@ -372,6 +372,7 @@
   function newPiece() {
     glyphs = []; traces = []; bursts = []; coda = null;
     collectT = 0; meetT = 0;
+    if (window.DataCollection) DataCollection.newPart("piece");
   }
 
   // ---------------------------------------------------------------- drawing
@@ -671,6 +672,8 @@
   $("toggle-bells").onchange = (e) => { BELLS = e.target.checked; };
 
   DuoSession.init({
+    app: "duet",
+    partLabel: "piece",
     players: PLAYERS,
     title: "duet",
     hintRows: () => [

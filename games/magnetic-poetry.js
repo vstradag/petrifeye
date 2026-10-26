@@ -243,6 +243,7 @@
     reading = recordingFor(poem);
     layoutPoem();
     scatter();
+    if (window.DataCollection) DataCollection.newPart(poem.title);
   }
 
   // ---------------------------------------------------------------- frame
@@ -893,6 +894,7 @@
   };
 
   DuoSession.init({
+    app: "magnetic-poetry",
     players: PLAYERS,
     title: "magnetic poetry",
     hintRows: (sim) => [

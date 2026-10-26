@@ -41,6 +41,9 @@
   const INFO = LiveGazeStore.slotInfo(SLOT);
   // The mouse needs no calibration; ?calib runs it anyway, for testing.
   const CALIB_IN_SIM = new URLSearchParams(location.search).has("calib");
+  // Asked on the upload page (session-setup.js): AprilTags or the purple
+  // frame, and whether closed images are saved.
+  const SETUP = SessionSetup.remembered("live-gaze");
 
   const $ = (id) => document.getElementById(id);
   const bus = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
@@ -497,14 +500,15 @@
       const fixations = state.fixations.slice();
       const players = PLAYERS.map(({ id, label, color }) => ({ id, label, color }));
       // The analysis window renders and saves its panels from this.
-      post({ type: "image-closed", fixations, players, total: state.total,
+      post({ type: "image-closed", fixations, players, total: state.total, collect: SETUP.collect,
              image: image ? { name: image.name, w: image.w, h: image.h } : null });
       // The run's folder, read BEFORE closing: the save waits up to 3 s for
       // the analysis window, and a new run started meanwhile (space, once
       // this was the last image) must not take this image's results with it.
       const stamp = await LiveGazeStore.runStamp();
       await LiveGazeStore.close(idx);
-      const saving = saveResults(idx, image, fixations, players, stamp);
+      // Not collecting data: the image closes and nothing is written.
+      const saving = SETUP.collect ? saveResults(idx, image, fixations, players, stamp) : null;
       const next = goNext ? await LiveGazeStore.claim(SLOT, null, await bridgeBoot()) : null;
       if (next != null) {
         await showImage(next);
@@ -512,8 +516,10 @@
       } else {
         await finishScreen();
       }
-      const where = await saving;
-      note(`image ${idx + 1} saved to ${where}`, 6000);
+      if (saving) {
+        const where = await saving;
+        note(`image ${idx + 1} saved to ${where}`, 6000);
+      }
     } finally {
       closing = false;
     }
@@ -941,6 +947,17 @@
 
   renderBootCmd();
   updateTitle();
+  // Before the sockets open, so every bridge hears it first thing.
+  GazeAggregator.setSurfaceSource(SETUP.surface);
+  if (SETUP.surface === "frame" && SLOT > 0) {
+    const warn = document.createElement("p");
+    warn.className = "note";
+    warn.style.color = "#c98f8f";
+    warn.textContent = `The purple frame can find only one screen, and this is screen ${SLOT + 1}: ` +
+      "the glasses will not map gaze here. Use screen 1, which shows every image in turn, " +
+      "or choose the AprilTags on the upload page.";
+    $("ssBootInner").appendChild(warn);
+  }
   // The screen registration travels with init: this window's own tags and its
   // own size, so the very first surface solve already belongs to this display.
   GazeAggregator.init({ players: PLAYERS, screen: { key: INFO.key, ids: INFO.ids } });

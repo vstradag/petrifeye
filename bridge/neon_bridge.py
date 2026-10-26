@@ -458,6 +458,26 @@ RECORDER = None
 # screen edge, see frame_detector.py — no tags needed on screen at all).
 SURFACE_SOURCE = "tags"
 
+# What each source means for the page, filled in by main() from the command
+# line: the tag mode and the frame thickness that go with it. Every experience
+# asks at its start which one to use and sends {type:"surface"}, so one bridge
+# serves both without a restart; the command line only sets the starting one.
+SOURCES = {
+    "tags": {"mode": "always", "frame_px": 0},
+    "frame": {"mode": "off", "frame_px": 10},
+}
+
+
+def use_source(source):
+    """Switch what locates the screen. Returns True if anything changed."""
+    global SURFACE_SOURCE, MARKER_MODE, FRAME_PX
+    if source not in SOURCES:
+        return False
+    sp = SOURCES[source]
+    changed = (SURFACE_SOURCE, MARKER_MODE, FRAME_PX) != (source, sp["mode"], sp["frame_px"])
+    SURFACE_SOURCE, MARKER_MODE, FRAME_PX = source, sp["mode"], sp["frame_px"]
+    return changed
+
 
 DEFAULT_SCREEN = "main"
 
@@ -827,10 +847,9 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
                             "worn": worn,
                         })
 
+    # Made on first need rather than at connection: the page can switch to the
+    # frame at any time (see use_source), long after the stream started.
     tracker = None
-    if FRAME_PX > 0:
-        from frame_detector import FrameTracker
-        tracker = FrameTracker()
 
     def scene_bgr(frame):
         # The same unwrapping process_scene does for a VideoFrame.
@@ -873,16 +892,20 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
         RECORDER.scene(bgr, info)
 
     async def pump_scene():
+        nonlocal tracker
         if mapper is None:
             return
         async for frame in receive_video_frames(scene_url, run_loop=True):
             # Recorded before anything can skip the frame: the watchdog needs
             # to know the camera is ALIVE, whether or not a surface exists yet.
             state["last_scene"] = time.monotonic()
+            if FRAME_PX > 0 and tracker is None:
+                from frame_detector import FrameTracker
+                tracker = FrameTracker()
             # Recording: decode to pixels ONCE and hand the array to both the
             # mapper (which accepts one) and the recorder.
             bgr = None
-            if RECORDER or tracker:
+            if RECORDER or FRAME_PX > 0:
                 try:
                     bgr = scene_bgr(frame)
                 except Exception:  # noqa: BLE001 - fall back to the normal path
@@ -900,7 +923,7 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
             # drives the mapping with --surface-source frame, and otherwise
             # only feeds the recording, to be scored against the tags.
             frame_corners = None
-            if tracker and bgr is not None:
+            if tracker and FRAME_PX > 0 and bgr is not None:
                 try:
                     frame_corners = tracker.update(bgr, time.monotonic())
                 except Exception as exc:  # noqa: BLE001 - never lose gaze over it
@@ -1099,6 +1122,13 @@ async def ws_handler(request):
                         log.info("screen %r: %dx%d, tags %s", key, w, h, ids)
                     else:
                         hub.set_screen(ws, key, ids, w, h)   # refresh ownership
+                elif payload.get("type") == "surface":
+                    # The experience's start-up choice: AprilTags or the frame.
+                    # Every bridge hears it, so all players' glasses agree.
+                    if use_source(str(payload.get("source") or "")):
+                        log.info("screen now located by: %s (tags %s, frame %dpx)",
+                                 "the FRAME" if SURFACE_SOURCE == "frame" else "the AprilTags",
+                                 MARKER_MODE, FRAME_PX)
                 elif payload.get("type") == "markerSize":
                     # The page has resized its tags; match it so marker_verts()
                     # keeps describing where the tags actually are. The surface
@@ -1187,6 +1217,15 @@ async def layout_handler(_req):
             "flashPeriodMs": FLASH_PERIOD_MS,
             "frame": ({"px": FRAME_PX, "color": FRAME_COLOR, "corner": FRAME_CORNER}
                       if FRAME_PX > 0 else None),
+            # The current source, and what the page draws for each one, so a
+            # page that switches does not have to guess the other's settings.
+            "source": SURFACE_SOURCE,
+            "sources": {
+                k: {"mode": sp["mode"],
+                    "frame": ({"px": sp["frame_px"], "color": FRAME_COLOR, "corner": FRAME_CORNER}
+                              if sp["frame_px"] > 0 else None)}
+                for k, sp in SOURCES.items()
+            },
             "boot": BOOT_ID,
         },
         headers={"Cache-Control": "no-store"},
@@ -1199,15 +1238,19 @@ async def layout_handler(_req):
 # Frame/Start session) leaves every image "already seen" today.
 BOOT_ID = str(int(time.time() * 1000))
 
-# Where LIVE GAZE writes a closed image's results (see save_analysis_handler).
-LIVE_GAZE_OUT = Path("~/petrifeye-recordings/live-gaze").expanduser()
+# Where an experience's collected data goes (see save_analysis_handler).
+RECORDINGS_OUT = Path("~/petrifeye-recordings").expanduser()
 
 
 async def save_analysis_handler(request):
-    """Write a closed LIVE GAZE image's results to disk.
+    """Write an experience's collected data to disk.
 
-    POST {session, image, files: [{name, data(base64)}]} ->
-    ~/petrifeye-recordings/live-gaze/<session>/<image>/<name>
+    POST {app, session, image, files: [{name, data(base64)}]} ->
+    ~/petrifeye-recordings/<app>/<session>/<image>/<name>
+
+    LIVE GAZE sends a closed image's results here; every other experience its
+    data-collection parts (shared/gaze/data-collection.js). `app` defaults to
+    "live-gaze", which is what LIVE GAZE sent before there was a field for it.
 
     Locked down, because the bridge listens on the whole network (the phones
     and other screens must reach it): only requests from THIS Mac are
@@ -1228,8 +1271,12 @@ async def save_analysis_handler(request):
         v = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(v or "")).strip(" .")[:80]
         return v or "untitled"
 
-    folder = LIVE_GAZE_OUT / part(body.get("session")) / part(body.get("image"))
-    if LIVE_GAZE_OUT.resolve() not in folder.resolve().parents:
+    app = str(body.get("app") or "live-gaze")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", app):
+        raise web.HTTPBadRequest(text=f"refused app name: {app!r}")
+    base = RECORDINGS_OUT / app
+    folder = base / part(body.get("session")) / part(body.get("image"))
+    if base.resolve() not in folder.resolve().parents:
         raise web.HTTPBadRequest(text="bad folder")
     files = body.get("files") or []
     if not files or len(files) > 10:
@@ -1250,7 +1297,7 @@ async def save_analysis_handler(request):
     for name, data in decoded:
         (folder / name).write_bytes(data)
         written.append(name)
-    log.info("live gaze: saved %s to %s", ", ".join(written), folder)
+    log.info("%s: saved %s to %s", app, ", ".join(written), folder)
     return web.json_response({"ok": True, "path": str(folder), "files": written})
 
 
@@ -1383,10 +1430,11 @@ async def main():
                     help="Colour of that line; pick one found nowhere else in the room.")
     ap.add_argument(
         "--surface-source", choices=("tags", "frame"), default=SURFACE_SOURCE,
-        help="What locates the screen: the AprilTags (default) or, EXPERIMENTAL, "
-             "the bright frame at the screen edge. 'frame' turns the frame on "
+        help="What locates the screen at launch: the AprilTags (default) or the "
+             "bright frame at the screen edge. 'frame' turns the frame on "
              "(10px unless --frame-px says otherwise) and the tags off (unless "
-             "--marker-mode says otherwise).",
+             "--marker-mode says otherwise). Each experience asks at its start "
+             "and switches the running bridge, so this is only the first choice.",
     )
     ap.add_argument(
         "--record", nargs="?", const="~/petrifeye-recordings", metavar="DIR",
@@ -1397,13 +1445,17 @@ async def main():
 
     # Applied globally so marker_verts() and /markers/layout.json agree.
     IMG_SIZE, IMG_MARGIN = args.marker_size, args.marker_margin
-    SURFACE_SOURCE = args.surface_source
-    MARKER_MODE = args.marker_mode or ("off" if SURFACE_SOURCE == "frame" else MARKER_MODE)
     FLASH_ON_MS, FLASH_PERIOD_MS = args.flash_on_ms, args.flash_period_ms
     SURFACE_HOLD_MS = args.surface_hold_ms
-    FRAME_PX, FRAME_COLOR = max(0, args.frame_px), args.frame_color
-    if SURFACE_SOURCE == "frame" and FRAME_PX == 0:
-        FRAME_PX = 10
+    FRAME_COLOR = args.frame_color
+    # Both sources are set up from the command line, whichever one starts:
+    # an experience can switch to the other at its start (use_source). The
+    # tags keep --marker-mode and --frame-px (Record draws the frame beside
+    # them); the frame turns the tags off unless --marker-mode says otherwise.
+    frame_px = max(0, args.frame_px)
+    SOURCES["tags"] = {"mode": args.marker_mode or MARKER_MODE, "frame_px": frame_px}
+    SOURCES["frame"] = {"mode": args.marker_mode or "off", "frame_px": frame_px or 10}
+    use_source(args.surface_source)
     log.info("markers: %dpx, %dpx inset, mode=%s (hold %dms)",
              IMG_SIZE, IMG_MARGIN, MARKER_MODE, SURFACE_HOLD_MS)
     if FRAME_PX:

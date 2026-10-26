@@ -245,6 +245,7 @@
     agree.clear();
     attention.clear();
     g.restart();
+    if (window.DataCollection) DataCollection.newPart("game");
   }
   function pauseGame() { const g = game(); if (g && g.started) g.pause(); }
   function muteGame() { const g = game(); if (g) g.mute(); }
@@ -282,6 +283,8 @@
   }
 
   DuoSession.init({
+    app: "duck-hunt",
+    partLabel: "game",
     players: PLAYERS,
     title: "duck hunt",
     hintRows: () => [

@@ -41,6 +41,16 @@
   // WANTED, independently of MODE, so it stays up while the tags flash or are
   // off: that is exactly the configuration it would eventually run in.
   let FRAME = null;
+  // What locates the screen, once the experience's start-up question has been
+  // answered (Markers.useSource): "tags" or "frame". Until then, null — the
+  // page draws whatever the bridge is currently set to.
+  let SOURCE = null;
+  // What the page draws for each source, from the bridge (layout.json
+  // "sources"). These defaults are what a bridge without the table means.
+  let SOURCES = {
+    tags: { mode: "always", frame: null },
+    frame: { mode: "off", frame: { px: 10, color: "#ff00ff", corner: 2 } },
+  };
 
   let layer = null;
   let frameEl = null;
@@ -60,12 +70,26 @@
       FLASH_ON_MS = cfg.flashOnMs || FLASH_ON_MS;
       FLASH_PERIOD_MS = cfg.flashPeriodMs || FLASH_PERIOD_MS;
       FRAME = cfg.frame && cfg.frame.px > 0 ? cfg.frame : null;
+      if (cfg.sources && cfg.sources.tags && cfg.sources.frame) SOURCES = cfg.sources;
+      if (SOURCE) pickSource();
       // Geometry changed after the layer was built — rebuild it.
       if (layer) { layer.remove(); layer = null; build(); }
       if (frameEl) { frameEl.remove(); frameEl = null; }
-      if (wanted) applyMode();
+      // Always, not only when wanted: the rebuilt layer starts out visible,
+      // and a page that hid the tags before this arrived (?sim) must not get
+      // them back.
+      applyMode();
     })
     .catch(() => {}); // no bridge (webcam mode): markers are never shown anyway
+
+  // The chosen source decides the mode and the frame, whatever the bridge
+  // was started with — the page and every bridge switch together (the
+  // aggregator sends the same choice as {type:"surface"}).
+  function pickSource() {
+    const sp = SOURCES[SOURCE] || {};
+    MODE = sp.mode || MODE;
+    FRAME = sp.frame && sp.frame.px > 0 ? sp.frame : null;
+  }
 
   function build() {
     if (layer) return layer;
@@ -190,6 +214,17 @@
       announce();
     },
     hide() { wanted = false; stopFlashing(); setVisible(false); setFrameVisible(false); announce(); },
+    // Draw for this source from now on: "tags" or "frame". The bridges must
+    // be told too — GazeAggregator.setSurfaceSource does both.
+    useSource(source) {
+      if (source !== "tags" && source !== "frame") return;
+      SOURCE = source;
+      pickSource();
+      if (frameEl) { frameEl.remove(); frameEl = null; }
+      if (wanted) applyMode();
+    },
+    get source() { return SOURCE; },
+
     // Whether the tags are WANTED, not whether a flash cycle happens to have
     // them dark this instant — a checkbox must not blink at 1.8s intervals.
     get shown() { return wanted; },

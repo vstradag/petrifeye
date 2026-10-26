@@ -42,11 +42,16 @@ folder is the same script):
 At the end it offers to start the piece. **Every session after that:**
 double-click **`PetrifEye`** on the Desktop:
 
-- **`PetrifEye.command`** — the piece as always, with the AprilTags on screen
-  (same as `Start PetrifEye.command`);
-- **`PetrifEye Frame.command`** — no tags: the screen is found by the thin
-  bright frame around its edge (same as `Frame PetrifEye.command`, see
-  *Playing without the tags* below).
+- **`PetrifEye.command`** — the piece as always (same as
+  `Start PetrifEye.command`);
+- **`PetrifEye Frame.command`** — the same, starting with the purple frame
+  instead of the AprilTags (same as `Frame PetrifEye.command`, see *Playing
+  without the tags* below).
+
+Either way, **every experience asks two questions when it opens** — AprilTags
+or the purple frame, and whether to collect data (see *At the start of every
+experience* below) — so the shortcut only decides which answer is offered
+first.
 
 Leave its Terminal window open for the session; `ctrl-c` there stops
 everything. The shortcuts point to wherever the project folder is; if you move
@@ -207,7 +212,11 @@ images, unseen again, results in a new folder, each screen calibrating first —
 with no need to quit and relaunch. "Open every window" on the upload page
 also starts the show over.
 
-**Results are saved when an image closes**, to
+**With the purple frame, LIVE GAZE uses one screen**: the frame can locate
+only one display, so screen 1 shows the images one after another (**n n**
+for the next) and the upload page opens only its windows.
+
+**Results are saved when an image closes** (if data collection was chosen), to
 `~/petrifeye-recordings/live-gaze/<run date-time>/<NN-image>/`:
 `fixations.csv` (per fixation: player, order, position in the image's own
 pixels, start, duration), `results.json` (the same plus image, players,
@@ -282,6 +291,51 @@ editions. **n** next poem, **r** shuffle
 the words, **u** sound and voice, **s** settings — the poem, how long a word
 takes, how near the pen must be, hints, reading aloud, and *1 player* for
 trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
+
+### At the start of every experience: two questions
+
+Before the start card, every experience (MEDUSA, POLITICAL VISION, LIVE GAZE,
+DUCK HUNT, DUET, MAGNETIC POETRY) asks, as two pop-ups:
+
+1. **How should the eye trackers find the screen?** — **AprilTags** (four
+   black-and-white codes in the corners: reliable in any light, and the only
+   way to tell several screens apart) or the **purple frame** (a thin line
+   around the edge, nothing over the picture). The frame works best in a
+   dark room, where the lit screen stands out clearly to the glasses' cameras.
+   The answer switches the page *and every running bridge* at once — no
+   relaunch.
+2. **Collect data from this session?** — **Collect data** or **Just play**.
+
+Click, or press **1** / **2** (return takes the highlighted one, which is the
+last answer given for that experience). LIVE GAZE asks on its upload page, and
+its screens and analysis windows follow that answer. ANEMONE asks nothing: it
+reads only the pupils and never needs to find the screen. `?sim` links skip
+both questions; `?surface=tags|frame` and `?collect=1|0` answer them in the
+URL.
+
+**Collecting data** uses LIVE GAZE's pipeline everywhere:
+
+- **Calibration first.** After start, each player looks at five eyes until
+  each turns to stone (about ten seconds), then the game begins. The median
+  miss per pair of glasses corrects what is *recorded*; the game keeps its own
+  feel. Nothing seen while calibrating is saved. (Not in a mouse test.)
+- **Fixations** from each player's raw gaze — median filter, then the
+  dispersion detector in `shared/gaze/fixations.js`, with LIVE GAZE's settings
+  for neon, webcam and mouse.
+- **Saved by the bridge** to
+  `~/petrifeye-recordings/<experience>/<session date-time>/<NN-part>/`:
+  `fixations.csv` (player, order, position 0–1 and in pixels, start, duration),
+  `results.json` (the same plus players and their input, AprilTags or frame,
+  calibration, settings, and the experience's own context — MEDUSA's scores),
+  and `scanpath.png`. A **part** is what the experience starts over: a MEDUSA
+  round (*new round*), a POLITICAL VISION cartoon (measured in the cartoon's
+  own pixels), a DUCK HUNT game, a DUET piece, a MAGNETIC POETRY poem. LIVE
+  GAZE writes its images exactly as before, in `live-gaze/`.
+- A small **● rec** badge at the bottom of the screen says data is being
+  collected and counts the fixations; the files are rewritten every 15 s, so
+  closing the window loses almost nothing. Clicking the badge saves at once —
+  and without a bridge (webcam only, `serve-https.js`) it downloads the files
+  instead.
 
 ### If you only want the webcam
 
@@ -470,8 +524,20 @@ WebGazer can be replaced later without touching the rest of the app:
   two-player game that is not the game: the boot card with each player's
   Neon/webcam choice, the webcam calibration, the settings gear and its common
   toggles and keys, the trouble panel, and the mouse + arrow-key stand-in.
-  DUCK HUNT and DUET are built on it; a new two-player piece only writes its
-  own frame loop and passes `onStart` / `onKey`.
+  DUCK HUNT, DUET and MAGNETIC POETRY are built on it; a new two-player piece
+  only writes its own frame loop and passes `app`, `onStart` / `onKey` — and
+  gets the start-up questions and data collection with it.
+
+- **`shared/gaze/session-setup.js`** — the two start-up pop-ups (AprilTags or
+  purple frame; collect data or not). Applies the first through
+  `GazeAggregator.setSurfaceSource`, which tells the page's `Markers` and
+  every bridge together.
+
+- **`shared/gaze/data-collection.js`** — LIVE GAZE's measuring and saving for
+  any experience: five-eye calibration, fixations from raw gaze, parts,
+  autosave through the bridge (`POST /api/save-analysis`, from this Mac only),
+  the rec badge. An experience calls `init`, then `calibrate` → `begin` on
+  start, and `newPart(label)` when it starts over.
 
 - **`sketch.js`** — the actual scene (p5.js). Reads `Tracking.getPointers()`
   and `DwellTarget`, knows nothing about WebGazer.
@@ -567,14 +633,18 @@ tags give the right answer for every frame, so a frame detector can be
 scored against them offline. Recordings are ~90 MB a minute per pair of
 glasses and stay on the Mac. Stop with ctrl-c so the video is finalised.
 
-**Playing without the tags:** double-click **`Frame PetrifEye.command`**. The
+**Playing without the tags:** answer **purple frame** when an experience asks
+how to find the screen (or double-click **`Frame PetrifEye.command`**, which
+starts with that answer). The
 tags are not drawn at all; the bridge finds the screen from the frame alone
 (`--surface-source frame`), tracking it from frame to frame (~2 ms) and only
 searching the whole image when it loses it. Replayed against the tags on real
 recordings, it placed the same gaze a median 3-5 screen px from where the
 tags put it (worst 19 px), in a dim and a lit room. One display per bridge
 for now: LIVE GAZE's multi-screen mode still needs the tags. If anything
-misbehaves, `Start PetrifEye.command` uses the tags as always.
+misbehaves, answer AprilTags at the next start. The bridge switches between
+the two on the page's word (`{type:"surface"}` on the gaze socket); its
+command line only sets the one it starts with.
 
 ## Keyboard shortcuts (in the running scene)
 

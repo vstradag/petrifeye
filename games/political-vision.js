@@ -143,6 +143,8 @@
       el.onerror = () => resolve();
       el.src = `../images/political-vision/${m.file}`;
     })));
+    // Started before the cartoons arrived (?sim): name the part properly now.
+    if (state.started && window.DataCollection) DataCollection.newPart(titleOf(state.index));
     updateTitle();
     broadcastSnapshot();
   }
@@ -164,10 +166,17 @@
     }
   }
 
+  // The collected data is kept per cartoon: each one shown is a part of its
+  // own (data-collection.js), saved as it is left.
+  const titleOf = (i) => (state.images[i] && state.images[i].title) || `cartoon ${i + 1}`;
+
   function changeImage(delta) {
     if (!state.images.length) return;
     flushAll();
-    state.index = (state.index + delta + state.images.length) % state.images.length;
+    const next = (state.index + delta + state.images.length) % state.images.length;
+    // Before the index moves: the part that ends is measured on THIS cartoon.
+    if (window.DataCollection) DataCollection.newPart(titleOf(next));
+    state.index = next;
     detectors.clear();
     updateTitle();
     broadcastSnapshot();
@@ -175,6 +184,7 @@
 
   function resetImage() {
     flushAll();
+    if (window.DataCollection) DataCollection.newPart(titleOf(state.index));
     state.fixByImage[state.index] = [];
     detectors.clear();
     broadcastSnapshot();
@@ -515,9 +525,13 @@
     } catch (_) {}
   }
 
+  // START pressed, the boot card gone; state.started (measuring) waits for
+  // the data-collection calibration, when there is one.
+  let booting = false;
+
   function start(sim) {
-    if (state.started) return;
-    state.started = true;
+    if (state.started || booting) return;
+    booting = true;
     state.simMode = !!sim;
     goFullscreen();
     $("ssBoot").classList.add("hidden");
@@ -543,8 +557,16 @@
         ], "political vision");
       }
     }
-    renderStatus(lastList);
-    broadcastSnapshot();
+    // Collecting data: the viewers calibrate on the cartoon's area first
+    // (fullscreen was asked for above, inside the click), and nothing seen
+    // before that ends is measured — for the observer either.
+    DataCollection.calibrate({ sim }).then(() => {
+      state.started = true;
+      DataCollection.begin({ sim });
+      DataCollection.newPart(titleOf(state.index));
+      renderStatus(lastList);
+      broadcastSnapshot();
+    });
   }
 
   $("ssStart").onclick = async () => {
@@ -560,6 +582,23 @@
 
   renderBootCmd();
   GazeAggregator.init({ players: PLAYERS });
+  // The two start-up questions (AprilTags or the purple frame; collect data
+  // or not). Collected data is measured like the observer's: on the cartoon,
+  // in its own pixels, with the same fixation settings.
+  DataCollection.init({
+    app: "political-vision",
+    title: "POLITICAL VISION",
+    players: PLAYERS,
+    playerOf: playerFor,
+    area: () => rect,
+    areaInfo: () => {
+      const img = state.images[state.index];
+      return img && img.w ? { name: img.title, w: img.w, h: img.h } : null;
+    },
+    background: () => (state.images[state.index] || {}).el || null,
+    measure: () => ({ spreadPct: state.spreadPct, minDurationMs: state.minDurationMs }),
+  });
+  SessionSetup.ask({ app: "political-vision" });
   // Tags drawn during the boot card: each scene camera must see them before
   // any gaze can be mapped, so framing happens before START.
   if (window.Markers) Markers.show();

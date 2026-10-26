@@ -28,6 +28,10 @@
   // null means "the only screen", which is every other experience.
   let screen = null;          // { key, ids }
 
+  // What locates the screen ("tags" | "frame"), once the experience's start-up
+  // question has been answered. null: leave the bridges as they are.
+  let surfaceSource = null;
+
   function snapshot() {
     return players.map((p) => {
       const c = conn[p.id] || {};
@@ -211,6 +215,9 @@
     // Viewport AND marker size on open: a bridge that restarted has forgotten
     // both, and either one being stale skews the mapping silently.
     ws.onopen = () => {
+      // The source first: a bridge that restarted is back on its launch
+      // setting, and would solve the screen the other way until told.
+      if (surfaceSource) ws.send(JSON.stringify({ type: "surface", source: surfaceSource }));
       sendViewport();
       // Immediate, not debounced: a bridge that just connected has the
       // default size and must be corrected before it maps anything.
@@ -316,6 +323,16 @@
       sendMarkerSize(applied);
       return applied;
     },
+
+    // AprilTags or the frame, for the page and every bridge at once. Doing
+    // one without the other leaves the page drawing what no bridge looks for.
+    setSurfaceSource(source) {
+      if (source !== "tags" && source !== "frame") return;
+      surfaceSource = source;
+      if (window.Markers && Markers.useSource) Markers.useSource(source);
+      broadcast({ type: "surface", source });
+    },
+    surfaceSource: () => surfaceSource,
 
     // Change one player's input and reconnect just that player. Used by the
     // boot card so a webcam/Neon choice does not require a page reload.
