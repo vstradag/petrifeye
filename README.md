@@ -243,8 +243,9 @@ and the arrow keys as P2.
 MIT — see `games/duck-hunt/README.md`) set up like MEDUSA: same boot card,
 same per-player glasses or webcam, same tags. There is no trigger: a duck is
 shot only when **both** players look at it at once. One player on a duck marks
-it with a cross in their colour and an empty slot for the other; the moment
-both are on it, it fires. Ducks fly at half the original speed (two people have
+it with a cross in their colour, an empty slot for the other, a slow pulse and
+"waiting for P2" (the same marker as cooperative MEDUSA); the moment both are
+on it, it fires. Ducks fly at half the original speed (two people have
 to find and follow the same one) and never head for a spot under a tag. **r** or **space** starts a new game,
 **p** pauses, **u** sound, **s** settings — where the hold time, the duck
 speed, the gaze assist and a *1 player needed* solo test mode can be changed.

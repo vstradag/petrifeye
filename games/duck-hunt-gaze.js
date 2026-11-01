@@ -8,9 +8,9 @@
 // trigger. A duck is shot only when BOTH players' gaze is on it at once:
 //
 //   nobody on it      nothing
-//   one player on it  a cross on the duck, in that player's colour — "I've
-//                     got this one, find it"
-//   both on it        it fires, that instant
+//   one player on it  a cross on the duck, in that player's colour, pulsing,
+//                     and "waiting for P2" — "I've got this one, find it"
+//   both on it       it fires, that instant
 //
 // HOLD_SEC (settings, 0 by default) can require the two to stay together a
 // moment first — the red closing reticle shows it filling — if a gaze
@@ -126,8 +126,10 @@
 
   // ------------------------------------------------------------ drawing
   // The hint. One player on a duck: a cross over it in that player's colour,
-  // with the slot for the missing player left empty. Both: the cross turns
-  // red, the ring closes as the agreement builds, and it fires.
+  // with the slot for the missing player left empty, a slow pulse and a
+  // "waiting for P2" label — the same as MEDUSA's cooperative eyes (sketch.js
+  // displayWaiting), so the two games read alike. Both: the cross turns red,
+  // the ring closes as the agreement builds, and it fires.
   function drawReticle(t, on, needed, held) {
     const both = on.length >= needed;
     const r = Math.max(26, t.radius * 1.25);
@@ -137,6 +139,13 @@
 
     if (!both) {
       const c = on[0].color;
+      // The pulse: catches the other player's eye from across the screen,
+      // where a still cross on a moving duck is easy to miss.
+      const k = 0.5 + 0.5 * Math.sin((performance.now() / 1000) * Math.PI * 2 * 0.9);
+      ctx.strokeStyle = c;
+      ctx.globalAlpha = 0.25 + 0.55 * k;
+      ctx.lineWidth = 2 + 3 * k;
+      ctx.beginPath(); ctx.arc(t.x, t.y, r + 8 + 8 * k, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = c;
       ctx.lineWidth = 3;
       ctx.globalAlpha = 0.95;
@@ -155,10 +164,24 @@
         ctx.beginPath(); ctx.arc(t.x, t.y, r, a0, a1); ctx.stroke();
       }
       ctx.setLineDash([]);
-      ctx.font = "600 12px ui-monospace, Menlo, monospace";
-      ctx.fillStyle = c;
+      // Name the missing player when that is unambiguous (two players, one
+      // on it); with more players than needed, anyone can complete it.
+      const missing = PLAYERS.filter((p) => !on.includes(p));
+      const short = needed - on.length;
+      const named = missing.length === short;
+      const label = named ? `waiting for ${missing.map((p) => p.label).join(" + ")}`
+                          : `waiting for ${short} more`;
+      ctx.font = "600 13px ui-monospace, Menlo, monospace";
       ctx.textAlign = "center";
-      ctx.fillText(`${on.length}/${needed}`, t.x, t.y + r + 16);
+      ctx.textBaseline = "middle";
+      // Below the duck, or above it when that would leave the screen.
+      const gap = r + 30;
+      const y = t.y + gap + 12 < innerHeight ? t.y + gap : t.y - gap;
+      const w = ctx.measureText(label).width + 16;
+      ctx.fillStyle = "rgba(8,9,14,.8)";
+      ctx.fillRect(t.x - w / 2, y - 11, w, 22);
+      ctx.fillStyle = named && missing.length === 1 ? missing[0].color : "#e8e6e2";
+      ctx.fillText(label, t.x, y);
     } else {
       const k = HOLD_SEC > 0 ? Math.min(1, held / HOLD_SEC) : 1;
       ctx.strokeStyle = "#ff3b3b";
