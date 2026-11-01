@@ -153,7 +153,7 @@
 <div class="mp-boot" id="mpBoot">
   <div class="mp-boot-inner" id="mpBootInner">
     <h1>MEDUSA <span>MULTIPLAYER</span></h1>
-    <p class="sub">with second screen analysis</p>
+    <p class="sub" id="mpBootSub">with second screen analysis</p>
     <div class="mp-srcs" id="mpSrcs"></div>
     <pre id="mpBootCmd"></pre>
     <p class="note" id="mpBootState">checking bridges…</p>
@@ -283,6 +283,46 @@ const byPointer = {};
 PLAYERS.forEach((p) => (byPointer[`player-${p.id}`] = p));
 const SIM_POINTER_IDS = ["mouse", "sim2"];
 
+// ----------------------------------------------------------- game mode
+// Competitive is MEDUSA as it always was: one player's stare petrifies an eye
+// and that player scores. Cooperative needs both players on the same eye at
+// once; one alone only marks it, so the other knows where to look. Chosen on
+// the first start-up pop-up, and read by sketch.js through PetrifEyeRules.
+let coop = false;
+let teamScore = 0;   // cooperative: eyes petrified together this round
+
+window.PetrifEyeRules = {
+  lookersNeeded: 1,
+  playerOf: (pid) => byPointer[pid] || null,
+  players: PLAYERS,
+};
+
+const MODE_QUESTION = {
+  key: "mode",
+  eyebrow: "game",
+  question: "How do the eyes turn to stone?",
+  options: [
+    { value: "compete", name: "Competitive", icon: "one",
+      desc: "One player's stare is enough. Whoever petrifies an eye scores it — MEDUSA as it has always been." },
+    { value: "coop", name: "Cooperative", icon: "two",
+      desc: "Only when both players look at the same eye at once. The first to find one marks it in their colour, waiting for the other." },
+  ],
+  note: "In <b>cooperative</b> MEDUSA the two stare together for the dwell time (in settings, <b>s</b>), " +
+        "and every eye petrified counts once, for both — one shared score. It needs both players: " +
+        "one alone can only mark eyes.",
+};
+
+function setMode(mode) {
+  coop = mode === "coop";
+  window.PetrifEyeRules.lookersNeeded = coop ? 2 : 1;
+  document.getElementById("mpBootSub").textContent = coop
+    ? "with second screen analysis · cooperative"
+    : "with second screen analysis";
+  if (started) renderPanel(lastList);
+  else renderBootState(lastList);
+  if (window.MedusaAnalysis) MedusaAnalysis.broadcastSnapshot();
+}
+
 // ---------------------------------------------------------------- boot card
 function renderBootCmd() {
   const neon = GazeAggregator.players().filter((p) => p.source === "neon");
@@ -408,7 +448,9 @@ function renderBootState(list) {
       txt = p.detail || p.state;
     }
     return `<span style="color:${p.color}">${p.label}</span> · port ${p.port} — <span class="mp-state ${cls}">${txt}</span>`;
-  }).join("<br>");
+  }).join("<br>") + (coop && ready > 0 && ready < 2
+    ? `<br><span class="mp-state warn">cooperative needs both players — one alone can only mark eyes</span>`
+    : "");
 
   btn.disabled = ready === 0;
   btn.textContent = ready === 0 ? "waiting for bridges"
@@ -418,6 +460,14 @@ function renderBootState(list) {
 // ---------------------------------------------------------------- scoreboard
 function renderPanel(list) {
   const best = Math.max(...Object.values(scores));
+  // Cooperative: one score, after the players. Every eye is petrified by
+  // both, so a number per player would be the same number twice.
+  const together = coop
+    ? `<div class="mp-row">
+        <div class="mp-name" style="color:#9a9895">together</div>
+        <div class="mp-score">${teamScore}</div>
+      </div>`
+    : "";
   document.getElementById("mpPanel").innerHTML =
     list.map((p) => {
       const cls = p.state === "offline" ? "err" : "warn";
@@ -435,9 +485,9 @@ function renderPanel(list) {
         <div class="mp-dot" style="background:${p.color}"></div>
         <div class="mp-name" style="color:${p.color}">${p.label}</div>
         <div class="mp-state ${cls}">${txt}</div>
-        <div class="mp-score${lead}">${scores[p.id]}</div>
+        ${coop ? "" : `<div class="mp-score${lead}">${scores[p.id]}</div>`}
       </div>`;
-    }).join("");
+    }).join("") + together;
 }
 
 // ------------------------------------------------------------- chrome
@@ -554,11 +604,15 @@ window.addEventListener("gaze-players", (e) => {
 });
 
 // Score attribution: sketch.js forwards the winning pointer to petrify(),
-// which reports it here. No game logic is duplicated.
+// which reports it here. No game logic is duplicated. Cooperative
+// petrifications list every pointer that was on the eye, and each of those
+// players is credited — the panel then shows the one shared count.
 window.addEventListener("blob-petrified", (e) => {
-  const p = byPointer[e.detail.pointerId];
-  if (!p) return;              // unattributed (single-pointer / programmatic)
-  scores[p.id] += 1;
+  const ids = (e.detail.pointerIds && e.detail.pointerIds.length) ? e.detail.pointerIds : [e.detail.pointerId];
+  const credited = [...new Set(ids.map((pid) => byPointer[pid]).filter(Boolean))];
+  if (!credited.length) return;   // unattributed (single-pointer / programmatic)
+  credited.forEach((p) => (scores[p.id] += 1));
+  if (coop) teamScore += 1;
   renderPanel(lastList);
 });
 
@@ -646,18 +700,23 @@ document.getElementById("mpSim").onclick = () => start(true);
 renderBootCmd();
 GazeAggregator.init({ players: PLAYERS });
 
-// The two start-up questions (AprilTags or the purple frame; collect data or
-// not), as pop-ups over the boot card. Recorded per round: the analysis
-// screen's "new round" starts the next part.
+// The start-up questions (competitive or cooperative; AprilTags or the purple
+// frame; collect data or not), as pop-ups over the boot card. Recorded per
+// round: the analysis screen's "new round" starts the next part.
 DataCollection.init({
   app: "medusa",
   title: "MEDUSA (+2 players)",
   players: PLAYERS,
   playerOf: (pid) => byPointer[pid] || null,
-  extra: () => ({ scores: { ...scores } }),
+  extra: () => ({
+    mode: coop ? "cooperative" : "competitive",
+    scores: { ...scores },
+    ...(coop ? { together: teamScore } : {}),
+  }),
   partLabel: "round",
 });
-SessionSetup.ask({ app: "medusa" });
+// The game mode first, then AprilTags or the frame, then collect or not.
+SessionSetup.ask({ app: "medusa", questions: [MODE_QUESTION] }).then((c) => setMode(c.mode));
 
 // Draw the tags DURING the boot card, not after starting. Each player's
 // scene camera has to see them before any gaze can be mapped, so the boot

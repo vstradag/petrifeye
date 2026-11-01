@@ -125,11 +125,15 @@
     post({ type: "fixation", fix: rec });
   }
 
+  const isCoop = () => typeof coop !== "undefined" && coop;
+  const together = () => (typeof teamScore !== "undefined" ? teamScore : 0);
+
   // When an eye turns to stone, every look it received during that life was
-  // spent petrifying it — whoever made the final stare.
+  // spent petrifying it — whoever made the final stare. In cooperative MEDUSA
+  // nobody made it alone, so it is credited to no single player (by: null).
   window.addEventListener("blob-petrified", (ev) => {
-    const { blobId, pointerId } = ev.detail || {};
-    const player = playerOf(pointerId);
+    const { blobId, pointerId, pointerIds } = ev.detail || {};
+    const player = (pointerIds || []).length > 1 ? null : playerOf(pointerId);
     const at = performance.now();
     A.petrifiedAt.set(blobId, { at, by: player ? player.id : null });
     const ids = A.pending.get(blobId) || [];
@@ -140,7 +144,7 @@
     A.pending.delete(blobId);
     // The page's own listener was registered first and has already counted
     // the point, so the scores read here include this petrification.
-    post({ type: "petrify", blobId, by: player ? player.id : null, fixIds: ids, scores: { ...scores } });
+    post({ type: "petrify", blobId, by: player ? player.id : null, fixIds: ids, scores: { ...scores }, together: together() });
   });
 
   // ---------------------------------------------------- per-frame analysis
@@ -252,6 +256,8 @@
       started: typeof started !== "undefined" && started,
       players: PLAYERS.map(({ id, label, color }) => ({ id, label, color })),
       scores: { ...scores },
+      mode: isCoop() ? "coop" : "compete",
+      together: together(),
       fixations: A.fixations,
       eyes: blobs.length,
       view: { w: width || innerWidth, h: height || innerHeight },
@@ -268,6 +274,7 @@
     // The round that ends is saved, with its score, before the score resets.
     if (window.DataCollection) DataCollection.newPart("round");
     for (const k of Object.keys(scores)) scores[k] = 0;
+    if (typeof teamScore !== "undefined") teamScore = 0;
     blobs.forEach((b) => b.unpetrify());
     A.fixations = []; A.pending.clear(); A.petrifiedAt.clear();
     A.roundStart = performance.now();

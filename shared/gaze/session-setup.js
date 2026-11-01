@@ -9,8 +9,14 @@
 // session to the next, and a choice made yesterday must not silently apply.
 // The last answers are remembered only to highlight them.
 //
-//   SessionSetup.ask({ app, surface: true, collect: true, notes })
-//     -> Promise<{ surface: "tags" | "frame", collect: bool }>
+//   SessionSetup.ask({ app, surface: true, collect: true, notes, questions })
+//     -> Promise<{ surface: "tags" | "frame", collect: bool, ...answers }>
+//
+// `questions` are an experience's own, asked BEFORE the two above because
+// they decide what the experience is (MEDUSA: competitive or cooperative):
+//   [{ key, eyebrow, question, options: [{ value, name, icon, desc }], note }]
+// Each answer comes back under its key, is remembered like the others, and
+// can be given in the URL as ?<key>=<value>.
 //
 // The surface choice is applied the moment it is made, to the page AND every
 // bridge (GazeAggregator.setSurfaceSource), so the frame or the tags are
@@ -19,8 +25,9 @@
 //
 // URL overrides, for testing and for windows opened by another page:
 //   ?surface=tags|frame   ?collect=1|0
-// ?sim (mouse + arrows) skips both questions: there is no screen to find, and
-// it collects only when ?collect says so.
+// ?sim (mouse + arrows) skips every question: there is no screen to find, it
+// collects only when ?collect says so, and an experience's own questions take
+// the URL's answer, else the last one given, else their first option.
 (function () {
   const KEY = "petrifeye-session-setup";
   const params = new URLSearchParams(location.search);
@@ -97,6 +104,12 @@
   .psu-ico-frame { width:18px; height:12px; border:2.5px solid #ff00ff; box-sizing:border-box; flex:none; }
   .psu-ico-rec { width:10px; height:10px; border-radius:50%; background:#ff3b3b; flex:none; }
   .psu-ico-off { width:10px; height:10px; border-radius:50%; border:1.5px solid #6a6a6a; box-sizing:border-box; flex:none; }
+  .psu-ico-one { width:12px; height:12px; border-radius:50%; border:2px solid #e8e6e2; box-sizing:border-box; flex:none; }
+  .psu-ico-two { width:20px; height:12px; flex:none; position:relative; }
+  .psu-ico-two::before, .psu-ico-two::after { content:""; position:absolute; top:0; width:12px; height:12px;
+                                              border-radius:50%; border:2px solid; box-sizing:border-box; }
+  .psu-ico-two::before { left:0; border-color:#ff5f5f; }
+  .psu-ico-two::after { right:0; border-color:#4ecdc4; }
   `;
   function injectCss() {
     if (document.getElementById("psu-css")) return;
@@ -185,6 +198,21 @@
     const prev = stored(app) || {};
     const sim = params.has("sim");
 
+    const answers = {};
+    for (const q of opts.questions || []) {
+      const fromUrl = q.options.find((o) => String(o.value) === params.get(q.key));
+      const before = q.options.find((o) => o.value === prev[q.key]);
+      if (fromUrl) answers[q.key] = fromUrl.value;
+      else if (sim) answers[q.key] = (before || q.options[0]).value;
+      else answers[q.key] = await popup({
+        eyebrow: q.eyebrow,
+        question: q.question,
+        options: q.options,
+        note: q.note,
+        highlight: (before || q.options[0]).value,
+      });
+    }
+
     let surface = urlSurface();
     if (!surface && opts.surface !== false && !sim) {
       const highlight = prev.surface || await bridgeSource() || "tags";
@@ -211,8 +239,8 @@
     }
     collect = !!collect;
 
-    choice = { app, surface, collect };
-    if (!sim) store(app, { surface, collect });
+    choice = { app, surface, collect, ...answers };
+    if (!sim) store(app, { surface, collect, ...answers });
     window.dispatchEvent(new CustomEvent("session-setup", { detail: { ...choice } }));
     return { ...choice };
   }

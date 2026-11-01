@@ -226,6 +226,19 @@ panels as they stood at closing. Without an analysis window open, a plainer
 The bridge writes them, and only for requests from this computer; in
 webcam-only mode (no bridge) they are downloaded instead.
 
+**MEDUSA can be competitive or cooperative**, chosen on its first start-up
+pop-up. *Competitive* is MEDUSA as it always was: one player's stare petrifies
+an eye and that player scores. *Cooperative* petrifies an eye only while both
+players look at it at the same time, for the dwell time in settings. One player
+alone on an eye marks it: a ring with a slot per player, the finder's in their
+colour and the other's dashed, a slow pulse in the finder's colour, and
+*waiting for P2* (or P1) under it — so the other player knows where to look.
+Once both are on it the red dwell arc fills and it turns to stone. The score is
+one shared number (*together*), on the game screen and on the analysis screen,
+and recordings note which mode was played. `?mode=coop` or `?mode=compete`
+answers the pop-up in the URL; `?sim&mode=coop` tries it with the mouse as P1
+and the arrow keys as P2.
+
 **DUCK HUNT is played together.** It is the classic Duck Hunt (DuckHunt-JS,
 MIT — see `games/duck-hunt/README.md`) set up like MEDUSA: same boot card,
 same per-player glasses or webcam, same tags. There is no trigger: a duck is
@@ -295,7 +308,8 @@ trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
 ### At the start of every experience: two questions
 
 Before the start card, every experience (MEDUSA, POLITICAL VISION, LIVE GAZE,
-DUCK HUNT, DUET, MAGNETIC POETRY) asks, as two pop-ups:
+DUCK HUNT, DUET, MAGNETIC POETRY) asks, as two pop-ups (MEDUSA first asks a
+third: competitive or cooperative — see above):
 
 1. **How should the eye trackers find the screen?** — **AprilTags** (four
    black-and-white codes in the corners: reliable in any light, and the only

@@ -27,6 +27,7 @@
   const S = {
     connected: false, started: false,
     players: [], scores: {}, fixations: [], eyes: 9,
+    mode: "compete", together: 0,   // cooperative: one shared score
     view: { w: 1920, h: 1080 },
     settings: { spreadPct: 3.5, minDurationMs: 100 },
     roundStart: performance.now(),
@@ -181,14 +182,20 @@
 
   // ------------------------------------------------------------ Q2 score
   function renderScore() {
+    const coop = S.mode === "coop";
     const vals = S.players.map((p) => S.scores[p.id] || 0);
     const best = Math.max(0, ...vals);
-    const total = vals.reduce((a, b) => a + b, 0);
+    // Cooperative: each eye credits both players, so summing them would
+    // count every eye twice.
+    const total = coop ? S.together : vals.reduce((a, b) => a + b, 0);
     const stones = S.blobs.length ? S.blobs.filter((b) => b.s).length : 0;
     const eyes = S.blobs.length || S.eyes;
     $("q2").innerHTML = `
       <div class="score-row">
-        ${S.players.map((p) => {
+        ${coop ? `<div class="score-cell">
+            <div class="score-name">${S.players.map((p) => `<span style="color:${p.color}">${p.label}</span>`).join(" + ")} · together</div>
+            <div class="score-num${S.together > 0 ? " score-lead" : ""}" style="color:${S.together > 0 ? "#fff" : "#d9d7d3"}">${S.together}</div>
+          </div>` : S.players.map((p) => {
           const v = S.scores[p.id] || 0;
           return `<div class="score-cell">
             <div class="score-name" style="color:${p.color}">${p.label}</div>
@@ -226,6 +233,10 @@
       n: a.n + r.n, petDur: a.petDur + r.petDur, allDur: a.allDur + r.allDur, path: a.path + r.path,
       score: a.score + r.score, rival: a.rival + r.rival, stones: a.stones + r.stones,
     }), { n: 0, petDur: 0, allDur: 0, path: 0, score: 0, rival: 0, stones: 0 });
+    // Cooperative: every eye was petrified by both, so the eyes petrified are
+    // the shared count, and there is no rival to have finished one.
+    const coop = S.mode === "coop";
+    if (coop) tot.score = S.together;
 
     const cell = (v, unit) => `<span class="big">${v}</span>${unit ? `<span class="unit">${unit}</span>` : ""}`;
     const row = (label, pick, unit, cls = "") =>
@@ -240,10 +251,10 @@
         ${row("time spent petrifying", (r) => r.n ? fmt(r.petDur / 1000, 1) : "—", "s", "secondary")}
         ${row("share of all looking", (r) => r.allDur ? fmt(100 * r.petDur / r.allDur) : "—", "%", "secondary")}
         ${row("looking per eye petrified", (r) => r.score ? fmt(r.petDur / 1000 / r.score, 1) : "—", "s", "secondary")}
-        ${row("on eyes the rival petrified", (r) => fmt(r.rival), "", "secondary")}
+        ${coop ? "" : row("on eyes the rival petrified", (r) => fmt(r.rival), "", "secondary")}
       </table>
       <div class="foot">
-        Petrifying: looks at an eye during the life in which it turned to stone, whoever finished it.
+        Petrifying: looks at an eye during the life in which it turned to stone, ${coop ? "by either player — both had to look together" : "whoever finished it"}.
         Scanpath: eye movement landing on those looks, in game-screen px (${S.view.w}×${S.view.h}).
         Eyes drift, so one stare can count as two fixations — time is steadier than count.
       </div>`;
@@ -334,6 +345,8 @@
       S.started = !!m.started;
       S.players = m.players || [];
       S.scores = m.scores || {};
+      S.mode = m.mode || "compete";
+      S.together = m.together || 0;
       S.fixations = m.fixations || [];
       S.eyes = m.eyes || S.eyes;
       if (m.view && m.view.w) S.view = m.view;
@@ -351,6 +364,7 @@
       const ids = new Set(m.fixIds || []);
       for (const f of S.fixations) if (ids.has(f.id)) { f.kind = "petrified"; f.by = m.by; }
       if (m.scores) S.scores = m.scores;
+      if (m.together != null) S.together = m.together;
       statsDirty = regionsDirty = true;
     } else if (m.type === "gaze") {
       const now = performance.now();

@@ -44,6 +44,10 @@ const MOUSE_ASSIST_RADIUS = 0; // a mouse is genuinely pixel-accurate — no ass
 // own error. Staring at an eye then did nothing unless the visitor chased the
 // on-screen marker onto it, which is exactly the symptom this fixes.
 const PRECISE_POINTER_IDS = new Set(["mouse", "sim2"]);
+// Progress drains at 1.5x the rate it builds: fast enough that deliberately
+// looking away frees the blob in well under a second, slow enough that the
+// constant single-frame dropouts of a webcam estimate cost almost nothing.
+const DWELL_DECAY = 1.5;
 const UNFREEZE_SECONDS = 10;
 const NUM_BLOBS = 9;
 
@@ -150,6 +154,27 @@ const Show = (window.PetrifEyeShow = Object.assign(
     fur: false,
   },
   window.PetrifEyeShow || {}
+));
+
+// The rules, set the same way as Show and read every frame, so a page can
+// change them after this loads (the multiplayer page does, from its start-up
+// pop-up).
+//
+// lookersNeeded is how many players must look at an eye AT THE SAME TIME to
+// petrify it. 1 is MEDUSA as it always was: any one stare does it, and the
+// one who stared scores. 2 is cooperative MEDUSA: an eye builds towards stone
+// only while both are on it, for the same dwell time, and one player alone
+// on it only marks it — "waiting for P2" — so the other knows where to look.
+//
+// playerOf(pointerId) -> { label, color } names whoever is behind a pointer,
+// for that mark. Without it the mark is drawn in white and names nobody.
+const Rules = (window.PetrifEyeRules = Object.assign(
+  {
+    lookersNeeded: 1,
+    playerOf: null,
+    players: [],          // [{ label, color }] — who could be waited for
+  },
+  window.PetrifEyeRules || {}
 ));
 const STONE_PATHS = [
   "/textures/stone_1.jpeg",
@@ -307,7 +332,8 @@ function draw() {
     ? GazeAssist.magnetize(aimed, focus, live, (t) => attention.reach(t))
     : aimed;
 
-  for (const b of blobs) b.dwell.update(assisted, dt);
+  if (Rules.lookersNeeded > 1) updateTogether(aimed, dt);
+  else for (const b of blobs) b.dwell.update(assisted, dt);
   for (const b of blobs) b.display(assisted);
 
   // Whatever fur happens to droop over a socket's rim on its own — no
@@ -318,6 +344,29 @@ function draw() {
 
   drawPointerMarkers(assisted);
   drawHUD(assisted);
+}
+
+// Cooperative MEDUSA's trigger, in place of each blob's own dwell: who is on
+// which eye this frame, by the arbiter's choice (the same `focus` the dwell
+// reads, so "looking at it" means exactly what it means alone).
+//
+// A held pointer is a frozen last position, not a look (shared/tracking.js),
+// so it cannot make up the pair. But as with the dwell it must not cost the
+// pair their progress either: while it still rests on the eye, the progress
+// holds where it was instead of draining for a Wi-Fi stall.
+function updateTogether(pointers, dt) {
+  const on = new Map();     // blobId -> [pointerId]
+  const held = new Map();   // blobId -> held pointers still resting on it
+  for (const p of pointers) {
+    const id = focus.get(p.id);
+    if (!id) continue;
+    const into = p.held ? held : on;
+    if (!into.has(id)) into.set(id, []);
+    into.get(id).push(p.id);
+  }
+  for (const b of blobs) {
+    b.lookTogether(on.get(b.id) || [], (held.get(b.id) || []).length, Rules.lookersNeeded, dt);
+  }
 }
 
 // Hard collision pass so blobs bounce off each other (not just the canvas
@@ -491,15 +540,15 @@ class Blob {
     this.petrifiedElapsed = 0;
     this.stoneImg = null;
     this.id = `blob-${floor(random(1e6))}`;
+    // Cooperative MEDUSA (see Rules): who is looking at this eye, in the
+    // order they arrived, and how long enough of them have looked together.
+    this.lookers = [];
+    this.together = 0;
 
     this.dwell = new DwellTarget({
       id: this.id,
       thresholdSec: DWELL_SECONDS,
-      // Progress drains at 1.5x the rate it builds: fast enough that
-      // deliberately looking away frees the blob in well under a second,
-      // slow enough that the constant single-frame dropouts of a webcam
-      // estimate cost almost nothing.
-      decayPerSec: 1.5,
+      decayPerSec: DWELL_DECAY,
       // No distance test of its own — the frame's arbiter already picked a
       // single winner per pointer (see draw()). Asking "am I the winner?"
       // instead of "is the pointer inside me?" is what makes a 40px target
@@ -649,16 +698,38 @@ class Blob {
     return this.radius * 0.42;
   }
 
-  petrify(ptr) {
+  // One frame of cooperative MEDUSA for this eye. `on` are the pointers
+  // looking at it now; `heldOn` counts stalled ones still resting on it.
+  lookTogether(on, heldOn, needed, dt) {
+    if (this.petrified) { this.lookers = []; this.together = 0; return; }
+    // Keep arrival order: the first in the list is the one who found it, and
+    // the mark is drawn in their colour for as long as they stay.
+    this.lookers = this.lookers.filter((id) => on.includes(id))
+      .concat(on.filter((id) => !this.lookers.includes(id)));
+    if (on.length >= needed) {
+      this.together += dt;
+      if (this.together >= DWELL_SECONDS) this.petrify({ id: this.lookers[0] }, this.lookers);
+    } else if (on.length + heldOn < needed) {
+      this.together = Math.max(0, this.together - dt * DWELL_DECAY);
+    }
+  }
+
+  petrify(ptr, together) {
     if (this.petrified) return;
     this.petrified = true;
     this.petrifiedElapsed = 0;
     this.vel.mult(0);
     // Who did it. Null in single player (and if a blob is petrified
-    // programmatically); multiplayer reads this to keep score.
+    // programmatically); multiplayer reads this to keep score. In cooperative
+    // MEDUSA it is the one who found the eye, and `together` lists everyone
+    // whose look petrified it.
     this.petrifiedBy = ptr ? ptr.id : null;
     window.dispatchEvent(new CustomEvent("blob-petrified", {
-      detail: { blobId: this.id, pointerId: this.petrifiedBy },
+      detail: {
+        blobId: this.id,
+        pointerId: this.petrifiedBy,
+        pointerIds: together ? [...together] : (this.petrifiedBy ? [this.petrifiedBy] : []),
+      },
     }));
     if (fur) fur.ruffle(this.pos.x, this.pos.y);
 
@@ -689,6 +760,8 @@ class Blob {
     this.stoneImg = null;
     this.vel = p5.Vector.random2D().mult(random(0.3, 0.8));
     this.dwell.reset();
+    this.lookers = [];
+    this.together = 0;
   }
 
   display(pointers) {
@@ -779,7 +852,9 @@ class Blob {
         circle(0, 0, this.radius * 2.7);
       }
 
-      const prog = this.dwell.maxProgress();
+      const coop = Rules.lookersNeeded > 1;
+      if (coop) this.displayWaiting(Rules.lookersNeeded);
+      const prog = coop ? this.together / DWELL_SECONDS : this.dwell.maxProgress();
       if (prog > 0.02) {
         noFill();
         stroke(255, 80, 80, 220);
@@ -788,6 +863,66 @@ class Blob {
       }
     }
     pop();
+  }
+
+  // Cooperative MEDUSA's mark, drawn while anyone is on this eye. A ring with
+  // one slot per player needed: the finder's slot in their colour, the slots
+  // still missing dashed and empty. While it is waiting, a slow pulse in the
+  // finder's colour — big enough to catch from the corner of the other
+  // player's eye — and a label naming who it waits for. Once enough are on
+  // it every slot is filled and the red dwell arc shows the stare completing.
+  displayWaiting(needed) {
+    const on = this.lookers;
+    if (!on.length) return;
+    const who = on.map((id) => (Rules.playerOf && Rules.playerOf(id)) || null);
+    const finder = (who[0] && who[0].color) || "#ffffff";
+    const waiting = on.length < needed;
+    const r = this.radius * 1.5;
+    const ctx = drawingContext;
+    ctx.save();
+    ctx.lineCap = "round";
+
+    if (waiting) {
+      const k = 0.5 + 0.5 * Math.sin((millis() / 1000) * TWO_PI * 0.9);
+      ctx.strokeStyle = finder;
+      ctx.globalAlpha = 0.25 + 0.55 * k;
+      ctx.lineWidth = 2 + 3 * k;
+      ctx.beginPath(); ctx.arc(0, 0, r + 8 + 8 * k, 0, TWO_PI); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.lineWidth = 3;
+    for (let i = 0; i < needed; i++) {
+      const a0 = -HALF_PI + (i * TWO_PI) / needed + 0.2;
+      const a1 = -HALF_PI + ((i + 1) * TWO_PI) / needed - 0.2;
+      const filled = i < on.length;
+      ctx.strokeStyle = filled ? ((who[i] && who[i].color) || "#ffffff") : "rgba(255,255,255,.4)";
+      ctx.setLineDash(filled ? [] : [4, 6]);
+      ctx.beginPath(); ctx.arc(0, 0, r, a0, a1); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    if (waiting) {
+      // Name the missing player when that is unambiguous (two players, one
+      // on it); with more players than needed, anyone can complete it.
+      const missing = (Rules.players || []).filter((p) => !who.includes(p));
+      const short = needed - on.length;
+      const named = missing.length === short;
+      const label = named ? `waiting for ${missing.map((p) => p.label).join(" + ")}`
+                          : `waiting for ${short} more`;
+      ctx.font = "600 13px ui-monospace, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      // Below the eye, or above it when that would leave the screen.
+      const gap = r + 30;
+      const y = this.pos.y + gap + 12 < height ? gap : -gap;
+      const w = ctx.measureText(label).width + 16;
+      ctx.fillStyle = "rgba(8,9,14,.8)";
+      ctx.fillRect(-w / 2, y - 11, w, 22);
+      ctx.fillStyle = named && missing.length === 1 ? missing[0].color : "#e8e6e2";
+      ctx.fillText(label, 0, y);
+    }
+    ctx.restore();
   }
 }
 
