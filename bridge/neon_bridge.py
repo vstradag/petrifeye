@@ -277,8 +277,20 @@ hub = Hub()
 # --------------------------------------------------------------------------
 # Neon
 # --------------------------------------------------------------------------
-async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int):
-    """Connect to the glasses and stream screen-mapped gaze into the hub."""
+async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int,
+                    discover: bool = True):
+    """Connect to the glasses and stream screen-mapped gaze into the hub.
+
+    discover=False (no address): serve the app but never look for a phone.
+    The multiplayer launcher starts its no-glasses-yet bridge this way and
+    restarts it pinned once it finds one. Left to search for itself, that
+    bridge took the first phone to answer — the same phone the launcher had
+    just handed to P2, so both ports streamed one pair of glasses.
+    """
+    if not address and not discover:
+        await hub.set_status("searching", "no glasses yet — the launcher keeps "
+                                          "looking and connects them here")
+        return
     try:
         from pupil_labs.realtime_api import Device, Network, receive_gaze_data, receive_video_frames
     except ImportError:
@@ -1397,6 +1409,9 @@ async def main():
 
     ap = argparse.ArgumentParser(description="Pupil Labs Neon bridge for PetrifEye")
     ap.add_argument("--address", help="Companion phone IP (skips mDNS discovery)")
+    ap.add_argument("--no-discovery", action="store_true",
+                    help="without --address: serve the app but do not look for "
+                         "a phone (the multiplayer launcher assigns phones)")
     ap.add_argument("--device-port", type=int, default=8080, help="Companion API port")
     ap.add_argument("--port", type=int, default=8443, help="HTTPS port to serve the app on")
     ap.add_argument("--screen-width", type=int, default=1920)
@@ -1480,7 +1495,8 @@ async def main():
     log.info("app + gaze socket on https://localhost:%d/", args.port)
 
     task = asyncio.create_task(
-        neon_loop(args.address, args.device_port, args.screen_width, args.screen_height)
+        neon_loop(args.address, args.device_port, args.screen_width, args.screen_height,
+                  discover=not args.no_discovery)
     )
     # The launcher stops bridges with SIGTERM (and closing the Terminal window
     # sends SIGHUP). Python's default for both is to die on the spot, which

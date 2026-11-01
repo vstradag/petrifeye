@@ -416,8 +416,8 @@ def main():
 
     # No glasses is NOT a reason to refuse. The bridge is also the web server:
     # without one, the app cannot even open for the webcam or the mouse. So
-    # start a single bridge regardless. It keeps looking, and a pair of
-    # glasses switched on later is picked up as P1.
+    # start a single bridge regardless. The launcher keeps looking, and a pair
+    # of glasses switched on later is picked up as P1.
     if not devices:
         if devices is not None:
             print("\nNo Neon Companion found on this network.\n"
@@ -469,7 +469,8 @@ def main():
     # One bridge per phone, each pinned to its own phone with --address: an
     # unpinned bridge takes the FIRST phone that answers, so two unpinned
     # bridges would both stream the same pair of glasses. With no phones,
-    # one unpinned bridge, so the app is served and keeps looking.
+    # one bridge that only serves the app (--no-discovery) — it must not look
+    # for a phone itself; see watch_for_latecomers below.
     plan = [(i + 1, args.base_port + i, d["ip"]) for i, d in enumerate(devices)] \
         or [(1, args.base_port, None)]
 
@@ -477,13 +478,22 @@ def main():
         if not free_port(port):
             return 1
 
+    def start_bridge(n, port, ip):
+        log = f"/tmp/bridge-p{n}.log"
+        cmd = [python, BRIDGE, "--port", str(port)] + \
+            (["--address", ip] if ip else ["--no-discovery"]) + bridge_extra
+        with open(log, "w") as fh:
+            return (n, port, ip, subprocess.Popen(cmd, stdout=fh, stderr=fh)), log
+
+    # Held while a seat changes hands, so ctrl-c never stops the bridges
+    # halfway through a swap and leaves the new one running on its own.
+    seats = threading.Lock()
+
     procs = []
     print()
     for n, port, ip in plan:
-        log = f"/tmp/bridge-p{n}.log"
-        cmd = [python, BRIDGE, "--port", str(port)] + (["--address", ip] if ip else []) + bridge_extra
-        with open(log, "w") as fh:
-            procs.append((n, port, ip, subprocess.Popen(cmd, stdout=fh, stderr=fh)))
+        seat, log = start_bridge(n, port, ip)
+        procs.append(seat)
         print(f"P{n} -> port {port}  ({ip or 'no glasses yet — still looking'})   log: {log}")
 
     # Open the game MENU, not a particular game. With several experiences now
@@ -515,34 +525,63 @@ def main():
     # launcher started at 00:18:30 with one phone, the second phone was ready
     # moments later and reachable all evening, and never got a bridge.
     #
-    # So a phone that turns up late now simply gets the next free port.
+    # So a phone that turns up late now simply gets a seat: the no-glasses
+    # bridge's seat (P1) if there is one, else the next free port.
+    #
+    # This loop is the only thing that assigns a late phone. The no-glasses
+    # bridge used to search for itself too, and the two raced for the same
+    # phone. Observed for real: the bridge on 8443 found a phone at 21:52:04,
+    # this loop found the same one at 21:52:12 and started P2 on 8444 pinned
+    # to it, so both ports streamed one pair of glasses. And two bridges
+    # counted as two seats filled, so the second phone, awake on the same
+    # network all along, never got a bridge at all.
+    limit = args.players or AUTO_JOIN_LIMIT
+
+    def pinned():
+        return {ip for _n, _p, ip, _proc in procs if ip}
+
     def watch_for_latecomers():
-        taken = {ip for _n, _p, ip, _proc in procs if ip}
-        limit = args.players or AUTO_JOIN_LIMIT
         while True:
             time.sleep(WATCH_SECONDS)
-            if len(procs) >= limit:
+            if len(pinned()) >= limit:
                 return                      # every seat an app can read is full
             try:
                 found = asyncio.run(discover()) or []
             except Exception:
                 continue                    # a transient network error is not fatal
             for d in found:
-                if d["ip"] in taken or len(procs) >= limit:
+                if d["ip"] in pinned() or len(pinned()) >= limit:
                     continue
-                n = len(procs) + 1
-                port = args.base_port + n - 1
-                if not free_port(port):
-                    continue
-                log = f"/tmp/bridge-p{n}.log"
-                cmd = [python, BRIDGE, "--port", str(port), "--address", d["ip"]] + bridge_extra
-                with open(log, "w") as fh:
-                    procs.append((n, port, d["ip"], subprocess.Popen(cmd, stdout=fh, stderr=fh)))
-                taken.add(d["ip"])
-                print(f"\nP{n} joined late -> port {port}  ({d['ip']})   log: {log}")
-                print("   reload the page in the browser to pick it up\n")
+                with seats:
+                    empty = next((i for i, (_n, _p, ip, _proc) in enumerate(procs)
+                                  if not ip), None)
+                    if empty is not None:
+                        # Restarted, not added to: the page reconnects to the
+                        # same port by itself, and P1 stays P1.
+                        n, port, _ip, old = procs[empty]
+                        old.terminate()
+                        try:
+                            old.wait(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            old.kill()
+                    else:
+                        n = len(procs) + 1
+                        port = args.base_port + n - 1
+                    if not free_port(port):
+                        continue
+                    seat, log = start_bridge(n, port, d["ip"])
+                    if empty is not None:
+                        procs[empty] = seat
+                    else:
+                        procs.append(seat)
+                if empty is not None:
+                    print(f"\nP{n} found -> port {port}  ({d['ip']})   log: {log}")
+                    print("   the page connects to it by itself\n")
+                else:
+                    print(f"\nP{n} joined late -> port {port}  ({d['ip']})   log: {log}")
+                    print("   reload the page in the browser to pick it up\n")
 
-    if len(procs) < (args.players or AUTO_JOIN_LIMIT):
+    if len(pinned()) < limit:
         threading.Thread(target=watch_for_latecomers, daemon=True).start()
         print(f"\nStill watching for more phones every {WATCH_SECONDS}s — "
               "open the Companion app and they will be added.")
@@ -550,6 +589,7 @@ def main():
     print("\nctrl-c to stop all bridges\n")
 
     def stop():
+        seats.acquire()                     # not mid-swap; see `seats`
         for _n, _p, _ip, proc in procs:
             proc.terminate()
         # Give each bridge a moment to shut down in order — a recording
@@ -575,8 +615,15 @@ def main():
     signal.signal(signal.SIGINT, interrupt)
     signal.signal(signal.SIGTERM, interrupt)
     try:
-        for _n, _p, _ip, proc in procs:
-            proc.wait()
+        # Polled rather than proc.wait() on each bridge in turn: the watcher
+        # can swap the no-glasses bridge for a pinned one, and waiting on the
+        # old process ended the launcher the moment it stopped — leaving the
+        # new bridges running with nothing left to ctrl-c.
+        while True:
+            with seats:
+                if all(proc.poll() is not None for _n, _p, _ip, proc in procs):
+                    break
+            time.sleep(0.5)
     except KeyboardInterrupt:
         stop()
     return 0
