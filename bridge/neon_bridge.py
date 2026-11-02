@@ -277,6 +277,11 @@ hub = Hub()
 # --------------------------------------------------------------------------
 # Neon
 # --------------------------------------------------------------------------
+GLASSES_MISSING = ("the phone answers, but its glasses are not connected — "
+                   "check the cable at the phone, then close and reopen the "
+                   "Companion app. Reconnecting by itself.")
+
+
 async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int,
                     discover: bool = True):
     """Connect to the glasses and stream screen-mapped gaze into the hub.
@@ -293,6 +298,7 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
         return
     try:
         from pupil_labs.realtime_api import Device, Network, receive_gaze_data, receive_video_frames
+        from pupil_labs.realtime_api.device import DeviceError
     except ImportError:
         await hub.set_status("error", "pupil-labs-realtime-api not installed")
         return
@@ -305,6 +311,23 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
     except ImportError:
         GazeMapper = None
         log.warning("real-time-screen-gaze missing — falling back to unmapped gaze")
+
+    # One log entry per problem, not one per retry. Retrying every 3 s, an
+    # unchanged fault once wrote 1,947 identical tracebacks in two hours and
+    # buried everything else in the log.
+    repeat = {"what": None, "n": 0, "at": 0.0}
+
+    def first_time(what):
+        """True when `what` is new; while it persists, a count once a minute."""
+        now = time.monotonic()
+        if what != repeat["what"]:
+            repeat.update(what=what, n=0, at=now)
+            return True
+        repeat["n"] += 1
+        if now - repeat["at"] >= 60:
+            log.info("still: %s (%d more times)", what, repeat["n"])
+            repeat.update(n=0, at=now)
+        return False
 
     while True:
         try:
@@ -340,7 +363,24 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
                 name = getattr(status.phone, "device_name", "Companion")
                 await hub.set_status("connected", f"{name} — starting streams")
 
-                calib = await dev.get_calibration()
+                # The cameras' calibration lives on the Neon module, so a phone
+                # that has lost its glasses answers everything else and refuses
+                # this with a 404. Seen for real: P2's glasses dropped mid-
+                # session (cable, the phone cutting USB power, or the Companion
+                # app losing the module) and every reconnect for two hours got
+                # the 404, shown to the players only as "DeviceError: (404,
+                # 'Failed to fetch calibration')". Said plainly now, and still
+                # retried, so plugging them back in is all it takes.
+                try:
+                    calib = await dev.get_calibration()
+                except DeviceError as exc:
+                    if not exc.args or exc.args[0] != 404:
+                        raise
+                    if first_time("glasses missing"):
+                        log.warning("%s answers but has no glasses (calibration 404)", name)
+                    await hub.set_status("stalled", GLASSES_MISSING)
+                    await asyncio.sleep(3)
+                    continue
                 mapper = GazeMapper(calib) if GazeMapper else None
                 if RECORDER:
                     RECORDER.camera(calib)
@@ -367,6 +407,7 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
                     log.info("no eye-events stream — blinks unavailable "
                              "(enable 'Compute fixations' in the Companion app)")
 
+                repeat["what"] = None       # a fault after this is news again
                 await stream(gaze_sensor, scene_sensor, eye_events_sensor,
                              mapper, screen_w, screen_h)
 
@@ -393,13 +434,15 @@ async def neon_loop(address: str | None, port: int, screen_w: int, screen_h: int
                 "ClientConnectionError",
             }
             if transient:
-                log.info("phone unreachable (%s) — retrying", type(exc).__name__)
+                if first_time("phone unreachable"):
+                    log.info("phone unreachable (%s) — retrying", type(exc).__name__)
                 await hub.set_status(
                     "stalled",
                     "phone not reachable — waiting for the Companion app to come back",
                 )
             else:
-                log.exception("neon loop failed")
+                if first_time(f"{type(exc).__name__}: {exc}"):
+                    log.exception("neon loop failed")
                 await hub.set_status("error", f"{type(exc).__name__}: {exc}")
             await asyncio.sleep(3)
 

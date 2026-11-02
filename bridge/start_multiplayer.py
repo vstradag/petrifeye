@@ -30,11 +30,13 @@ from contextlib import closing
 BASE_PORT = 8443
 SWEEP_TIMEOUTS = (0.4, 1.0, 2.0)   # seconds per discovery pass; see discover()
 
-# Seats a late phone can still take. Two, because every experience's PLAYERS
-# table has exactly two rows (ports 8443 and 8444) — a third bridge would run
-# with no screen reading it. `--players N` raises the limit along with the rest.
+# Seats the launcher always opens, a bridge on each, phone or not. Two,
+# because every experience's PLAYERS table has exactly two rows (ports 8443
+# and 8444) — a third bridge would run with no screen reading it. `--players N`
+# sets it instead, and finding more phones than this opens more.
 AUTO_JOIN_LIMIT = 2
 WATCH_SECONDS = 15                 # how often to look again for a phone
+MDNS_SECONDS = 3.0                 # how long discover() listens; see _mdns_hosts()
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "neon_bridge.py")
 
@@ -252,13 +254,40 @@ async def _identify(session, host, timeout=3.0):
     }
 
 
-async def discover():
-    """Sweep every private subnet this machine is on for Companion devices."""
+async def _mdns_hosts(seconds=MDNS_SECONDS):
+    """IPv4 addresses of phones announcing themselves over mDNS (Bonjour).
+
+    The sweep's complement. It reaches a phone on a network too large to
+    sweep (classify() skips those), as the no-glasses bridge's own search
+    used to before the launcher took over all searching; and where multicast
+    is dropped it simply finds no one.
+    """
+    try:
+        from pupil_labs.realtime_api.discovery import discover_devices
+    except ImportError:
+        return []
+    hosts = []
+    try:
+        async for d in discover_devices(timeout_seconds=seconds):
+            hosts += [a for a in d.addresses if "." in a and a not in hosts]
+    except Exception:
+        pass
+    return hosts
+
+
+async def discover(verbose=True):
+    """Find every Companion device: sweep each private subnet this machine is
+    on, and listen for phones announcing themselves over mDNS meanwhile.
+
+    verbose=False for the watcher's repeat searches, which would otherwise
+    reprint the same network report every few seconds.
+    """
     import aiohttp
+    say = print if verbose else (lambda *a, **k: None)
 
     nets = local_networks()
     if not nets:
-        print("no usable private network interface", file=sys.stderr)
+        say("no usable private network interface", file=sys.stderr)
         return []
 
     mine = {addr for addr, _ in nets}
@@ -267,26 +296,16 @@ async def discover():
     for addr, net in nets:
         verdict, reason = classify(net)
         if verdict == "no":
-            print(f"SKIPPING {net} ({addr}) — {reason}")
+            say(f"SKIPPING {net} ({addr}) — {reason}")
             continue
         if verdict == "maybe":
-            print(f"warning: {net} — {reason}")
+            say(f"warning: {net} — {reason}")
         usable += 1
-        print(f"scanning {net} (this machine is {addr} there)…")
+        say(f"scanning {net} (this machine is {addr} there)…")
         hosts += [str(h) for h in net.hosts() if str(h) not in mine]
 
-    if not usable:
-        print("\nEvery network this machine is on is a managed/provider network.\n"
-              "Being on the same Wi-Fi name is not enough — these deliberately\n"
-              "stop devices reaching each other, so no amount of retrying will\n"
-              "help. Turn on the Companion phone's hotspot and join it from\n"
-              "this Mac (it shares mobile data, so you keep internet), or use a\n"
-              "dedicated router — which needs no internet connection at all.",
-              file=sys.stderr)
-        # None, not [] — the caller's generic "check you're on the same
-        # network" advice is wrong here and would only muddy a diagnosis
-        # that is already certain.
-        return None
+    # Listened for during the sweep, so it costs no extra time.
+    mdns = asyncio.create_task(_mdns_hosts())
 
     # SEVERAL passes, each only re-probing hosts not found yet, with a longer
     # wait each time. One quick pass was not enough, measured on two real
@@ -300,9 +319,23 @@ async def discover():
     #   0.4s then 1.5s        11/12
     #   0.4 / 1.0 / 2.0s      12/12   (~2.7s, once per session)
     open_hosts = []
-    for wait in SWEEP_TIMEOUTS:
+    for wait in SWEEP_TIMEOUTS if usable else ():
         todo = [h for h in hosts if h not in open_hosts]
         open_hosts += [h for h in await asyncio.gather(*(_port_open(h, timeout=wait) for h in todo)) if h]
+    open_hosts += [h for h in await mdns if h not in open_hosts]
+
+    if not open_hosts and not usable:
+        say("\nEvery network this machine is on is a managed/provider network.\n"
+            "Being on the same Wi-Fi name is not enough — these deliberately\n"
+            "stop devices reaching each other, so no amount of retrying will\n"
+            "help. Turn on the Companion phone's hotspot and join it from\n"
+            "this Mac (it shares mobile data, so you keep internet), or use a\n"
+            "dedicated router — which needs no internet connection at all.",
+            file=sys.stderr)
+        # None, not [] — the caller's generic "check you're on the same
+        # network" advice is wrong here and would only muddy a diagnosis
+        # that is already certain.
+        return None
     if not open_hosts:
         return []
 
@@ -447,9 +480,8 @@ def main():
     if devices:
         # The one gap no sweep can close: a phone that is asleep, or whose
         # Companion app is in the background, does not answer at all.
-        print("\nMissing a pair of glasses? Wake that phone, bring the Companion\n"
-              "app to the front, and run this again — it replaces the bridges\n"
-              "that are already running.")
+        print("\nMissing a pair of glasses? Wake that phone and bring the Companion\n"
+              f"app to the front: it is picked up by itself within ~{WATCH_SECONDS}s.")
 
     if devices and args.players and len(devices) != args.players:
         print(f"\nexpected {args.players}, found {len(devices)} — not starting.",
@@ -468,11 +500,18 @@ def main():
 
     # One bridge per phone, each pinned to its own phone with --address: an
     # unpinned bridge takes the FIRST phone that answers, so two unpinned
-    # bridges would both stream the same pair of glasses. With no phones,
-    # one bridge that only serves the app (--no-discovery) — it must not look
-    # for a phone itself; see watch_for_latecomers below.
-    plan = [(i + 1, args.base_port + i, d["ip"]) for i, d in enumerate(devices)] \
-        or [(1, args.base_port, None)]
+    # bridges would both stream the same pair of glasses.
+    #
+    # And a bridge on EVERY seat, phone or not. A seat with no phone yet runs
+    # one that only serves the page (--no-discovery — it must not look for a
+    # phone itself; see watch_for_latecomers below) until a phone is found for
+    # it. Without it the page called P2's absent bridge "bridge on port 8444
+    # not reachable", in red, beside a command to start a bridge by hand — the
+    # road to unpinned bridges sharing a phone — and a phone found later
+    # needed a page reload to be seen.
+    n_seats = max(len(devices), args.players or AUTO_JOIN_LIMIT)
+    plan = [(i + 1, args.base_port + i, devices[i]["ip"] if i < len(devices) else None)
+            for i in range(n_seats)]
 
     for _n, port, _ip in plan:
         if not free_port(port):
@@ -525,8 +564,8 @@ def main():
     # launcher started at 00:18:30 with one phone, the second phone was ready
     # moments later and reachable all evening, and never got a bridge.
     #
-    # So a phone that turns up late now simply gets a seat: the no-glasses
-    # bridge's seat (P1) if there is one, else the next free port.
+    # So a phone that turns up late now simply gets the first seat without
+    # one: that seat's bridge is restarted pinned to it, on the same port.
     #
     # This loop is the only thing that assigns a late phone. The no-glasses
     # bridge used to search for itself too, and the two raced for the same
@@ -535,53 +574,41 @@ def main():
     # to it, so both ports streamed one pair of glasses. And two bridges
     # counted as two seats filled, so the second phone, awake on the same
     # network all along, never got a bridge at all.
-    limit = args.players or AUTO_JOIN_LIMIT
-
     def pinned():
         return {ip for _n, _p, ip, _proc in procs if ip}
 
     def watch_for_latecomers():
         while True:
             time.sleep(WATCH_SECONDS)
-            if len(pinned()) >= limit:
-                return                      # every seat an app can read is full
+            if len(pinned()) >= len(procs):
+                return                      # every seat has its phone
             try:
-                found = asyncio.run(discover()) or []
+                found = asyncio.run(discover(verbose=False)) or []
             except Exception:
                 continue                    # a transient network error is not fatal
             for d in found:
-                if d["ip"] in pinned() or len(pinned()) >= limit:
+                if d["ip"] in pinned():
                     continue
                 with seats:
                     empty = next((i for i, (_n, _p, ip, _proc) in enumerate(procs)
                                   if not ip), None)
-                    if empty is not None:
-                        # Restarted, not added to: the page reconnects to the
-                        # same port by itself, and P1 stays P1.
-                        n, port, _ip, old = procs[empty]
-                        old.terminate()
-                        try:
-                            old.wait(timeout=15)
-                        except subprocess.TimeoutExpired:
-                            old.kill()
-                    else:
-                        n = len(procs) + 1
-                        port = args.base_port + n - 1
+                    if empty is None:
+                        break
+                    # Restarted on the same port: the page reconnects to it by
+                    # itself, and the seat keeps its player number.
+                    n, port, _ip, old = procs[empty]
+                    old.terminate()
+                    try:
+                        old.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        old.kill()
                     if not free_port(port):
                         continue
-                    seat, log = start_bridge(n, port, d["ip"])
-                    if empty is not None:
-                        procs[empty] = seat
-                    else:
-                        procs.append(seat)
-                if empty is not None:
-                    print(f"\nP{n} found -> port {port}  ({d['ip']})   log: {log}")
-                    print("   the page connects to it by itself\n")
-                else:
-                    print(f"\nP{n} joined late -> port {port}  ({d['ip']})   log: {log}")
-                    print("   reload the page in the browser to pick it up\n")
+                    procs[empty], log = start_bridge(n, port, d["ip"])
+                print(f"\nP{n} found -> port {port}  ({d['ip']})   log: {log}")
+                print("   the page connects to it by itself\n")
 
-    if len(pinned()) < limit:
+    if len(pinned()) < len(procs):
         threading.Thread(target=watch_for_latecomers, daemon=True).start()
         print(f"\nStill watching for more phones every {WATCH_SECONDS}s — "
               "open the Companion app and they will be added.")
