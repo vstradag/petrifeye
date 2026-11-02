@@ -202,7 +202,12 @@ function preload() {
 }
 
 function setup() {
-  createCanvas(windowWidth, windowHeight);
+  const cnv = createCanvas(windowWidth, windowHeight);
+  // Pinned to the viewport, under everything else: anything left in the page
+  // flow — the settings panel without its stylesheet, once, on a projector —
+  // used to push the whole game down, a black band over the top of the eyes.
+  // z-index -1 keeps it below every overlay, as when it sat in the flow.
+  Object.assign(cnv.elt.style, { position: "fixed", left: "0", top: "0", zIndex: "-1" });
   pixelDensity(1);
   for (let i = 0; i < NUM_BLOBS; i++) {
     blobs.push(new Blob(random(width), random(height)));

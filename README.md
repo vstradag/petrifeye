@@ -535,6 +535,14 @@ WebGazer can be replaced later without touching the rest of the app:
 - **`shared/fur-field.js`** — the background fur rendering/physics.
   Decorative, no coupling to tracking.
 
+- **`shared/stylesheets.js`** — in every page's `<head>`, after its
+  stylesheets: once the page has loaded, any stylesheet that did not arrive is
+  fetched again (up to three times), instead of the page running the whole
+  session without it. A missing `tuning.css` once left MEDUSA's hidden settings
+  panel as a full-width block that pushed the eyes 413px down on a projector.
+  Chrome gives a failed stylesheet an empty sheet rather than none, so it is
+  judged by its rules. A new page should include it too.
+
 - **`shared/gaze/duo-session.js`** (+ `duo.css`) — everything around a
   two-player game that is not the game: the boot card with each player's
   Neon/webcam choice, the webcam calibration, the settings gear and its common
