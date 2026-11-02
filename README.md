@@ -35,28 +35,22 @@ folder is the same script):
    updated with `git pull`).
 3. **The eye-tracker bridge** — its Python environment in
    `~/dev/medusa-bridge-venv` and its packages, then checked by actually
-   importing them; and the Desktop shortcuts.
+   importing them; and the Desktop shortcut.
 4. **Google Chrome**, offered if it is missing — the piece is set up and tested
    in Chrome, and the launcher opens it when it is there.
 
 At the end it offers to start the piece. **Every session after that:**
-double-click **`PetrifEye`** on the Desktop:
-
-- **`PetrifEye.command`** — the piece as always (same as
-  `Start PetrifEye.command`);
-- **`PetrifEye Frame.command`** — the same, starting with the purple frame
-  instead of the AprilTags (same as `Frame PetrifEye.command`, see *Playing
-  without the tags* below).
-
-Either way, **every experience asks two questions when it opens** — AprilTags
-or the purple frame, and whether to collect data (see *At the start of every
-experience* below) — so the shortcut only decides which answer is offered
-first.
+double-click **`PetrifEye`** on the Desktop (the same as
+`Start PetrifEye.command` in the project folder). There is one shortcut
+because **every experience asks two questions when it opens** — AprilTags or
+the purple frame, and whether to collect data (see *At the start of every
+experience* below). Setup removes the second shortcut, `PetrifEye Frame`,
+that earlier versions put on the Desktop.
 
 Leave its Terminal window open for the session; `ctrl-c` there stops
-everything. The shortcuts point to wherever the project folder is; if you move
+everything. The shortcut points to wherever the project folder is; if you move
 the folder, double-click `Setup PetrifEye.command` in its new place to re-point
-them (`MEDUSA_NO_SHORTCUT=1` to do without).
+it (`MEDUSA_NO_SHORTCUT=1` to do without).
 
 **To update:** run the same line again, or double-click
 **`Update PetrifEye.command`** in the `petrifeye` folder. It fetches the latest
@@ -101,7 +95,7 @@ as quarantined and refuses to open an unsigned `.command` by double-clicking
   (adjust the path to where the folder is).
 
 Setup then lifts the flag from the whole folder, so Start, Frame and Record —
-and the Desktop shortcuts — open normally from then on. (The one-line installer
+and the Desktop shortcut — open normally from then on. (The one-line installer
 and `git clone` never set the flag, which is why they are the easier routes.)
 `Setup PetrifEye.command` needs Python 3.10+ to be there already; it finds one
 by asking each candidate its version, builds the environment outside the

@@ -12,7 +12,7 @@
 #   2. the project    into ~/petrifeye — a download, so no git or Apple
 #                     developer tools are needed; a git checkout is pulled instead
 #   3. the bridge     its Python environment and dependencies, checked by
-#                     importing them, plus the Desktop shortcuts
+#                     importing them, plus the Desktop shortcut
 #                     (Setup PetrifEye.command does this part, as it always has)
 #   4. Chrome         offered if missing: the piece is set up and tested in it
 #
@@ -217,8 +217,8 @@ fi
 
 # ------------------------------------------------------------------ done
 bold "Done."
-say "  Start it any time by double-clicking  PetrifEye  on the Desktop"
-say "  (or  PetrifEye Frame  for no tags on screen)."
+say "  Start it any time by double-clicking  PetrifEye  on the Desktop."
+say "  Each experience asks whether to use the AprilTags or the purple frame."
 say "  To update later, run the same line again — or double-click"
 say "  Update PetrifEye.command  in $DEST."
 say ""

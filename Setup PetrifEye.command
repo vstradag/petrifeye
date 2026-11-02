@@ -23,28 +23,32 @@ MIN="3.10"
 say() { printf '%s\n' "$*"; }
 rule() { say "------------------------------------------------------------"; }
 
-# Double-clickable shortcuts on the Desktop, so after the first run nobody has
+# A double-clickable shortcut on the Desktop, so after the first run nobody has
 # to dig the project folder out again:
-#   PetrifEye.command        -> Start PetrifEye.command  (the AprilTags)
-#   PetrifEye Frame.command  -> Frame PetrifEye.command  (no tags, the frame)
-# Not symlinks: Start finds the project from its own path, which through a
-# link would be the Desktop. Each is a tiny script that runs the real one.
+#   PetrifEye.command  -> Start PetrifEye.command
+# One is enough: every experience asks at its start whether to find the screen
+# by the AprilTags or by the purple frame. (A second, PetrifEye Frame, only
+# changed which answer was offered first; Frame PetrifEye.command still does
+# that, from the project folder.)
+# Not a symlink: Start finds the project from its own path, which through a
+# link would be the Desktop. It is a tiny script that runs the real one.
 # Rewritten on every setup, so running Setup from a moved project re-points
-# them. Opt out with MEDUSA_NO_SHORTCUT=1.
+# it. Opt out with MEDUSA_NO_SHORTCUT=1.
+SHORTCUT_MARK='# Shortcut made by Setup PetrifEye.command. Safe to delete.'
 one_shortcut() {   # $1 shortcut name, $2 launcher in the project
   local link="$DESK/$1"
   local target
   target="$(pwd)/$2"
   {
     printf '#!/bin/bash\n'
-    printf '# Shortcut made by Setup PetrifEye.command. Safe to delete.\n'
+    printf '%s\n' "$SHORTCUT_MARK"
     printf 'TARGET=%q\n' "$target"
     printf '%s\n' \
       'if [ -f "$TARGET" ]; then exec bash "$TARGET"; fi' \
       'echo "PetrifEye is no longer at:"' \
       'echo "  $TARGET"' \
       'echo "Open the project where it is now and double-click Setup PetrifEye.command"' \
-      'echo "there - that puts working shortcuts back on the Desktop."' \
+      'echo "there - that puts a working shortcut back on the Desktop."' \
       'read -r -p "Press return to close."'
   } > "$link" && chmod +x "$link" \
     && say "Desktop shortcut:  $link"
@@ -55,9 +59,13 @@ desktop_shortcut() {
   DESK="${MEDUSA_DESKTOP:-$HOME/Desktop}"
   [ -d "$DESK" ] || return 0
   one_shortcut "PetrifEye.command" "Start PetrifEye.command"
-  one_shortcut "PetrifEye Frame.command" "Frame PetrifEye.command"
-  say "  PetrifEye.command        starts the piece with the AprilTags"
-  say "  PetrifEye Frame.command  starts it with no tags (the screen frame)"
+  say "  each experience asks whether to use the AprilTags or the purple frame"
+  # The second shortcut earlier versions made. Removed only when it is ours —
+  # it carries the mark — never a file of the same name someone made.
+  local old="$DESK/PetrifEye Frame.command"
+  if [ -f "$old" ] && grep -qxF "$SHORTCUT_MARK" "$old"; then
+    rm -f "$old" && say "Removed the old shortcut:  $old"
+  fi
 }
 
 # A project downloaded as a zip in a browser is QUARANTINED: macOS then
