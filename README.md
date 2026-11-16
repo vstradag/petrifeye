@@ -172,11 +172,14 @@ stops every bridge.
 ### Displays to bring
 
 Most experiences want one screen, or two if you are showing an observer screen
-(MEDUSA with analysis, POLITICAL VISION). **LIVE GAZE wants one display per
-uploaded image**, plus an analysis display for each one if you have them — the
-limit is monitors, not the computer, because each pair of glasses is decoded
-once however many screens are registered. Short on displays: open a single
-analysis window, whose fourth panel carries the other images' scanpaths too.
+(MEDUSA with analysis, POLITICAL VISION). **LIVE GAZE takes as many images as
+you upload** and can give each its own display, plus an analysis display for
+each one if you have them — the limit is monitors, not the computer, because
+each pair of glasses is decoded once however many screens are registered (screen
+N draws AprilTags 4N–4N+3). It does not need a display per image: the screens
+share one queue, so **n n** moves any of them on to the next unseen image. Short
+on analysis displays: open a single analysis window, whose fourth panel carries
+the other images' scanpaths too.
 
 **LIVE GAZE calibrates each visitor.** When a session starts, every screen
 shows five eyes one after another; each turns to stone once the gaze of
@@ -193,7 +196,7 @@ Unlike MEDUSA it does not learn from what is on screen: inferring where people
 On the upload page they can be removed, reordered or replaced by your own
 files like any upload, and **use the included images** brings them back. To
 change what ships, swap the files in that folder and edit the list (`file` and
-`title`, at most three; an empty list ships none).
+`title`, as many as you like; an empty list ships none).
 
 **Moving through the images.** When a visitor is done with an image, press
 **n n** (next — shows the next image nobody has seen yet) or **x x** (close —
@@ -205,6 +208,28 @@ only option. Once every image has been closed, the screens say so and
 images, unseen again, results in a new folder, each screen calibrating first —
 with no need to quit and relaunch. "Open every window" on the upload page
 also starts the show over.
+
+**LIVE GAZE images can be printed instead of shown.** On the upload page each
+image is *on a screen* or *printed*. A printed image gets a sheet — the image
+and its own four AprilTags, laid out by the same rule as a screen (the largest
+image clear of the corner tags) — printed from **print sheet** / **print all
+sheets** in step 2, one image per page, with the paper (A4, A3, Letter) and tag
+size (30–80 mm; 45 mm reads from up to about a metre) chosen there. Any printer
+scale works, since gaze is mapped through the tags; only don't crop the page,
+and print again after changing the paper, the tag size or the image. Each
+printed image has a **tracking** window that stays on the Mac: it registers the
+sheet with the bridges (its size and its own tag geometry, in 0.1 mm — the
+on-screen tag slider doesn't move tags on paper), shows the operator the sheet
+with live gaze on it, and measures and saves exactly as a screen does. There is
+no five-eye calibration on paper, and **n n** does not apply (a sheet keeps its
+image); **x x** closes it. Screens never take a printed image from the queue.
+Printing needs the AprilTags: with the purple frame every image is on screen.
+
+**Every analysis can be printed.** The analysis windows stay on screens; when an
+image closes, its analysis window offers **print image N** (bottom left, or
+**p**): the four panels as they stood at closing — the same picture saved as
+`analysis.png` — on one landscape page. It is offered whether or not data is
+being collected, for every image that window has closed.
 
 **With the purple frame, LIVE GAZE uses one screen**: the frame can locate
 only one display, so screen 1 shows the images one after another (**n n**

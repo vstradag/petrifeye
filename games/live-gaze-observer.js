@@ -12,9 +12,10 @@
 //   bottom-left  this image hidden, uncovered only where eyes fixated
 //   bottom-right THE OTHER IMAGES — thumbnails with their own scanpaths
 //
-// The fourth panel is what makes a three-image show possible on fewer than six
-// displays: it hears every screen window, not just this one's, so a single
-// analysis window still shows what is happening on all of them.
+// The fourth panel is what makes a many-image show possible without an
+// analysis display per image: it hears every screen window, not just this
+// one's, so a single analysis window still shows what is happening on all of
+// them.
 (function () {
   const CHANNEL = LiveGazeStore.CHANNEL;
   const TRAIL_MS = 1500;        // raw gaze trace kept behind each live marker
@@ -231,6 +232,9 @@
     if (!r.el) return;
 
     const box = containRect(c.width, c.height, r.w / r.h, 10 * dpr);
+    // Best filter for shrinking the full-size original (see the screen's
+    // "image quality"); a resized canvas resets it, so set it every time.
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(r.el, box.x, box.y, box.w, box.h);
     // A light veil: uploaded images are often bright and saturated, and full of
     // the very colours the players are drawn in, where marks alone vanish. The
@@ -292,6 +296,7 @@
 
     const comp = compCanvas.getContext("2d");
     comp.clearRect(0, 0, w, h);
+    comp.imageSmoothingQuality = "high";
     comp.drawImage(r.el, 0, 0, w, h);
     comp.globalCompositeOperation = "destination-in";
     comp.drawImage(maskCanvas, 0, 0);
@@ -318,8 +323,8 @@
 
   // ------------------------------------------------------- Q4 the others
   // Small live panels for the images this window is NOT the analysis screen
-  // for. With three images on three projectors and only one analysis display
-  // free, this is the panel that keeps the other two visible.
+  // for. With several images on several projectors and only one analysis
+  // display free, this is the panel that keeps the others visible.
   function drawOthers() {
     const c = $("q4");
     fitCanvas(c);
@@ -332,22 +337,35 @@
     ctx.fillRect(0, 0, c.width, c.height);
     if (!list.length) { $("q4Note").textContent = ""; return; }
 
-    // Side by side while they stay reasonably wide, stacked otherwise: two
-    // portrait images side by side in half a quadrant are unreadable.
+    // A grid, with however many columns makes the SMALLEST image biggest:
+    // two landscape images sit side by side, two portrait ones stack, and
+    // nine others become three rows of three rather than nine slivers.
     const pad = 12 * dpr;
-    const cellW = (c.width - pad * (list.length + 1)) / list.length;
-    const columns = cellW / dpr > 200;
     const n = list.length;
+    const capFor = (h) => Math.min(34 * dpr, h * 0.3);
+    let best = null;
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const w = (c.width - pad * (cols + 1)) / cols;
+      const h = (c.height - pad * (rows + 1)) / rows;
+      if (w <= 0 || h <= 0) continue;
+      const imgH = h - capFor(h);
+      const smallest = Math.min(...list.map((r) => {
+        const a = (r.w && r.h) ? r.w / r.h : 1.5;
+        const bw = Math.min(w, imgH * a);
+        return bw * (bw / a);
+      }));
+      if (!best || smallest > best.smallest) best = { cols, w, h, smallest };
+    }
+    if (!best) best = { cols: 1, w: c.width - 2 * pad, h: (c.height - pad * (n + 1)) / n };
     let live = 0;
 
     list.forEach((r, i) => {
-      const cell = columns
-        ? { x: pad + i * (cellW + pad), y: pad, w: cellW, h: c.height - 2 * pad }
-        : { x: pad, y: pad + i * ((c.height - pad * (n + 1)) / n + pad),
-            w: c.width - 2 * pad, h: (c.height - pad * (n + 1)) / n };
+      const col = i % best.cols, row = Math.floor(i / best.cols);
+      const cell = { x: pad + col * (best.w + pad), y: pad + row * (best.h + pad), w: best.w, h: best.h };
 
       // Caption first, so the image box knows what room is left.
-      const capH = Math.min(34 * dpr, cell.h * 0.3);
+      const capH = capFor(cell.h);
       ctx.font = `500 ${Math.round(11 * dpr)}px ui-monospace, Menlo, monospace`;
       ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillStyle = "#7a7876";
@@ -390,6 +408,7 @@
       }
       const box = containRect(boxArea.w, boxArea.h, r.w / r.h, 0);
       box.x += boxArea.x; box.y += boxArea.y;
+      ctx.imageSmoothingQuality = "high";
       ctx.drawImage(r.el, box.x, box.y, box.w, box.h);
       ctx.fillStyle = `rgba(0,0,0,${SCANPATH_VEIL})`;
       ctx.fillRect(box.x, box.y, box.w, box.h);
@@ -408,9 +427,14 @@
   // Images come from IndexedDB, not over the channel: the screen windows are
   // busy drawing at 60fps and a multi-megabyte blob per window is exactly the
   // kind of cost that shows up as a stutter in the thing being measured.
+  // "Screen 2" or "Printed sheet 2": what this window's display is.
+  let printedDisplay = false;
+  const displayName = () => `${printedDisplay ? "Printed sheet" : "Screen"} <b>${DISPLAY + 1}</b>`;
+
   async function loadImages() {
     const all = await LiveGazeStore.all();
     S.total = Math.max(S.total, all.length);
+    try { printedDisplay = ((await LiveGazeStore.session()).media || [])[DISPLAY] === "print"; } catch (_) {}
     for (const r of all) {
       const slot = r.slot;
       const target = rec(slot);
@@ -438,9 +462,8 @@
       if (msg.slot < 0) {
         displayDone = true;
         $("waiting").classList.remove("hidden");
-        $("waitingMsg").innerHTML = msg.done
-          ? `Screen <b>${DISPLAY + 1}</b> is done — its images' analyses were saved.`
-          : `Screen <b>${DISPLAY + 1}</b> has no image.`;
+        displayDoneMsg = !!msg.done;
+        renderDoneMessage();
         return;
       }
       displayDone = false;
@@ -457,8 +480,9 @@
       r.fixations = msg.fixations || r.fixations;
       if (msg.players) r.players = msg.players;
       if (msg.image) { r.name = msg.image.name; r.w = msg.image.w; r.h = msg.image.h; }
-      // Data collection off (asked on the upload page): nothing is saved.
-      if (msg.collect !== false) exportAnalysis(msg.slot).catch(() => {});
+      // Always composed, so it can be printed; saved only when collecting
+      // data (asked on the upload page).
+      exportAnalysis(msg.slot, msg.collect !== false).catch(() => {});
       return;
     }
 
@@ -479,7 +503,7 @@
         $("q1Title").textContent = r.name ? `${MINE + 1}/${S.total} · ${r.name}` : "—";
         $("waiting").classList.toggle("hidden", r.started);
         $("waitingMsg").innerHTML = r.started ? "" :
-          `Screen <b>${DISPLAY + 1}</b> was found, not started yet.<br />` +
+          `${displayName()} was found, not started yet.<br />` +
           "Press <b>start</b> (or the mouse test) in that window.";
         revealDirty = statsDirty = true;
       }
@@ -519,7 +543,17 @@
   // which a canvas cannot copy), and a header saying what it is. Saved next
   // to the screen window's fixations.csv / results.json for the same image,
   // then acknowledged so the screen does not save its plainer fallback.
-  async function exportAnalysis(idx) {
+  async function exportAnalysis(idx, collect = true) {
+    const blob = await analysisPicture(idx);
+    if (!blob) return;
+    // Acknowledged as soon as the picture exists, not after it is written: the
+    // screen waits only 3 s before saving its own fallback picture.
+    if (bus) bus.postMessage({ type: "analysis-saved", slot: idx, display: DISPLAY });
+    addPrintable(idx, rec(idx).name, blob);
+    if (collect) await LiveGazeStore.saveResults(idx, rec(idx).name || `image ${idx + 1}`, [{ name: "analysis.png", blob }]);
+  }
+
+  async function analysisPicture(idx) {
     const r = rec(idx);
     revealDirty = statsDirty = true;
     drawScanpaths(); drawReveal(); drawOthers(); renderStats();
@@ -578,12 +612,59 @@
     ctx.fillText(`distances in the image's own pixels (${Wimg}×${Himg}); fixation = within ` +
                  `${r.settings.spreadPct}% of width for ≥${r.settings.minDurationMs}ms`, x0, y0 + 76 + rows.length * 34 + 12);
 
-    const blob = await new Promise((resolve) => c.toBlob(resolve, "image/png"));
-    if (!blob) return;
-    // Acknowledged as soon as the picture exists, not after it is written: the
-    // screen waits only 3 s before saving its own fallback picture.
-    if (bus) bus.postMessage({ type: "analysis-saved", slot: idx, display: DISPLAY });
-    await LiveGazeStore.saveResults(idx, r.name || `image ${idx + 1}`, [{ name: "analysis.png", blob }]);
+    return new Promise((resolve) => c.toBlob(resolve, "image/png"));
+  }
+
+  // -------------------------------------------------------------- print
+  // When an image closes its analysis can be printed: the same picture that
+  // is saved (the four panels as they stood at closing), one landscape page.
+  // Kept for every image this window has closed, since by then it may already
+  // be following the next one. p prints the latest; before any image has
+  // closed, p prints the analysis as it stands now.
+  const printable = [];          // [{ idx, name, url }], newest first
+  const PRINT_KEEP = 8;
+
+  function addPrintable(idx, name, blob) {
+    const old = printable.findIndex((x) => x.idx === idx);
+    if (old >= 0) URL.revokeObjectURL(printable.splice(old, 1)[0].url);
+    printable.unshift({ idx, name: name || `image ${idx + 1}`, url: URL.createObjectURL(blob) });
+    while (printable.length > PRINT_KEEP) URL.revokeObjectURL(printable.pop().url);
+    renderPrintBar();
+  }
+
+  // The display finished: say so, and point at printing once there is
+  // something to print (the picture is made after the "done" arrives).
+  let displayDoneMsg = false;
+  function renderDoneMessage() {
+    if (!displayDone) return;
+    $("waitingMsg").innerHTML = displayDoneMsg
+      ? `${displayName()} is done.` +
+        (printable.length ? "<br />Its analysis can be printed — bottom left, or press <b>p</b>." : "")
+      : `${displayName()} has no image.`;
+  }
+
+  function renderPrintBar() {
+    renderDoneMessage();
+    $("printBar").classList.toggle("hidden", !printable.length);
+    $("printList").innerHTML = printable.map((x) =>
+      `<button data-print="${x.idx}" title="${x.name}">print image ${x.idx + 1}</button>`).join("");
+    $("printList").querySelectorAll("[data-print]").forEach((b) => {
+      b.onclick = () => printAnalysis(printable.find((x) => x.idx === Number(b.dataset.print)));
+    });
+  }
+
+  async function printAnalysis(item) {
+    let url = item && item.url, temp = false;
+    if (!url) {
+      const blob = await analysisPicture(MINE);
+      if (!blob) return;
+      url = URL.createObjectURL(blob); temp = true;
+    }
+    const img = $("printImg");
+    img.src = url;
+    try { await img.decode(); } catch (_) {}
+    window.print();
+    if (temp) setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // ------------------------------------------------------------- controls
@@ -595,6 +676,7 @@
     const k = e.key.toLowerCase();
     if (k === "r" && bus) bus.postMessage({ type: "cmd", cmd: "reset", slot: MINE, display: DISPLAY });
     else if (k === "f") fullscreen();
+    else if (k === "p") printAnalysis(printable[0]);
   });
   document.addEventListener("dblclick", fullscreen);
   window.addEventListener("resize", () => { revealDirty = statsDirty = true; });
@@ -619,6 +701,7 @@
 
   window.LiveGazeObserver = {
     state: S,
+    printable,
     get slot() { return MINE; },
     display: DISPLAY,
     exportAnalysis: (i) => exportAnalysis(i ?? MINE),

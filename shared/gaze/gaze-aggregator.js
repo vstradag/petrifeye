@@ -92,14 +92,20 @@
   // The bridge then labels each mapped sample with the screen it landed on,
   // and this window ignores the others — so a visitor looking at image 2 does
   // not drag image 1's pointer across it.
+  //
+  // A screen with its own SURFACE (LIVE GAZE's printed sheets) registers that
+  // instead of this window: the sheet's size and its tags' own size and inset,
+  // in the sheet's units. The window is then only where the measuring runs.
   function sendScreen() {
     if (!screen) return;
+    const s = screen.surface;
     broadcast({
       type: "screen",
       key: screen.key,
       ids: screen.ids,
-      width: Math.round(window.innerWidth),
-      height: Math.round(window.innerHeight),
+      width: Math.round(s ? s.w : window.innerWidth),
+      height: Math.round(s ? s.h : window.innerHeight),
+      ...(s && s.marker ? { marker: { size: Math.round(s.marker.size), margin: Math.round(s.marker.margin) } } : {}),
     });
   }
 
@@ -292,7 +298,8 @@
       // Registered before the sockets open so the very first solve already
       // uses this window's own tags and size.
       if (config.screen && Array.isArray(config.screen.ids)) {
-        screen = { key: config.screen.key, ids: config.screen.ids.slice() };
+        screen = { key: config.screen.key, ids: config.screen.ids.slice(),
+                   surface: config.screen.surface || null };
       }
       players = config.players.map((p, i) => ({
         source: "neon",     // "neon" (own bridge) | "webcam" (shared WebGazer)

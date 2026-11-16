@@ -45,6 +45,25 @@
   .waiting p { font-size: 12px; line-height: 1.9; color: #8d8b88; max-width: 600px; margin: 0 auto; }
   .waiting b { color: #c98f8f; }
   .keys { position: fixed; right: 10px; bottom: 8px; z-index: 5; font-size: 10px; color: #3c3e46; letter-spacing: .08em; }
+
+  /* ---- printing a closed image's analysis ---- */
+  /* Above the "screen is done" card, which is when it is wanted most. */
+  .printbar { position: fixed; left: 10px; bottom: 8px; z-index: 12; display: flex; flex-wrap: wrap;
+              gap: 6px; align-items: center; max-width: 70vw; font-size: 10px; color: #8d8b88;
+              letter-spacing: .08em; background: rgba(7,8,11,.92); border: 1px solid #2a2d35; padding: 6px 8px; }
+  .printbar.hidden { display: none; }
+  .printbar #printList { display: flex; flex-wrap: wrap; gap: 6px; }
+  .printbar button { font-family: var(--gaze-mono); font-size: 10px; letter-spacing: .08em; cursor: pointer;
+                     border: 1px solid #3a3d45; background: #11141a; color: #e8e6e2; padding: 5px 9px; }
+  .printbar button:hover { border-color: var(--gaze-red); background: rgba(255,59,59,.1); }
+  .print-sheet { display: none; }
+  @media print {
+    @page { size: landscape; margin: 8mm; }
+    html, body { height: auto; overflow: visible; background: #fff; }
+    body > *:not(.print-sheet) { display: none !important; }
+    .print-sheet { display: block; }
+    .print-sheet img { display: block; width: 100%; height: auto; max-height: 185mm; object-fit: contain; }
+  }
 </style>
 </head>
 <body>
@@ -85,7 +104,10 @@
   </div>
 </div>
 
-<div class="keys">r reset this image · f fullscreen</div>
+<div class="keys">r reset this image · f fullscreen · p print</div>
+
+<div class="printbar hidden" id="printBar"><span>analysis ready —</span><span id="printList"></span></div>
+<div class="print-sheet"><img id="printImg" alt="" /></div>
 
 <script src="../shared/gaze/live-gaze-store.js"></script>
 <script src="live-gaze-observer.js"></script>

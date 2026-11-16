@@ -238,8 +238,8 @@ class Hub:
     def add(self, ws):
         self.clients.add(ws)
 
-    def set_screen(self, ws, key, ids, w, h):
-        self.screens[key] = {"ids": list(ids), "w": int(w), "h": int(h)}
+    def set_screen(self, ws, key, ids, w, h, marker=None):
+        self.screens[key] = screen_entry(ids, w, h, marker)
         self._screen_owner[key] = ws
 
     def drop_screens(self, ws):
@@ -537,8 +537,22 @@ def use_source(source):
 DEFAULT_SCREEN = "main"
 
 
+def screen_entry(ids, w, h, marker=None):
+    """A registered screen. `marker` ({"size", "margin"}) is that screen's OWN
+    tag geometry, for a surface the page does not draw: a LIVE GAZE image
+    PRINTED on paper, with its tags printed at a fixed size. Without it the
+    screen follows the global IMG_SIZE / IMG_MARGIN, which the on-screen tag
+    slider changes — a printed sheet cannot follow that, so it must not."""
+    e = {"ids": list(ids), "w": int(w), "h": int(h)}
+    if marker:
+        e["size"], e["margin"] = int(marker["size"]), int(marker["margin"])
+    return e
+
+
 def build_surfaces(mapper, specs):
-    """One mapper surface per screen. specs: key -> {"ids", "w", "h"}.
+    """One mapper surface per screen. specs: key -> {"ids", "w", "h"} plus,
+    for a screen with its own tag geometry (see screen_entry), "size" and
+    "margin".
 
     Module level so it can be tested without a phone: the surfaces are the
     part that decides whether gaze lands on the right display at all.
@@ -550,13 +564,15 @@ def build_surfaces(mapper, specs):
     mapper.clear_surfaces()
     for key, sp in specs.items():
         out[key] = {
-            "obj": mapper.add_surface(marker_verts(sp["w"], sp["h"], sp["ids"]), (sp["w"], sp["h"])),
+            "obj": mapper.add_surface(
+                marker_verts(sp["w"], sp["h"], sp["ids"], sp.get("size"), sp.get("margin")),
+                (sp["w"], sp["h"])),
             "w": sp["w"], "h": sp["h"], "ids": list(sp["ids"]),
         }
     return out
 
 
-def marker_verts(w: int, h: int, ids=None):
+def marker_verts(w: int, h: int, ids=None, size=None, margin=None):
     """Corner points of the four on-screen AprilTags, in screen pixels.
 
     Describes the TAG, not the <img> that contains it: the PNG carries a
@@ -565,10 +581,12 @@ def marker_verts(w: int, h: int, ids=None):
     skews every mapped coordinate by the border width.
 
     Corners are listed top-left first then clockwise, which is what
-    add_surface() expects.
+    add_surface() expects. `size` and `margin` override the global geometry
+    for a screen that has its own (a printed sheet, see screen_entry).
     """
     ids = list(ids or MARKER_IDS)
-    s, m = IMG_SIZE, IMG_MARGIN
+    s = IMG_SIZE if size is None else size
+    m = IMG_MARGIN if margin is None else margin
     inset = s * QUIET_RATIO   # 12px at the default size
     side = s - 2 * inset      # 96px
     origins = {
@@ -649,7 +667,7 @@ async def stream(gaze_sensor, scene_sensor, eye_events_sensor, mapper,
         vw, vh = hub.viewport or (screen_w, screen_h)
         specs = {DEFAULT_SCREEN: {"ids": list(MARKER_IDS), "w": vw, "h": vh}}
         for key, sp in hub.screens.items():
-            specs[key] = {"ids": list(sp["ids"]), "w": sp["w"], "h": sp["h"]}
+            specs[key] = dict(sp)
         return specs
 
     def current_surfaces():
@@ -1166,17 +1184,27 @@ async def ws_handler(request):
                     key = str(payload.get("key") or "")[:32]
                     ids = payload.get("ids") or []
                     w, h = int(payload.get("width", 0)), int(payload.get("height", 0))
+                    # Optional: this screen's own tag geometry (a printed
+                    # sheet). Four tags plus their inset must fit across it.
+                    marker = payload.get("marker") or None
+                    marker_ok = marker is None or (
+                        isinstance(marker, dict)
+                        and isinstance(marker.get("size"), int)
+                        and isinstance(marker.get("margin"), int)
+                        and 20 <= marker["size"] and 0 <= marker["margin"]
+                        and 2 * (marker["size"] + marker["margin"]) < min(w, h))
                     ok = (key and isinstance(ids, list) and len(ids) == 4
                           and len(set(ids)) == 4
                           and all(isinstance(i, int) and 0 <= i < 587 for i in ids)
-                          and 200 <= w <= 20000 and 200 <= h <= 20000)
+                          and 200 <= w <= 20000 and 200 <= h <= 20000 and marker_ok)
                     if not ok:
                         log.info("ignoring malformed screen registration: %r", payload)
-                    elif hub.screens.get(key) != {"ids": list(ids), "w": w, "h": h}:
-                        hub.set_screen(ws, key, ids, w, h)
-                        log.info("screen %r: %dx%d, tags %s", key, w, h, ids)
+                    elif hub.screens.get(key) != screen_entry(ids, w, h, marker):
+                        hub.set_screen(ws, key, ids, w, h, marker)
+                        log.info("screen %r: %dx%d, tags %s%s", key, w, h, ids,
+                                 f", own markers {marker['size']} @ {marker['margin']}" if marker else "")
                     else:
-                        hub.set_screen(ws, key, ids, w, h)   # refresh ownership
+                        hub.set_screen(ws, key, ids, w, h, marker)   # refresh ownership
                 elif payload.get("type") == "surface":
                     # The experience's start-up choice: AprilTags or the frame.
                     # Every bridge hears it, so all players' glasses agree.

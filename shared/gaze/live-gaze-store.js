@@ -12,15 +12,19 @@
 //   - Every window reads it independently, so nothing has to be shipped over
 //     the BroadcastChannel except coordinates.
 //
-// MAX_IMAGES is a display limit, not a compute one. The bridge decodes one
-// scene video and searches it for tags once per pair of glasses no matter how
-// many screens are registered, so the cost of a fourth image is a fourth
-// monitor to put it on — see the surfaces comment in neon_bridge.py.
+// There is no practical limit on images. Each one can have its own screen,
+// and the bridge decodes one scene video and searches it for tags once per
+// pair of glasses no matter how many screens are registered — see the
+// surfaces comment in neon_bridge.py. Nor does every image need a display:
+// screens draw from one queue, so two screens can show ten images in turn.
+// MAX_IMAGES is only what the tag family can label: four tags per screen out
+// of tag36h11's 587 ids (the bridge rejects any id outside 0..586).
 (function () {
   const DB = "petrifeye-live-gaze";
   const STORE = "images";
   const META = "meta";
-  const MAX_IMAGES = 3;
+  const TAG_IDS = 587;                        // tag36h11
+  const MAX_IMAGES = Math.floor(TAG_IDS / 4); // 146
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -57,14 +61,79 @@
   // the scene camera is concerned — the detector cannot tell them apart and
   // gaze lands on whichever it solved last — so every slot gets its own set.
   //
+  // Slot N draws tags 4N..4N+3 and registers as "screen-<N+1>" — the same
+  // sets and keys the first three always had, so a bridge or a printed tag
+  // sheet from before still matches.
+  //
   // Slot 0 keeps tags 0-3 and the bridge's default screen key on purpose: that
   // surface always exists (every other experience uses it), so registering
   // under it REPLACES it instead of adding a duplicate with the same tags.
-  const SLOTS = [
-    { ids: [0, 1, 2, 3],    key: "main" },
-    { ids: [4, 5, 6, 7],    key: "screen-2" },
-    { ids: [8, 9, 10, 11],  key: "screen-3" },
-  ];
+  function slotInfo(i) {
+    const n = Number(i);
+    if (!Number.isInteger(n) || n < 0 || n >= MAX_IMAGES) return null;
+    return {
+      ids: [4 * n, 4 * n + 1, 4 * n + 2, 4 * n + 3],
+      key: n === 0 ? "main" : `screen-${n + 1}`,
+    };
+  }
+
+  // ------------------------------------------------------------- paper
+  // An image can be PRINTED instead of shown: a sheet with the image and four
+  // tags, laid out by the same rule as a screen (the largest image that stays
+  // clear of the corner tags), so the glasses find it exactly as they find a
+  // display. The sheet registers with the bridge as a screen of its own, in
+  // tenths of a millimetre, with its OWN tag size and inset (the on-screen tag
+  // slider must not move tags that are already on paper).
+  //
+  // Scale does not matter: gaze is mapped through the four tags, so a printer
+  // that shrinks the whole page a little ("fit to page") changes nothing. What
+  // must not change after printing is the layout — the paper size, the tag
+  // size, or the image itself — so the sheet must be printed again after any
+  // of those changes.
+  const PAPERS = {                       // landscape, 0.1 mm
+    A4: [2970, 2100], A3: [4200, 2970], Letter: [2794, 2159],
+  };
+  const PAPER_DEFAULT = { size: "A4", tagMm: 45 };
+  const PAPER_TAG_MM = [30, 45, 60, 80];
+  // Inset of the tags from the paper's edge: printers leave a few mm unprinted,
+  // and a tag clipped by even a little cannot be read.
+  const PAPER_MARGIN = 80;               // 8 mm
+  const PAPER_GAP = 30;                  // tags to image, 3 mm
+
+  function normPaper(p) {
+    const size = p && PAPERS[p.size] ? p.size : PAPER_DEFAULT.size;
+    const tagMm = p && PAPER_TAG_MM.includes(Number(p.tagMm)) ? Number(p.tagMm) : PAPER_DEFAULT.tagMm;
+    return { size, tagMm };
+  }
+
+  // The sheet for one image, in 0.1 mm. The print page draws exactly this and
+  // the image's tracking window registers exactly this, so they cannot differ.
+  function paperLayout(paper, imgW, imgH) {
+    const pp = normPaper(paper);
+    const [L, S] = PAPERS[pp.size];
+    const landscape = !(imgH > imgW);
+    const W = landscape ? L : S, H = landscape ? S : L;
+    const size = pp.tagMm * 10, margin = PAPER_MARGIN;
+    const aspect = imgW && imgH ? imgW / imgH : 1.5;
+    // The screen's imageRect(), on paper: as tall as the page between the tag
+    // columns, or as wide as it between the tag rows, whichever is bigger.
+    const pad = margin;
+    const F = margin + size + PAPER_GAP;
+    const fullH = Math.min((W - 2 * pad) / aspect, H - 2 * pad);
+    const betweenRows = Math.min((W - 2 * pad) / aspect, H - 2 * F);
+    const betweenCols = Math.min((W - 2 * F) / aspect, H - 2 * pad);
+    const h = Math.min(fullH, Math.max(betweenRows, betweenCols, 40));
+    const w = h * aspect;
+    return {
+      paper: pp, landscape, w: W, h: H, size, margin,
+      // Same order as the bridge's marker_verts: TL, TR, BR, BL.
+      tags: [
+        { x: margin, y: margin }, { x: W - margin - size, y: margin },
+        { x: W - margin - size, y: H - margin - size }, { x: margin, y: H - margin - size },
+      ],
+      image: { x: (W - w) / 2, y: (H - h) / 2, w, h },
+    };
+  }
 
   function normProgress(p, m) {
     const n = (m && m.count) || 0;
@@ -91,7 +160,7 @@
     // A queue with NO boot recorded predates this check: also an old session.
     const stale = boot != null && p && p.boot !== boot;
     if (stale) list.forEach((_, i) => { list[i] = { status: "queued" }; });
-    const out = fn(list);
+    const out = fn(list, m || {});
     const runAt = (!newRun && !stale && p && p.runAt) || Date.now();
     store.put({ images: list, at: Date.now(), runAt, boot: boot ?? (p && p.boot) ?? null }, "progress");
     await done;
@@ -133,7 +202,29 @@
   window.LiveGazeStore = {
     MAX_IMAGES,
     CHANNEL: "live-gaze",          // every window, both directions
-    slotInfo: (i) => SLOTS[Number(i)] || null,
+    slotInfo,
+    PAPERS: Object.keys(PAPERS),
+    PAPER_TAG_MM,
+    paperLayout,
+
+    // The paper and tag size for printed images. Kept apart from the image
+    // set, so changing it does not start the show over — but every sheet
+    // must be printed again (the tracking windows reload to follow it).
+    async paper() {
+      const db = await openDb();
+      const { t } = tx(db, [META], "readonly");
+      const p = await request(t.objectStore(META).get("paper"));
+      db.close();
+      return normPaper(p);
+    },
+
+    async setPaper(p) {
+      const db = await openDb();
+      const { t, done } = tx(db, [META], "readwrite");
+      t.objectStore(META).put(normPaper(p), "paper");
+      await done;
+      db.close();
+    },
 
     // Replace the whole set in one transaction. Partial writes would leave a
     // screen window pointing at an image that is no longer in the show.
@@ -150,11 +241,18 @@
           blob: im.blob,
           w: im.w,
           h: im.h,
+          medium: im.medium === "print" ? "print" : "screen",
         });
       });
       // The generation is how a window that was already open notices the set
-      // changed under it; the count lets a window say "image 2 of 3".
-      t.objectStore(META).put({ at: Date.now(), count: Math.min(images.length, MAX_IMAGES) }, "session");
+      // changed under it; the count lets a window say "image 2 of 3". media:
+      // which images are printed — read where only this meta is at hand (the
+      // queue, below).
+      const kept = images.slice(0, MAX_IMAGES);
+      t.objectStore(META).put({
+        at: Date.now(), count: kept.length,
+        media: kept.map((im) => (im.medium === "print" ? "print" : "screen")),
+      }, "session");
       t.objectStore(META).delete("progress");    // a new set starts unseen
       await done;
       db.close();
@@ -183,8 +281,14 @@
     // Give `display` an image: `preferred` if it is free (or already this
     // display's), otherwise the first unseen one. Returns its index, or null
     // when every image has been shown.
+    //
+    // A PRINTED image is on its own sheet for the whole show: only its own
+    // display (the sheet's tracking window, display N for image N) can take
+    // it, and no screen is ever moved on to it.
     async claim(display, preferred, boot = null) {
-      return mutate((list) => {
+      return mutate((list, m) => {
+        const media = m.media || [];
+        const takes = (i) => media[i] !== "print" || i === display;
         // No bridge to tell sessions apart (webcam-only): a window opened
         // after every image was closed starts the show over.
         if (boot == null && list.length && list.every((x) => x.status === "closed")) {
@@ -192,8 +296,8 @@
         }
         const mineNow = list.findIndex((x) => x.status === "showing" && x.display === display);
         if (mineNow >= 0) return mineNow;
-        let i = (preferred != null && list[preferred] && list[preferred].status === "queued")
-          ? preferred : list.findIndex((x) => x.status === "queued");
+        let i = (preferred != null && list[preferred] && list[preferred].status === "queued" && takes(preferred))
+          ? preferred : list.findIndex((x, j) => x.status === "queued" && takes(j));
         if (i < 0) return null;
         list[i] = { status: "showing", display };
         return i;
@@ -278,7 +382,9 @@
       const db = await openDb();
       const { t, done } = tx(db, [STORE, META], "readwrite");
       t.objectStore(STORE).clear();
-      t.objectStore(META).clear();
+      // Not the paper settings: those describe the printer, not the images.
+      t.objectStore(META).delete("session");
+      t.objectStore(META).delete("progress");
       await done;
       db.close();
     },

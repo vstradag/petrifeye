@@ -42,6 +42,10 @@
   .pick .dim { font-size:10px; color:#6a6a6a; margin-top:5px; letter-spacing:.06em; }
   .pick .tags { font-size:10px; color:#7a5555; margin-top:7px; letter-spacing:.08em; }
   .pick .row { display:flex; gap:6px; margin-top:10px; }
+  .seg { display:flex; margin-top:10px; }
+  .seg button { flex:1; }
+  .seg button + button { border-left:none; }
+  .seg button.on { border-color:var(--gaze-red); color:#fff; background:rgba(255,59,59,.12); }
 
   button { font-family:var(--gaze-mono); font-size:11px; letter-spacing:.1em; cursor:pointer;
            border:1px solid #2e3138; background:#11141a; color:#c9c7c3; padding:8px 12px;
@@ -53,8 +57,17 @@
 
   /* ---- launch grid ---- */
   .screens { display:grid; gap:12px; }
-  .scr { display:grid; grid-template-columns: 54px 1fr auto auto; align-items:center; gap:14px;
+  .scr { display:grid; grid-template-columns: 54px 1fr auto; align-items:center; gap:14px;
          border:1px solid #23252c; background:#090b0f; padding:12px 14px; }
+  .scr .btns { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+  .scr.print { border-color:#2c2a1c; }
+  .badge { font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:#d9c27a;
+           border:1px solid #4a4326; padding:1px 6px; margin-left:6px; vertical-align:1px; }
+  .paper { border:1px solid #2c2a1c; background:#0c0b08; padding:14px 16px; margin-bottom:14px; }
+  .paper .line { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; font-size:11px; color:#8d8b88; }
+  .paper select { font-family:var(--gaze-mono); font-size:11px; background:#11141a; color:#e8e6e2;
+                  border:1px solid #2e3138; padding:6px 8px; }
+  .paper p.note { margin:10px 0 0; }
   .scr .n { font-size:22px; font-weight:200; color:#3e424c; text-align:center; }
   .scr .nm { font-size:12.5px; color:#e8e6e2; }
   .scr .sub { font-size:10px; color:#6a6a6a; margin-top:4px; letter-spacing:.06em; }
@@ -76,12 +89,20 @@
   <section class="step" id="step1">
     <h2>1 · <b>choose the images</b> for this session</h2>
     <p class="note">
-      Up to <b>three</b>. Each image gets its own screen window and its own
-      analysis window, so three images means six displays — the limit is
+      <b>As many as you need</b>, shown at their full resolution. Each image
+      can have its own screen window and its own analysis window — the limit is
       <b>monitors, not the computer</b>: the glasses' camera is decoded once no
-      matter how many screens are up.
+      matter how many screens are up. You do not need a display per image:
+      open as many screens as you have, and <b>n n</b> on a screen moves it on
+      to the next image nobody has seen yet.
       If you are short on displays, open a single analysis window: its fourth
       panel carries the other images' scanpaths and numbers too.
+    </p>
+    <p class="note">
+      Each image is shown <b>on a screen</b> or <b>printed</b>. A printed sheet
+      carries the same four tags the image's screen would, laid out the same
+      way, so the glasses find it like a display; a small tracking window on
+      this Mac measures it, and its analysis is shown on a screen as usual.
     </p>
     <div class="drop" id="drop">
       <div class="big">drop images here, or click to choose</div>
@@ -109,6 +130,24 @@
       <b>n n</b> for the next), each saved on its own as it closes. For one
       screen per image, choose the AprilTags.
     </p>
+    <div class="paper hidden" id="paperBox">
+      <div class="line">
+        <span>printed images:</span>
+        <label>paper <select id="paperSize"></select></label>
+        <label>tags <select id="paperTag"></select></label>
+        <button class="mini" id="printAll">print all sheets</button>
+      </div>
+      <p class="note">
+        One image per page, each with <b>its own four tags</b> — print each
+        sheet from here so its tags match its tracking window. Any printer
+        scale works (gaze is mapped through the tags); only don't crop the
+        page. 45 mm tags are read from up to about a metre away — larger for a
+        sheet seen from further. Changing the paper or the tags means
+        <b>printing again</b>. Open each sheet's <b>tracking</b> window on this
+        Mac and press start there, as on a screen; there is no five-eye
+        calibration on paper.
+      </p>
+    </div>
     <div class="screens" id="screens"></div>
     <div class="hr"></div>
     <div class="row-btns">

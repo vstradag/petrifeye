@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LIVE GAZE — printed sheets</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<script src="../shared/stylesheets.js" defer></script>
+<style>
+  /* The page size is set by the script below (paper chosen on the upload page). */
+  html, body { margin: 0; background: #2a2c31; color: #e8e6e2; font-family: var(--gaze-mono); }
+  .bar { position: sticky; top: 0; z-index: 2; background: #0b0d12; border-bottom: 1px solid #23252c;
+         padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .bar h1 { font-size: 13px; font-weight: 400; letter-spacing: .3em; margin: 0; }
+  .bar h1 span { color: var(--gaze-red); }
+  .bar p { font-size: 11px; color: #8d8b88; margin: 0; line-height: 1.7; flex: 1 1 420px; }
+  .bar p b { color: #c98f8f; font-weight: 600; }
+  .bar button { font-family: var(--gaze-mono); font-size: 12px; letter-spacing: .1em; cursor: pointer;
+                border: 1px solid var(--gaze-red); background: rgba(255,59,59,.1); color: #fff; padding: 9px 16px; }
+  .err { color: #c98f8f; font-size: 12px; padding: 30px; }
+  .sheets { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+
+  /* One sheet = one page. Everything inside is positioned in millimetres from
+     the same layout the tracking window registers with the bridge
+     (LiveGazeStore.paperLayout), so what is printed is what is tracked. */
+  .sheet { position: relative; background: #fff; overflow: hidden; box-shadow: 0 6px 30px rgba(0,0,0,.5); }
+  .sheet .lay { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .sheet img { position: absolute; display: block; }
+  /* Tag cells must stay hard-edged: smoothing them blurs the very edges the
+     detector measures. */
+  .sheet img.tag { image-rendering: pixelated; }
+  .sheet .label { position: absolute; text-align: center; color: #888; white-space: nowrap;
+                  overflow: hidden; text-overflow: ellipsis;
+                  font: 2.6mm/1 ui-monospace, Menlo, monospace; letter-spacing: .04em; }
+  .caption { font-size: 11px; color: #8d8b88; margin: -14px 0 0; text-align: center; }
+
+  @media print {
+    html, body { background: #fff; }
+    .bar, .caption { display: none; }
+    .sheets { padding: 0; gap: 0; display: block; }
+    .sheet { box-shadow: none; break-after: page; }
+    .sheet:last-child { break-after: auto; }
+  }
+</style>
+<style id="pageSize"></style>
+</head>
+<body>
+<div class="bar">
+  <h1>LIVE <span>GAZE</span> · printed sheets</h1>
+  <p id="barNote">Preparing…</p>
+  <button id="printBtn" disabled>print</button>
+</div>
+<div class="sheets" id="sheets"></div>
+
+<script src="../shared/gaze/live-gaze-store.js"></script>
+<script>
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const mm = (u) => `${u / 10}mm`;       // layout units are 0.1 mm
+  const PAGE_KEYWORD = { A4: "A4", A3: "A3", Letter: "letter" };
+
+  const want = (new URLSearchParams(location.search).get("slots") || "")
+    .split(",").map(Number).filter((n) => Number.isInteger(n) && n >= 0);
+  const [all, paper] = await Promise.all([LiveGazeStore.all(), LiveGazeStore.paper()]);
+  const recs = all.filter((r) => want.includes(r.slot) && r.medium === "print");
+  if (!recs.length) {
+    $("sheets").innerHTML = `<div class="err">No printed images to show — choose <b>printed</b> for an image on the
+      <a href="live-gaze.html" style="color:#c98f8f">upload page</a> first.</div>`;
+    $("barNote").textContent = "";
+    return;
+  }
+
+  // Every page is the paper turned landscape; a portrait sheet is laid out
+  // portrait and turned sideways onto it, which on paper is the same thing.
+  // One page size for the whole job, because browsers print a single size.
+  const [L, S] = { A4: [297, 210], A3: [420, 297], Letter: [279.4, 215.9] }[paper.size];
+  $("pageSize").textContent = `@page { size: ${PAGE_KEYWORD[paper.size]} landscape; margin: 0; }`;
+
+  const loads = [];
+  // Waits for an image to load — called once its src is set (decode() on an
+  // image without one fails at once, which reads as "did not load").
+  const track = (img) => {
+    loads.push(new Promise((resolve) => {
+      if (img.complete) return resolve();
+      img.addEventListener("load", resolve, { once: true });
+      img.addEventListener("error", resolve, { once: true });
+    }));
+    return img;
+  };
+
+  for (const r of recs) {
+    const info = LiveGazeStore.slotInfo(r.slot);
+    const lay = LiveGazeStore.paperLayout(paper, r.w, r.h);
+    const sheet = document.createElement("div");
+    sheet.className = "sheet";
+    // A hair shorter than the page: an exactly page-tall box can spill a
+    // blank page after it. Nothing is placed in the last millimetre.
+    sheet.style.width = `${L}mm`;
+    sheet.style.height = `${S - 0.5}mm`;
+
+    const box = document.createElement("div");
+    box.className = "lay";
+    box.style.width = mm(lay.w);
+    box.style.height = mm(lay.h);
+    if (!lay.landscape) box.style.transform = `translateY(${S}mm) rotate(-90deg)`;
+
+    const img = new Image();
+    img.src = URL.createObjectURL(r.blob);      // the original file, full resolution
+    track(img);
+    Object.assign(img.style, { left: mm(lay.image.x), top: mm(lay.image.y),
+                               width: mm(lay.image.w), height: mm(lay.image.h) });
+    box.appendChild(img);
+
+    lay.tags.forEach((t, k) => {
+      const tag = new Image();
+      tag.className = "tag";
+      // Served by the bridge, the same bitmaps a screen draws.
+      tag.src = `/markers/${info.ids[k]}.png`;
+      track(tag);
+      Object.assign(tag.style, { left: mm(t.x), top: mm(t.y), width: mm(lay.size), height: mm(lay.size) });
+      box.appendChild(tag);
+    });
+
+    const label = document.createElement("div");
+    label.className = "label";
+    label.style.top = mm(lay.h - lay.margin - 30);
+    // Between the bottom tags, never over them.
+    label.style.left = label.style.right = mm(lay.margin + lay.size + 30);
+    label.textContent = `LIVE GAZE · image ${r.slot + 1} · ${r.name} · tags ${info.ids.join(" ")} · ` +
+      `${lay.paper.size} · ${lay.paper.tagMm} mm`;
+    box.appendChild(label);
+
+    sheet.appendChild(box);
+    $("sheets").appendChild(sheet);
+    const cap = document.createElement("p");
+    cap.className = "caption";
+    cap.textContent = `image ${r.slot + 1} — ${r.name}` + (lay.landscape ? "" : " · portrait, printed sideways");
+    $("sheets").appendChild(cap);
+  }
+
+  await Promise.all(loads);
+  const broken = [...document.querySelectorAll(".sheet img")].filter((i) => !i.naturalWidth);
+  if (broken.length) {
+    $("barNote").innerHTML = "<b>Some tags did not load</b> — this page must be opened from the running " +
+      "app (the bridge serves the tags). Start PetrifEye and open it again from the upload page.";
+    return;
+  }
+  $("barNote").innerHTML =
+    `${recs.length} sheet${recs.length === 1 ? "" : "s"}, one per page, ${paper.size} landscape. ` +
+    "Any scale works — <b>don't crop</b> the page. Each sheet's tags are its own: hang it where its image " +
+    "belongs and open that image's <b>tracking</b> window on this Mac.";
+  $("printBtn").disabled = false;
+  $("printBtn").onclick = () => window.print();
+  // Straight to the print dialog: that is what this page was opened for.
+  // (?preview shows the sheets without it.)
+  if (!new URLSearchParams(location.search).has("preview")) setTimeout(() => window.print(), 300);
+})();
+</script>
+</body>
+</html>

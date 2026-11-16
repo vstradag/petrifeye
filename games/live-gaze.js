@@ -8,7 +8,13 @@
   const $ = (id) => document.getElementById(id);
   const MAX = LiveGazeStore.MAX_IMAGES;
 
-  let picks = [];   // [{ name, type, blob, w, h, url }]
+  let picks = [];   // [{ name, type, blob, w, h, url, medium: "screen" | "print" }]
+  let paper = { size: "A4", tagMm: 45 };   // LiveGazeStore.paper()
+
+  // Printing needs the AprilTags: the purple frame is found by a lit screen's
+  // edges, which paper does not have.
+  const canPrint = () => !frameMode();
+  const mediumOf = (p) => (canPrint() && p.medium === "print" ? "print" : "screen");
 
   // ------------------------------------------------------- the questions
   // AprilTags or the purple frame, collect data or not: asked here, at the
@@ -38,7 +44,12 @@
     const before = setup;
     setup = await SessionSetup.ask({ app: "live-gaze", notes: SETUP_NOTES });
     renderSetup();
+    renderPicks();
     renderScreens();
+    // The frame cannot find paper, so with it printed images are shown on the
+    // screen instead (mediumOf) — stored that way, so screen 1 takes them in
+    // turn. The choice itself is kept for when the tags come back.
+    if (setup.surface !== before.surface && picks.some((p) => p.medium === "print")) await commit();
     // Windows already open reload to take new answers — only new ones: this
     // page reopened mid-show must not restart every screen.
     if (setup.surface === before.surface && setup.collect === before.collect) return;
@@ -67,7 +78,7 @@
       const el = new Image();
       el.onload = () => resolve({
         name: file.name, type: file.type, blob: file,
-        w: el.naturalWidth, h: el.naturalHeight, url,
+        w: el.naturalWidth, h: el.naturalHeight, url, medium: "screen",
       });
       el.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
       el.src = url;
@@ -77,9 +88,10 @@
   async function addFiles(files) {
     const imgs = [...files].filter((f) => /^image\//.test(f.type));
     if (!imgs.length) { err("those files are not images."); return; }
+    // Not a design limit: it is how many screens the tag family can label.
     const room = MAX - picks.length;
-    if (room <= 0) { err(`three images is the limit — remove one first.`); return; }
-    err(imgs.length > room ? `only the first ${room} were added — three is the limit.` : "");
+    if (room <= 0) { err(`${MAX} images is the limit — remove one first.`); return; }
+    err(imgs.length > room ? `only the first ${room} were added — ${MAX} is the limit.` : "");
 
     const measured = (await Promise.all(imgs.slice(0, room).map(measure))).filter(Boolean);
     picks = picks.concat(measured);
@@ -90,12 +102,18 @@
   function renderPicks() {
     $("picks").innerHTML = picks.map((p, i) => {
       const slot = LiveGazeStore.slotInfo(i);
+      const med = mediumOf(p);
+      const noPrint = canPrint() ? "" : ` disabled title="printing needs the AprilTags — the purple frame cannot find paper"`;
       return `<div class="pick">
         <img src="${p.url}" alt="" />
         <div class="meta">
           <div class="nm" title="${p.name}">${i + 1} · ${p.name}</div>
           <div class="dim">${p.w} × ${p.h} px</div>
           <div class="tags">tags ${slot.ids.join(" · ")}</div>
+          <div class="seg" role="group" aria-label="how image ${i + 1} is shown">
+            <button class="mini${med === "screen" ? " on" : ""}" data-med="${i}" data-v="screen">on a screen</button>
+            <button class="mini${med === "print" ? " on" : ""}" data-med="${i}" data-v="print"${noPrint}>printed</button>
+          </div>
           <div class="row">
             <button class="mini" data-up="${i}" ${i === 0 ? "disabled" : ""}>← earlier</button>
             <button class="mini" data-del="${i}">remove</button>
@@ -103,6 +121,16 @@
         </div>
       </div>`;
     }).join("");
+
+    $("picks").querySelectorAll("[data-med]").forEach((b) => {
+      b.onclick = async () => {
+        const p = picks[Number(b.dataset.med)];
+        if (!p || p.medium === b.dataset.v) return;
+        p.medium = b.dataset.v;
+        renderPicks();
+        await commit();
+      };
+    });
 
     $("picks").querySelectorAll("[data-del]").forEach((b) => {
       b.onclick = async () => {
@@ -160,7 +188,7 @@
 
   // ------------------------------------------------------------- storing
   async function commit() {
-    await LiveGazeStore.save(picks);
+    await LiveGazeStore.save(picks.map((p) => ({ ...p, medium: mediumOf(p) })));
     renderScreens();
     $("step1").classList.toggle("done", picks.length > 0);
     $("step2").classList.toggle("hidden", picks.length === 0);
@@ -184,6 +212,9 @@
 
   const screenUrl = (i) => `live-gaze-screen.html?slot=${i}`;
   const observerUrl = (i) => `live-gaze-observer.html?slot=${i}`;
+  // Every printed sheet at once (one per page), or one: ?slots=1,3
+  const printUrl = (list) => `live-gaze-print.html?slots=${list.join(",")}`;
+  const printed = () => picks.map((p, i) => (mediumOf(p) === "print" ? i : -1)).filter((i) => i >= 0);
 
   function renderScreens() {
     // With the frame there is one screen: image 1's window shows them all.
@@ -192,6 +223,21 @@
     $("screens").innerHTML = picks.map((p, i) => {
       const slot = LiveGazeStore.slotInfo(i);
       const off = one && i > 0 ? " disabled title=\"the purple frame finds one screen: this image follows on screen 1\"" : "";
+      if (mediumOf(p) === "print") {
+        const L = LiveGazeStore.paperLayout(paper, p.w, p.h);
+        return `<div class="scr print">
+          <div class="n">${i + 1}</div>
+          <div>
+            <div class="nm">${p.name} <span class="badge">printed</span></div>
+            <div class="sub">${L.paper.size} ${L.landscape ? "landscape" : "portrait"} · tags <b>${slot.ids.join(" ")}</b> at ${L.paper.tagMm} mm · bridge screen <b>${slot.key}</b></div>
+          </div>
+          <div class="btns">
+            <button data-print="${i}" title="the sheet: this image with its four tags, one page">print sheet</button>
+            <button data-screen="${i}" title="stays on this Mac: measures where people look on the printed sheet">tracking ${i + 1}</button>
+            <button data-obs="${i}">analysis ${i + 1}</button>
+          </div>
+        </div>`;
+      }
       const sub = one
         ? (i === 0 ? "the purple frame · bridge screen <b>main</b>" : "shown on screen 1, after the one before")
         : `tags <b>${slot.ids.join(" ")}</b> · bridge screen <b>${slot.key}</b>`;
@@ -201,8 +247,10 @@
           <div class="nm">${p.name}</div>
           <div class="sub">${p.w}×${p.h} · ${sub}</div>
         </div>
-        <button data-screen="${i}"${off}>image ${i + 1}</button>
-        <button data-obs="${i}"${off}>analysis ${i + 1}</button>
+        <div class="btns">
+          <button data-screen="${i}"${off}>image ${i + 1}</button>
+          <button data-obs="${i}"${off}>analysis ${i + 1}</button>
+        </div>
       </div>`;
     }).join("");
 
@@ -212,7 +260,41 @@
     $("screens").querySelectorAll("[data-obs]").forEach((b) => {
       b.onclick = () => openWin(observerUrl(b.dataset.obs), `lg-obs-${b.dataset.obs}`, 1280, 800);
     });
+    $("screens").querySelectorAll("[data-print]").forEach((b) => {
+      b.onclick = () => window.open(printUrl([b.dataset.print]), "lg-print");
+    });
+    renderPaper();
   }
+
+  // ---------------------------------------------------------------- paper
+  function renderPaper() {
+    const list = printed();
+    $("paperBox").classList.toggle("hidden", !list.length);
+    if (!list.length) return;
+    $("paperSize").innerHTML = LiveGazeStore.PAPERS
+      .map((s) => `<option value="${s}"${s === paper.size ? " selected" : ""}>${s}</option>`).join("");
+    $("paperTag").innerHTML = LiveGazeStore.PAPER_TAG_MM
+      .map((mm) => `<option value="${mm}"${mm === paper.tagMm ? " selected" : ""}>${mm} mm</option>`).join("");
+    $("printAll").textContent = list.length === 1 ? "print the sheet" : `print all ${list.length} sheets`;
+  }
+
+  async function changePaper() {
+    paper = { size: $("paperSize").value, tagMm: Number($("paperTag").value) };
+    await LiveGazeStore.setPaper(paper);
+    paper = await LiveGazeStore.paper();
+    renderScreens();
+    // Tracking windows register the sheet's layout: they reload to follow.
+    if ("BroadcastChannel" in window) {
+      const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
+      bus.postMessage({ type: "paper-changed", slot: -1 });
+      bus.close();
+    }
+    err("paper changed — print the sheets again: ones printed before no longer match.");
+  }
+  $("paperSize").onchange = changePaper;
+  $("paperTag").onchange = changePaper;
+  $("printAll").onclick = () => window.open(printUrl(printed()), "lg-print");
+  LiveGazeStore.paper().then((p) => { paper = p; renderScreens(); }).catch(() => {});
 
   $("openAll").onclick = async () => {
     // Opening every window starts the show over: all images unseen again.
@@ -224,7 +306,9 @@
       bus.close();
     }
     // Spaced out: a browser that allows several windows per gesture still
-    // drops some when they are opened in the same tick.
+    // drops some when they are opened in the same tick. A printed image's
+    // "screen" is its tracking window, opened like any other (it stays on
+    // this Mac); the sheet itself is printed from the button above.
     let delay = 0;
     picks.slice(0, frameMode() ? 1 : picks.length).forEach((_, i) => {
       setTimeout(() => openWin(screenUrl(i), `lg-screen-${i}`, 1280, 800), delay);
@@ -274,7 +358,7 @@
       if (!saved.length) { await useIncluded(true); return; }
       picks = saved.map((r) => ({
         name: r.name, type: r.type, blob: r.blob, w: r.w, h: r.h,
-        url: URL.createObjectURL(r.blob),
+        url: URL.createObjectURL(r.blob), medium: r.medium || "screen",
       }));
       renderPicks();
       renderScreens();
