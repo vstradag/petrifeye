@@ -75,6 +75,11 @@
   #modal .preview { flex: 1 1 auto; min-height: 0; background: #fff; display: flex; align-items: center;
                     justify-content: center; border: 1px solid #23252c; }
   #modal .preview img { max-width: 100%; max-height: 58vh; display: block; }
+  /* An instax WIDE print: the picture on its film, the wide border at the bottom. */
+  #modal .preview.instax { background: #2a2c31; padding: 18px 0; }
+  #modal .preview.instax img { max-height: 46vh; background: #fbfaf6; padding: 14px 18px 46px;
+                               box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+  #modal .tabs .push { margin-left: auto; }
   #modal .ask { font-size: 14px; letter-spacing: .04em; margin-right: auto; }
   #modal .who { display: flex; gap: 6px; align-items: center; font-size: 11px; color: #8d8b88; }
 
@@ -124,8 +129,15 @@
       <span>also available</span>
       <button data-kind="heatmaps">heatmaps</button>
       <button data-kind="stats">fixation statistics</button>
+      <span class="push">printer</span>
+      <button data-printer="paper">A4 / letter</button>
+      <button data-printer="instax">instax WIDE</button>
     </div>
-    <div class="preview"><img id="mPreview" alt="" /></div>
+    <div class="preview" id="mPreviewBox"><img id="mPreview" alt="" /></div>
+    <div class="sum hidden" id="mInstax">For the <b>INSTAX Link WIDE</b>, which prints from its phone app:
+      the card is a picture for the phone (99 × 62 mm). <b>Save</b> puts it in Downloads. Send it to the phone
+      (AirDrop on an iPhone), then in the INSTAX Link WIDE app choose it and print. One film per card.
+      With data collection on, each session's cards are also saved with its results.</div>
     <div class="row">
       <div class="ask" id="mAsk">Is this the print you want?</div>
       <div class="who hidden" id="mWho">visitors

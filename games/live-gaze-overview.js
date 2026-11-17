@@ -457,6 +457,12 @@
       files.push({ name: `${kind === "stats" ? "statistics" : kind}.png`,
                    blob: await new Promise((r) => c.toBlob(r, "image/png")) });
     }
+    // The same three as INSTAX Link WIDE cards, ready for the phone app.
+    for (const kind of ["scanpaths", "heatmaps", "stats"]) {
+      const c = await LiveGazeReport.card(kind, ses, { who: "all" });
+      files.push({ name: `instax-${cardName(kind, "all")}.png`,
+                   blob: await new Promise((r) => c.toBlob(r, "image/png")) });
+    }
     return LiveGazeStore.saveFolder(stamp, "overview", files);
   }
 
@@ -728,17 +734,50 @@
   }
 
   // ------------------------------------------------------------- the end
-  const report = { kind: "scanpaths", who: "all", cache: new Map() };
+  // printer: "paper" (A4 or letter, through the print dialog) or "instax"
+  // (an INSTAX Link WIDE card, saved as a picture for its phone app).
+  const report = { kind: "scanpaths", who: "all", printer: firstPrinter(), cache: new Map() };
 
-  async function picture(kind, who) {
-    const key = `${kind}:${who}`;
+  function firstPrinter() {
+    if (params.has("instax")) return "instax";
+    try { return localStorage.getItem("liveGaze.printer") === "instax" ? "instax" : "paper"; }
+    catch (_) { return "paper"; }
+  }
+
+  async function picture(kind, who, printer = report.printer) {
+    const key = `${printer}:${kind}:${who}`;
     if (!report.cache.has(key)) {
       report.cache.set(key, (async () => {
-        const c = await LiveGazeReport.render(kind, session(), { who });
+        const c = printer === "instax"
+          ? await LiveGazeReport.card(kind, session(), { who })
+          : await LiveGazeReport.render(kind, session(), { who });
         return new Promise((r) => c.toBlob((b) => r(URL.createObjectURL(b)), "image/png"));
       })());
     }
     return report.cache.get(key);
+  }
+
+  const cardName = (kind, who) =>
+    kind === "stats" ? "statistics" : kind === "heatmaps" && who !== "all" ? `heatmaps-p${who + 1}` : kind;
+
+  // The instax cards, downloaded: the phone app prints pictures, not pages.
+  async function saveCards(kinds) {
+    const stamp = MOCK ? "test" : LiveGazeStore.sessionStamp(S.startedAt);
+    for (const k of kinds) {
+      const who = k === "heatmaps" ? report.who : "all";
+      const a = document.createElement("a");
+      a.href = await picture(k, who, "instax");
+      a.download = `live-gaze-${stamp}-instax-${cardName(k, who)}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    note(`${kinds.length === 1 ? "the card is" : `${kinds.length} cards are`} in Downloads: ` +
+      "send to the phone, print from the INSTAX Link WIDE app", 7000);
+  }
+
+  function setPrinter(p) {
+    report.printer = p;
+    try { localStorage.setItem("liveGaze.printer", p); } catch (_) { /* remembered for this visit only */ }
+    showKind(report.kind);
   }
 
   const ASK = {
@@ -749,13 +788,19 @@
 
   async function showKind(kind) {
     report.kind = kind;
-    document.querySelectorAll("#mTabs button").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
+    const printer = report.printer, instax = printer === "instax";
+    document.querySelectorAll("#mTabs button[data-kind]").forEach((b) => b.classList.toggle("on", b.dataset.kind === kind));
+    document.querySelectorAll("#mTabs button[data-printer]").forEach((b) => b.classList.toggle("on", b.dataset.printer === printer));
     document.querySelectorAll("#mWho button").forEach((b) => b.classList.toggle("on", b.dataset.who === String(report.who)));
     $("mWho").classList.toggle("hidden", kind !== "heatmaps");
     $("mAsk").textContent = ASK[kind];
+    $("mPrint").textContent = instax ? "save for the instax" : "print";
+    $("mAll").textContent = instax ? "save all three for the instax" : "print all three";
+    $("mInstax").classList.toggle("hidden", !instax);
+    $("mPreviewBox").classList.toggle("instax", instax);
     $("mPreview").style.opacity = "0.35";
-    const url = await picture(kind, kind === "heatmaps" ? report.who : "all");
-    if (report.kind === kind) { $("mPreview").src = url; $("mPreview").style.opacity = "1"; }
+    const url = await picture(kind, kind === "heatmaps" ? report.who : "all", printer);
+    if (report.kind === kind && report.printer === printer) { $("mPreview").src = url; $("mPreview").style.opacity = "1"; }
   }
 
   function renderSummary() {
@@ -781,7 +826,7 @@
   // prints: the scanpaths once a session has ended, until a button says else.
   async function fillPrintSheet(kinds) {
     const urls = [];
-    for (const k of kinds) urls.push(await picture(k, k === "heatmaps" ? report.who : "all"));
+    for (const k of kinds) urls.push(await picture(k, k === "heatmaps" ? report.who : "all", "paper"));
     const sheet = $("printSheet");
     sheet.innerHTML = "";
     await Promise.all(urls.map((u) => new Promise((resolve) => {
@@ -797,15 +842,20 @@
     window.print();
   }
 
-  $("mTabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) showKind(b.dataset.kind); });
+  $("mTabs").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.printer) setPrinter(b.dataset.printer);
+    else showKind(b.dataset.kind);
+  });
   $("mWho").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     report.who = b.dataset.who === "all" ? "all" : Number(b.dataset.who);
     showKind("heatmaps");
   });
-  $("mPrint").onclick = () => printKinds([report.kind]);
-  $("mAll").onclick = () => printKinds(["scanpaths", "heatmaps", "stats"]);
+  $("mPrint").onclick = () => (report.printer === "instax" ? saveCards : printKinds)([report.kind]);
+  $("mAll").onclick = () => (report.printer === "instax" ? saveCards : printKinds)(["scanpaths", "heatmaps", "stats"]);
   $("mClose").onclick = closeModal;
   $("mNew").onclick = newSession;
   $("startBtn").onclick = startSession;

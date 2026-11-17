@@ -263,11 +263,21 @@ tags and layout and the statistics), and the three pictures. Printing needs the
 AprilTags: with the purple frame every image is on screen. The screen window
 at a printed image's position stays idle — its tags are on the sheet.
 
+**On an instax WIDE.** The pop-up's **printer** choice switches between A4 /
+letter (the print dialog) and **instax WIDE**: the same three prints laid out
+again as 1260 × 800 cards for an INSTAX Link WIDE (99 × 62 mm on instax WIDE
+film, 12.5 dots/mm): the images as large as the card allows, numbered in a
+corner, no text under 24 dots (about 2 mm). The Link WIDE prints only from its
+phone app, so **save for the instax** downloads the card as a PNG; send it to
+the phone (AirDrop) and print it from the INSTAX Link WIDE app. The choice is
+remembered, and a saved session also holds the cards (`instax-*.png`).
+
 **Test prints** (`games/live-gaze-test-prints.html`, linked from the upload
 page and the home page) open every printable sheet filled with a made-up
 session of two visitors (`shared/gaze/live-gaze-mock.js`, seeded): the image
 sheets laid out for any paper, the saved exhibition, one image's analysis,
-and the overview's scanpaths, heatmaps and statistics — the same code as the
+and the overview's scanpaths, heatmaps and statistics, on paper or as instax
+WIDE cards — the same code as the
 real prints, each page marked TEST PRINT, nothing measured or saved. They use
 the session's images, else the saved exhibition's, else the included ones.
 

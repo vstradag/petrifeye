@@ -3,6 +3,8 @@
 //
 //   render("scanpaths" | "heatmaps" | "stats", session, { who, scale })
 //     -> a landscape page (A-series proportions, 300 dpi at A4 when scale 1)
+//   card(same kinds, session, { who })
+//     -> the same print as a 1260 × 800 card for an INSTAX Link WIDE
 //   stats(session) -> the numbers, also written to results.json
 //
 // session: { images: [{ slot, name, w, h, el }], players: [{ id, label, color, name }],
@@ -254,51 +256,11 @@
     header(ctx, W, ses, "heatmaps", whoPl ? `${whoPl.label} (${whoPl.name}) only` : "both visitors");
     const area = { x: 140, y: 340, w: W - 280 - 260, h: H - 340 - 190 };
     const geo = grid(ses.images, area, 70, 80);
-    const fixes = ses.fix.filter((f) => who === "all" || f.p === who);
-    // Duration-weighted density per image, then ONE scale for all of them:
-    // the brightest spot anywhere is "most looked at", so images compare.
-    const MAP_W = 220;
-    const maps = ses.images.map((im) => {
-      const mw = MAP_W, mh = Math.max(1, Math.round(MAP_W * im.h / im.w));
-      const d = new Float32Array(mw * mh);
-      const sigma = 0.03 * mw;            // about one degree at a few metres
-      const rad = Math.ceil(sigma * 3);
-      for (const f of fixes) {
-        if (f.slot !== im.slot) continue;
-        const cx = f.u * mw, cy = f.v * mh;
-        for (let y = Math.max(0, Math.floor(cy - rad)); y < Math.min(mh, cy + rad); y++) {
-          for (let x = Math.max(0, Math.floor(cx - rad)); x < Math.min(mw, cx + rad); x++) {
-            const q = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) / (2 * sigma * sigma);
-            d[y * mw + x] += f.dur * Math.exp(-q);
-          }
-        }
-      }
-      return { mw, mh, d };
-    });
-    const max = Math.max(1e-9, ...maps.map((m) => m.d.reduce((a, b) => Math.max(a, b), 0)));
+    const { maps, max } = heatMaps(ses, who);
     const lut = viridisLut();
     ses.images.forEach((im, i) => {
       const r = geo[i].img;
-      // The image in grey and lightened, so the colour belongs to the heat.
-      drawImageHQ(ctx, im.el, r, "grayscale(1) contrast(0.85) brightness(1.12)");
-      ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fillRect(r.x, r.y, r.w, r.h);
-      const m = maps[i];
-      const hc = document.createElement("canvas");
-      hc.width = m.mw; hc.height = m.mh;
-      const hx = hc.getContext("2d");
-      const img = hx.createImageData(m.mw, m.mh);
-      for (let j = 0; j < m.d.length; j++) {
-        const t = m.d[j] / max;
-        if (t < 0.03) continue;
-        const [R, G, B] = lut[Math.min(255, Math.round(t * 255))];
-        img.data[j * 4] = R; img.data[j * 4 + 1] = G; img.data[j * 4 + 2] = B;
-        img.data[j * 4 + 3] = Math.round(255 * Math.min(0.88, 0.25 + 0.75 * Math.sqrt(t)));
-      }
-      hx.putImageData(img, 0, 0);
-      ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(hc, r.x, r.y, r.w, r.h);
-      ctx.restore();
-      ctx.strokeStyle = RULE; ctx.lineWidth = 2; ctx.strokeRect(r.x, r.y, r.w, r.h);
+      drawHeat(ctx, im, r, maps[i], max, lut);
       caption(ctx, im, r, ses, false);
     });
     // The scale.
@@ -318,6 +280,54 @@
     footer(ctx, W, H, "each fixation adds its duration, spread over about 3 % of the image's width · " +
       "one scale for every image, so they compare · uncoloured: not looked at");
     return c;
+  }
+
+  // Duration-weighted density per image, then ONE scale for all of them:
+  // the brightest spot anywhere is "most looked at", so images compare.
+  function heatMaps(ses, who) {
+    const fixes = ses.fix.filter((f) => who === "all" || f.p === who);
+    const MAP_W = 220;
+    const maps = ses.images.map((im) => {
+      const mw = MAP_W, mh = Math.max(1, Math.round(MAP_W * im.h / im.w));
+      const d = new Float32Array(mw * mh);
+      const sigma = 0.03 * mw;            // about one degree at a few metres
+      const rad = Math.ceil(sigma * 3);
+      for (const f of fixes) {
+        if (f.slot !== im.slot) continue;
+        const cx = f.u * mw, cy = f.v * mh;
+        for (let y = Math.max(0, Math.floor(cy - rad)); y < Math.min(mh, cy + rad); y++) {
+          for (let x = Math.max(0, Math.floor(cx - rad)); x < Math.min(mw, cx + rad); x++) {
+            const q = ((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2) / (2 * sigma * sigma);
+            d[y * mw + x] += f.dur * Math.exp(-q);
+          }
+        }
+      }
+      return { mw, mh, d };
+    });
+    const max = Math.max(1e-9, ...maps.map((m) => m.d.reduce((a, b) => Math.max(a, b), 0)));
+    return { maps, max };
+  }
+
+  function drawHeat(ctx, im, r, m, max, lut) {
+    // The image in grey and lightened, so the colour belongs to the heat.
+    drawImageHQ(ctx, im.el, r, "grayscale(1) contrast(0.85) brightness(1.12)");
+    ctx.fillStyle = "rgba(255,255,255,0.18)"; ctx.fillRect(r.x, r.y, r.w, r.h);
+    const hc = document.createElement("canvas");
+    hc.width = m.mw; hc.height = m.mh;
+    const hx = hc.getContext("2d");
+    const img = hx.createImageData(m.mw, m.mh);
+    for (let j = 0; j < m.d.length; j++) {
+      const t = m.d[j] / max;
+      if (t < 0.03) continue;
+      const [R, G, B] = lut[Math.min(255, Math.round(t * 255))];
+      img.data[j * 4] = R; img.data[j * 4 + 1] = G; img.data[j * 4 + 2] = B;
+      img.data[j * 4 + 3] = Math.round(255 * Math.min(0.88, 0.25 + 0.75 * Math.sqrt(t)));
+    }
+    hx.putImageData(img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(hc, r.x, r.y, r.w, r.h);
+    ctx.restore();
+    ctx.strokeStyle = RULE; ctx.lineWidth = 2; ctx.strokeRect(r.x, r.y, r.w, r.h);
   }
 
   function viridisLut() {
@@ -470,5 +480,214 @@
     return scanpathsPage(ses, scale);
   }
 
-  window.LiveGazeReport = { render, stats, drawScanpath, radius, rgba };
+  // ------------------------------------------------- instax WIDE cards
+  // The same three prints for an INSTAX Link WIDE, which prints from its
+  // phone app onto instax WIDE film: a 99 × 62 mm picture of 1260 × 800 dots,
+  // 12.5 to the millimetre. A page shrunk to that is unreadable, so each card
+  // is laid out again: the images as big as the card allows, numbered in a
+  // corner instead of captioned, and no text under 24 dots (about 2 mm).
+  const CARD = { W: 1260, H: 800, M: 40 };
+
+  function cardCanvas() {
+    const c = document.createElement("canvas");
+    c.width = CARD.W; c.height = CARD.H;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = PAGE; ctx.fillRect(0, 0, CARD.W, CARD.H);
+    ctx.imageSmoothingQuality = "high";
+    return { c, ctx, W: CARD.W, H: CARD.H, M: CARD.M };
+  }
+
+  function swatch(ctx, x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "rgba(0,0,0,.65)"; ctx.stroke();
+  }
+
+  // Text cut to a width, with an ellipsis when it had to be.
+  function fitText(ctx, text, x, y, maxW) {
+    if (ctx.measureText(text).width <= maxW) { ctx.fillText(text, x, y); return; }
+    let t = text;
+    while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+    ctx.fillText(t + "…", x, y);
+  }
+
+  function cardHeader(ctx, ses, title, sub) {
+    const { W, M } = CARD;
+    const d = new Date(ses.startedAt || Date.now());
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    ctx.fillStyle = INK; ctx.font = `600 34px ${FONT}`;
+    ctx.fillText(`${ses.test ? "TEST PRINT · " : ""}LIVE GAZE · ${title}`, M, 70);
+    ctx.fillStyle = INK2; ctx.font = `25px ${FONT}`;
+    ctx.fillText(`${d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ` +
+      `${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` + (sub ? ` · ${sub}` : "") +
+      (ses.test ? " · made-up data" : ""), M, 106);
+    // Legend: a swatch per visitor, the name in ink.
+    let x = W - M;
+    ctx.textAlign = "right"; ctx.font = `600 27px ${FONT}`;
+    for (const v of [...ses.visitors.filter((q) => q.in)].reverse()) {
+      const pl = ses.players.find((p) => p.id === v.id);
+      const label = `${pl.label} ${pl.name}`;
+      ctx.fillStyle = INK; ctx.fillText(label, x, 70);
+      x -= ctx.measureText(label).width + 12;
+      swatch(ctx, x - 13, 61, 13, pl.color);
+      x -= 26 + 30;
+    }
+    ctx.strokeStyle = RULE; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(M, 126); ctx.lineTo(W - M, 126); ctx.stroke();
+  }
+
+  function cardFooter(ctx, text) {
+    ctx.fillStyle = INK2; ctx.font = `24px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    fitText(ctx, text, CARD.M, CARD.H - CARD.M + 2, CARD.W - 2 * CARD.M);
+  }
+
+  // The images of a card: the page's grid with no room for captions, each
+  // image centred in its cell.
+  function cardGrid(images, area) {
+    return grid(images, area, 20, 0).map(({ cell, img }) => ({ ...img, y: cell.y + (cell.h - img.h) / 2 }));
+  }
+
+  // The image's number in its top-left corner (the statistics card names it).
+  function badge(ctx, r, n) {
+    ctx.font = `700 26px ${FONT}`;
+    const w = ctx.measureText(String(n)).width + 20;
+    ctx.fillStyle = "rgba(29,29,27,.88)"; ctx.fillRect(r.x, r.y, w, 38);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(n), r.x + w / 2, r.y + 20);
+  }
+
+  function scanpathsCard(ses) {
+    const { c, ctx, W, H, M } = cardCanvas();
+    cardHeader(ctx, ses, "scanpaths", `${ses.images.length} image${ses.images.length === 1 ? "" : "s"}`);
+    const geo = cardGrid(ses.images, { x: M, y: 146, w: W - 2 * M, h: H - 146 - 70 });
+    ses.images.forEach((im, i) => {
+      const r = geo[i];
+      drawImageHQ(ctx, im.el, r);
+      ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.fillRect(r.x, r.y, r.w, r.h);
+      const k = Math.max(0.55, r.w / 560);
+      for (const pl of ses.players) {
+        const fs = ses.fix.filter((f) => f.p === pl.id && f.slot === im.slot).sort((a, b) => a.start - b.start);
+        drawScanpath(ctx, r, fs, pl.color, k, { numbered: 0, fade: false });
+      }
+      badge(ctx, r, im.slot + 1);
+    });
+    cardFooter(ctx, "circle: a fixation (bigger = longer) · line: to the next one, same visit");
+    return c;
+  }
+
+  function heatmapsCard(ses, who) {
+    const { c, ctx, W, H, M } = cardCanvas();
+    const whoPl = who === "all" ? null : ses.players.find((p) => p.id === who);
+    cardHeader(ctx, ses, "heatmaps", whoPl ? `${whoPl.label} (${whoPl.name}) only` : "both visitors");
+    const geo = cardGrid(ses.images, { x: M, y: 146, w: W - 2 * M - 132, h: H - 146 - 70 });
+    const { maps, max } = heatMaps(ses, who);
+    const lut = viridisLut();
+    ses.images.forEach((im, i) => {
+      drawHeat(ctx, im, geo[i], maps[i], max, lut);
+      badge(ctx, geo[i], im.slot + 1);
+    });
+    // The scale, labelled at both ends.
+    const sx = W - M - 112, sy = 176, sh = 480;
+    for (let y = 0; y < sh; y++) {
+      const [R, G, B] = lut[Math.round(255 * (1 - y / sh))];
+      ctx.fillStyle = `rgb(${R},${G},${B})`; ctx.fillRect(sx, sy + y, 26, 1.5);
+    }
+    ctx.strokeStyle = RULE; ctx.lineWidth = 2; ctx.strokeRect(sx, sy, 26, sh);
+    ctx.fillStyle = INK; ctx.font = `24px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText("most", sx + 36, sy + 12);
+    ctx.fillText("least", sx + 36, sy + sh - 12);
+    cardFooter(ctx, "colour: time spent looking, one scale for every image · grey: not looked at");
+    return c;
+  }
+
+  function statsCard(ses) {
+    const { c, ctx, W, H, M } = cardCanvas();
+    const st = stats(ses), V = st.visitors, imgs = ses.images;
+    cardHeader(ctx, ses, "statistics", `${imgs.length} image${imgs.length === 1 ? "" : "s"}`);
+    if (!V.length) {
+      ctx.fillStyle = INK2; ctx.font = `28px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText("Nobody took part in this session.", M, 220);
+      return c;
+    }
+
+    // --- each visitor: their time, fixations and the order of their visits.
+    const colW = (W - 2 * M) / V.length;
+    V.forEach((v, j) => {
+      const x = M + j * colW;
+      const pl = ses.players.find((p) => p.id === v.id) || { name: "" };
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      swatch(ctx, x + 13, 168, 13, v.color);
+      ctx.fillStyle = INK; ctx.font = `600 28px ${FONT}`;
+      fitText(ctx, `${v.label} ${pl.name} · ${fmtTime(v.session_ms || 0)}`, x + 36, 178, colW - 56);
+      ctx.fillStyle = INK2; ctx.font = `25px ${FONT}`;
+      const mean = v.fixations ? Math.round(v.fixationTime_ms / v.fixations) : null;
+      fitText(ctx, `${v.fixations} fixations · mean ${mean == null ? "—" : `${mean} ms`}`, x, 214, colW - 20);
+      fitText(ctx, `order ${v.sequence.join(" → ") || "—"}`, x, 248, colW - 20);
+    });
+
+    // --- bars: time on each image, a bar per visitor, the value at its end.
+    ctx.fillStyle = INK; ctx.font = `600 26px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    ctx.fillText("time on each image", M, 304);
+    const top = 320, room = 262;
+    const groupH = Math.min(66, room / Math.max(1, imgs.length));
+    const pitch = (groupH - 10) / V.length, barH = Math.max(3, Math.min(22, pitch - 4));
+    const labelW = 390, plotX = M + labelW, plotW = W - M - plotX - 170;
+    const maxDwell = Math.max(1, ...V.flatMap((v) => v.images.map((r) => r.dwell_ms)));
+    imgs.forEach((im, i) => {
+      const gy = top + i * groupH;
+      ctx.fillStyle = INK; ctx.font = `25px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      fitText(ctx, `${im.slot + 1} · ${shortName(im.name)}`, M, gy + (V.length * pitch - 4) / 2, labelW - 20);
+      V.forEach((v, j) => {
+        const val = v.images[i].dwell_ms;
+        const w = Math.max(val ? 4 : 0, plotW * val / maxDwell);
+        const y = gy + j * pitch;
+        ctx.fillStyle = ON_PAPER[v.id] || v.color;
+        roundEnd(ctx, plotX, y, w, barH, 4);
+        if (pitch >= 24) {
+          ctx.fillStyle = INK2; ctx.font = `24px ${FONT}`;
+          ctx.fillText(`${v.label} ${fmtS(val)}`, plotX + w + 10, y + barH / 2 + 1);
+        }
+      });
+    });
+    ctx.strokeStyle = MUTED; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(plotX, top - 4); ctx.lineTo(plotX, top + imgs.length * groupH - 8); ctx.stroke();
+
+    // --- visits in time: a row per visitor, a block per visit, its image's number in it.
+    const ty = 620;
+    ctx.fillStyle = INK; ctx.font = `600 26px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    ctx.fillText("visits over time (the number is the image)", M, ty);
+    const vx = M + 96, vw = W - M - vx;
+    const span = Math.max(1, ...V.map((v) => v.session_ms || 0));
+    const rowH = Math.min(46, 92 / V.length);
+    V.forEach((v, j) => {
+      const y = ty + 14 + j * rowH, h = rowH - 6;
+      swatch(ctx, M + 13, y + h / 2, 13, v.color);
+      ctx.fillStyle = INK; ctx.font = `600 25px ${FONT}`; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+      ctx.fillText(v.label, M + 34, y + h / 2 + 1);
+      ctx.fillStyle = "#ebe8e3"; ctx.fillRect(vx, y, vw * (v.session_ms || 0) / span, h);
+      for (const s of v.visits) {
+        const x0 = vx + vw * s.start / span, x1 = vx + vw * s.end / span;
+        ctx.fillStyle = ON_PAPER[v.id] || v.color;
+        ctx.fillRect(x0, y, Math.max(3, x1 - x0 - 2), h);
+        if (x1 - x0 > 30) {
+          ctx.fillStyle = "#fff"; ctx.font = `700 24px ${FONT}`; ctx.textAlign = "center";
+          ctx.fillText(String(s.slot + 1), (x0 + x1) / 2, y + h / 2 + 1);
+          ctx.textAlign = "left";
+        }
+      }
+    });
+    ctx.fillStyle = INK2; ctx.font = `24px ${FONT}`; ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left"; ctx.fillText("0:00", vx, H - M + 2);
+    ctx.textAlign = "right"; ctx.fillText(fmtTime(span), W - M, H - M + 2);
+    return c;
+  }
+
+  // card("scanpaths" | "heatmaps" | "stats", session, { who }) -> 1260 × 800
+  async function card(kind, ses, opts = {}) {
+    if (kind === "heatmaps") return heatmapsCard(ses, opts.who == null ? "all" : opts.who);
+    if (kind === "stats") return statsCard(ses);
+    return scanpathsCard(ses);
+  }
+
+  window.LiveGazeReport = { render, card, CARD, stats, drawScanpath, radius, rgba };
 })();
