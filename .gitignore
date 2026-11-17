@@ -22,3 +22,7 @@ bridge/petrifeye-offline-packages-*.zip
 
 # MAGNETIC POETRY voice auditions (make-voices.mjs audition) — scratch, not shipped
 games/magnetic-poetry/voice/_audition/
+# LIVE GAZE: the saved exhibition is written to exhibition/ (keep it, or commit
+# it to pin the printed sheets); these are its scratch copy and replaced versions.
+exhibition.tmp/
+exhibition-archive/

@@ -209,21 +209,59 @@ images, unseen again, results in a new folder, each screen calibrating first —
 with no need to quit and relaunch. "Open every window" on the upload page
 also starts the show over.
 
-**LIVE GAZE images can be printed instead of shown.** On the upload page each
-image is *on a screen* or *printed*. A printed image gets a sheet — the image
-and its own four AprilTags, laid out by the same rule as a screen (the largest
-image clear of the corner tags) — printed from **print sheet** / **print all
-sheets** in step 2, one image per page, with the paper (A4, A3, Letter) and tag
-size (30–80 mm; 45 mm reads from up to about a metre) chosen there. Any printer
-scale works, since gaze is mapped through the tags; only don't crop the page,
-and print again after changing the paper, the tag size or the image. Each
-printed image has a **tracking** window that stays on the Mac: it registers the
-sheet with the bridges (its size and its own tag geometry, in 0.1 mm — the
-on-screen tag slider doesn't move tags on paper), shows the operator the sheet
-with live gaze on it, and measures and saves exactly as a screen does. There is
-no five-eye calibration on paper, and **n n** does not apply (a sheet keeps its
-image); **x x** closes it. Screens never take a printed image from the queue.
-Printing needs the AprilTags: with the purple frame every image is on screen.
+**LIVE GAZE images can be printed instead of shown — an exhibition.** On the
+upload page each image is *on a screen* or *printed*. A printed image gets a
+sheet: the image with its own four AprilTags in a border around it, laid out by
+the same rule as a screen (the largest image clear of the corner tags), one
+image per page. Step 2 chooses the paper (A0, A3, A4, Letter), the tag size
+(30–150 mm; tags are read from about 20 times their size away, so A0 starts at
+120 mm, ~2.5 m) and the colours: **from the painting** prints the border and
+the tags in a light and a dark tone of the image itself, **black & white** as
+plain tags. The tones keep the painting's hue but are pushed until the dark one
+is near black and the light one no darker than a light beige: in a simulation
+of the Neon scene camera (1–4.5 m, straight on and at 40°, dim light, video
+compression) such tags were read as far as black-and-white ones. On A0 the tags
+sit 4 cm in from the edge, clear of an easel's ledge and clamps. Any printer
+scale works, since gaze is mapped through the tags; don't crop the page, and
+mount the sheets flat (on foam board) — a bowed sheet bends the mapping with it.
+
+**Printing saves the exhibition, and the sheets never change after that.**
+**print sheet** / **print all sheets** first write the printed images — each
+original file byte for byte, its position, tags, layout and tones — into the
+project's `exhibition/` folder (`exhibition.json` plus the images), then print
+from that saved copy. The overview tracks from the same copy, so what is on the
+easels and what the glasses look for cannot drift apart, whatever is uploaded
+later. Tags follow the position: sheet 1 carries 0–3, sheet 2 4–7, sheet 3
+8–11, sheet 4 12–15. Printing different choices asks before replacing the saved
+exhibition (the old one moves to `exhibition-archive/`). **use the saved
+exhibition** in step 1 loads it back — on another computer too, with a copy of
+the project folder (commit `exhibition/` to keep it in git). For a print shop,
+choose *Save as PDF* in the print dialog: the pages are the paper's real size.
+
+**The overview: every image in its own quadrant, on one monitor.** Opened from
+the upload page (**overview**, or **open every window**), it is the analysis
+screen for an exhibition: it registers every printed sheet with both bridges,
+records both visitors on whichever sheet they look at — any order, back again
+as often as they like, no time limit — and shows each image with both visitors'
+live scanpaths, in orange (P1) and blue (P2), colours that stay apart for every
+common colour-vision deficiency. Images on screens show there too, from their
+screen windows. It wears its own four tags (580–583), so the glasses can find
+the monitor itself: **a visitor finishes by looking at the dot on the right for
+3 seconds** — a ring fills while the gaze stays on it, a chime confirms, and a
+glance does nothing. The operator can also finish a visitor (**1 1** / **2 2**)
+or everyone (**e e**). When both have finished, the quadrants freeze and a
+pop-up asks whether to print the **scanpaths**; **heatmaps** (both visitors or
+one, one shared viridis scale) and **fixation statistics** (time, share,
+fixations, mean duration, first look and visits per image and visitor, a bar
+chart, and each visitor's visits in order over time) are made when asked for,
+or all three at once. **n n** starts a new session. A visit is a run of
+fixations on one image; looking at another image ends it. There is no five-eye
+calibration on paper. With data collection on, the session is saved to
+`~/petrifeye-recordings/live-gaze/<date-time>/overview/`: `fixations.csv` (with
+the image, visit and order on the image), `results.json` (with the sheets'
+tags and layout and the statistics), and the three pictures. Printing needs the
+AprilTags: with the purple frame every image is on screen. The screen window
+at a printed image's position stays idle — its tags are on the sheet.
 
 **Every analysis can be printed.** The analysis windows stay on screens; when an
 image closes, its analysis window offers **print image N** (bottom left, or

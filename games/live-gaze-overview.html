@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LIVE GAZE — overview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<script src="../shared/stylesheets.js" defer></script>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #07080c; color: #e8e6e2;
+               font-family: var(--gaze-mono); }
+  #grid { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  .hidden { display: none !important; }
+
+  /* The monitor's own four tags: the glasses find THIS screen by them, which
+     is how a visitor can finish by looking at the dot. Hard pixel edges. */
+  #tags img { position: fixed; image-rendering: pixelated; display: block; z-index: 3; }
+
+  /* Side strips, between the tags. Sized by the script (layout()). */
+  aside { position: fixed; z-index: 2; display: flex; flex-direction: column; box-sizing: border-box;
+          padding: 0 14px; }
+  #left { gap: 14px; }
+  #left h1 { font-size: calc(15px * var(--ui)); font-weight: 300; letter-spacing: .3em; margin: 0; }
+  #left h1 span { color: var(--gaze-red); }
+  #clock { font-size: calc(30px * var(--ui)); font-weight: 200; letter-spacing: .06em; }
+  #clock small { display: block; font-size: calc(10px * var(--ui)); letter-spacing: .2em;
+                 color: #6a6a6a; text-transform: uppercase; margin-top: 2px; }
+  .vis { border-left: 4px solid var(--c); padding: 2px 0 2px 10px; }
+  .vis .who { font-size: calc(13px * var(--ui)); color: #e8e6e2; font-weight: 600; letter-spacing: .08em; }
+  .vis .st { font-size: calc(11px * var(--ui)); color: #9a9894; line-height: 1.5; margin-top: 2px; }
+  .vis.done .st { color: #e8e6e2; }
+  #keys { margin-top: auto; font-size: calc(10px * var(--ui)); color: #55534f; line-height: 1.7; }
+
+  /* The finish dot: placed by the script exactly where the dwell is measured. */
+  .fin { position: fixed; z-index: 2; text-align: center; box-sizing: border-box; padding: 0 8px; }
+  .fin .q { font-size: calc(15px * var(--ui)); letter-spacing: .26em; font-weight: 300; }
+  .fin .hint { font-size: calc(11px * var(--ui)); color: #9a9894; line-height: 1.6; }
+  .fin .doneList { font-size: calc(12px * var(--ui)); line-height: 1.7; margin-top: 10px; }
+  #finishSvg { position: fixed; z-index: 2; overflow: visible; }
+
+  /* Before the start, over the grid. */
+  #startCard { position: fixed; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%);
+               background: rgba(11,13,18,.94); border: 1px solid #23252c; padding: 26px 30px;
+               width: min(640px, 70vw); box-sizing: border-box; }
+  #startCard h2 { font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: #7a7876;
+                  font-weight: 500; margin: 0 0 14px; }
+  #startCard p { font-size: 12.5px; line-height: 1.8; color: #8d8b88; margin: 0 0 12px; }
+  #startCard p b { color: #e8e6e2; font-weight: 600; }
+  #startCard .warn { color: #ff8a8a; }
+  #startCard .src { font-size: 12px; line-height: 1.8; margin: 0 0 14px; }
+  #startCard .src div { border-left: 3px solid var(--c); padding-left: 10px; margin-bottom: 6px; color: #b9b7b3; }
+  button { font-family: var(--gaze-mono); font-size: 12px; letter-spacing: .1em; cursor: pointer;
+           border: 1px solid #2e3138; background: #11141a; color: #c9c7c3; padding: 9px 14px; }
+  button:hover:not(:disabled) { border-color: var(--gaze-red); color: #fff; background: rgba(255,59,59,.08); }
+  button.go { border-color: var(--gaze-red); background: rgba(255,59,59,.12); color: #fff; padding: 11px 20px; }
+  button.on { border-color: #e8e6e2; color: #fff; background: #1b1e26; }
+  button:disabled { opacity: .35; cursor: default; }
+
+  #note { position: fixed; z-index: 6; left: 50%; bottom: 22px; transform: translateX(-50%);
+          background: rgba(11,13,18,.94); border: 1px solid #2e3138; padding: 10px 16px;
+          font-size: 13px; letter-spacing: .04em; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #note.show { opacity: 1; }
+
+  /* The end of the session: what to print. */
+  #modal { position: fixed; inset: 0; z-index: 8; background: rgba(4,5,8,.55);
+           display: flex; align-items: center; justify-content: center; }
+  #modal .card { background: #0b0d12; border: 1px solid #2e3138; width: min(1100px, 92vw);
+                 max-height: 94vh; box-sizing: border-box; padding: 22px 24px; display: flex;
+                 flex-direction: column; gap: 14px; }
+  #modal h2 { margin: 0; font-size: 13px; letter-spacing: .3em; text-transform: uppercase; font-weight: 500; }
+  #modal .sum { font-size: 12px; color: #8d8b88; line-height: 1.7; }
+  #modal .sum b { color: #e8e6e2; font-weight: 600; }
+  #modal .tabs, #modal .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #modal .tabs span { font-size: 11px; color: #6a6a6a; letter-spacing: .1em; margin: 0 4px 0 10px; }
+  #modal .preview { flex: 1 1 auto; min-height: 0; background: #fff; display: flex; align-items: center;
+                    justify-content: center; border: 1px solid #23252c; }
+  #modal .preview img { max-width: 100%; max-height: 58vh; display: block; }
+  #modal .ask { font-size: 14px; letter-spacing: .04em; margin-right: auto; }
+  #modal .who { display: flex; gap: 6px; align-items: center; font-size: 11px; color: #8d8b88; }
+
+  .print-sheet { display: none; }
+  @media print {
+    @page { size: landscape; margin: 8mm; }
+    html, body { background: #fff; overflow: visible; height: auto; }
+    body > *:not(.print-sheet) { display: none !important; }
+    .print-sheet { display: block; }
+    .print-sheet img { display: block; width: 100%; height: auto; max-height: 190mm; object-fit: contain;
+                       break-after: page; }
+    .print-sheet img:last-child { break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<canvas id="grid"></canvas>
+<div id="tags"></div>
+
+<aside id="left">
+  <h1>LIVE <span>GAZE</span></h1>
+  <div id="clock">0:00<small id="clockSub">not started</small></div>
+  <div id="visitors"></div>
+  <div id="keys"></div>
+</aside>
+
+<div class="fin" id="finTop"><div class="q">FINISHED?</div></div>
+<svg id="finishSvg"></svg>
+<div class="fin" id="finBottom">
+  <div class="hint">look at the dot<br />for 3 seconds</div>
+  <div class="doneList" id="doneList"></div>
+</div>
+
+<div id="startCard" class="hidden">
+  <h2 id="scTitle">overview</h2>
+  <div id="scBody"></div>
+  <div class="src" id="scSources"></div>
+  <button class="go" id="startBtn">start the session (space)</button>
+</div>
+
+<div id="modal" class="hidden">
+  <div class="card">
+    <h2>session finished</h2>
+    <div class="sum" id="mSum"></div>
+    <div class="tabs" id="mTabs">
+      <button data-kind="scanpaths">scanpaths</button>
+      <span>also available</span>
+      <button data-kind="heatmaps">heatmaps</button>
+      <button data-kind="stats">fixation statistics</button>
+    </div>
+    <div class="preview"><img id="mPreview" alt="" /></div>
+    <div class="row">
+      <div class="ask" id="mAsk">Is this the print you want?</div>
+      <div class="who hidden" id="mWho">visitors
+        <button data-who="all">both</button><button data-who="0">P1</button><button data-who="1">P2</button>
+      </div>
+      <button class="go" id="mPrint">print</button>
+    </div>
+    <div class="row">
+      <button id="mAll">print all three</button>
+      <button id="mClose">close (the scanpaths stay on screen)</button>
+      <button id="mNew">new session</button>
+    </div>
+  </div>
+</div>
+
+<div id="note"></div>
+<div class="print-sheet" id="printSheet"></div>
+
+<script src="../shared/gaze/live-gaze-store.js"></script>
+<script src="../shared/gaze/session-setup.js"></script>
+<script src="../shared/gaze/fixations.js"></script>
+<script src="../shared/gaze/gaze-aggregator.js"></script>
+<script src="live-gaze-report.js"></script>
+<script src="live-gaze-overview.js"></script>
+</body>
+</html>

@@ -1384,12 +1384,111 @@ async def save_analysis_handler(request):
     return web.json_response({"ok": True, "path": str(folder), "files": written})
 
 
+EXHIBITION_DIR = ROOT / "exhibition"
+EXHIBITION_ARCHIVE = ROOT / "exhibition-archive"
+EXHIBITION_MAX_BYTES = 1024 * 1024 * 1024     # the images are print masters
+
+
+async def exhibition_handler(request):
+    """Freeze LIVE GAZE's printed sheets in the project folder.
+
+    POST {version: 1, paper, monitor, sheets: [...], files: [{name, data(base64)}]}
+    -> exhibition/exhibition.json plus each sheet's original image file.
+
+    A printed sheet's tags and layout must never change after it is printed,
+    so the page that prints them and the overview that tracks them both read
+    this folder rather than the browser's storage. Replacing it moves the old
+    one to exhibition-archive/<time it was saved>/, so sheets printed from an
+    earlier version can still be brought back.
+
+    Locked down like save-analysis: from this Mac only, every name checked,
+    images only, and nothing written until the whole request has been checked.
+    The body is read by hand because print masters can be far larger than the
+    app's request limit.
+    """
+    import base64
+    import re
+    import shutil
+    peer = request.remote or ""
+    if peer not in ("127.0.0.1", "::1", "localhost") and not peer.startswith("::ffff:127."):
+        raise web.HTTPForbidden(text="saving is only allowed from this computer")
+    raw = bytearray()
+    async for chunk in request.content.iter_chunked(1 << 20):
+        raw.extend(chunk)
+        if len(raw) > EXHIBITION_MAX_BYTES:
+            raise web.HTTPRequestEntityTooLarge(max_size=EXHIBITION_MAX_BYTES, actual_size=len(raw))
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise web.HTTPBadRequest(text="expected JSON")
+    del raw
+
+    sheets = body.get("sheets")
+    if body.get("version") != 1 or not isinstance(sheets, list) or not 1 <= len(sheets) <= 145:
+        raise web.HTTPBadRequest(text="expected version 1 and 1-145 sheets")
+    name_ok = re.compile(r"\d{2,3}-[A-Za-z0-9._ -]{1,80}\.(jpg|png|webp)")
+    hex_ok = re.compile(r"#[0-9a-f]{6}")
+    files = {}
+    for f in body.get("files") or []:
+        name = str(f.get("name") or "")
+        if not name_ok.fullmatch(name) or name in files:
+            raise web.HTTPBadRequest(text=f"refused file name: {name!r}")
+        try:
+            files[name] = base64.b64decode(f.get("data") or "", validate=True)
+        except Exception:
+            raise web.HTTPBadRequest(text=f"{name}: not base64")
+    slots, ids_seen = set(), set()
+    for s in sheets:
+        lay, tones, ids = s.get("layout") or {}, s.get("tones") or {}, s.get("ids") or []
+        ok = (isinstance(s.get("slot"), int) and s["slot"] not in slots
+              and s.get("file") in files and files[s["file"]]
+              and isinstance(ids, list) and len(ids) == 4
+              and all(isinstance(i, int) and 0 <= i < 587 and i not in ids_seen for i in ids)
+              and isinstance(s.get("key"), str) and 0 < len(s["key"]) <= 32
+              and all(isinstance(lay.get(k), (int, float)) for k in ("w", "h", "size", "margin"))
+              and all(hex_ok.fullmatch(str(tones.get(k) or "")) for k in ("dark", "light")))
+        if not ok:
+            raise web.HTTPBadRequest(text=f"malformed sheet: {s.get('slot')!r}")
+        slots.add(s["slot"])
+        ids_seen.update(ids)
+
+    manifest = {k: v for k, v in body.items() if k != "files"}
+    tmp = ROOT / "exhibition.tmp"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir()
+    for s in sheets:
+        (tmp / s["file"]).write_bytes(files[s["file"]])
+    (tmp / "exhibition.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    archived = None
+    if EXHIBITION_DIR.exists():
+        try:
+            old = json.loads((EXHIBITION_DIR / "exhibition.json").read_text())
+            stamp = re.sub(r"[^0-9T]", "", str(old.get("savedAt") or ""))[:15] or "unknown"
+        except Exception:
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+        EXHIBITION_ARCHIVE.mkdir(exist_ok=True)
+        dest = EXHIBITION_ARCHIVE / stamp
+        n = 2
+        while dest.exists():
+            dest = EXHIBITION_ARCHIVE / f"{stamp}-{n}"
+            n += 1
+        EXHIBITION_DIR.rename(dest)
+        archived = str(dest)
+    tmp.rename(EXHIBITION_DIR)
+    log.info("exhibition saved: %d sheet(s), %s%s", len(sheets),
+             ", ".join(f"{s['file']} tags {s['ids']}" for s in sheets),
+             f" (previous one moved to {archived})" if archived else "")
+    return web.json_response({"ok": True, "path": str(EXHIBITION_DIR), "archived": archived})
+
+
 def build_app():
     # client_max_size: an analysis PNG is a few MB once base64-encoded, past
     # aiohttp's 1 MB default.
     app = web.Application(middlewares=[no_cache], client_max_size=32 * 1024 * 1024)
     app.router.add_get("/gaze", ws_handler)
     app.router.add_post("/api/save-analysis", save_analysis_handler)
+    app.router.add_post("/api/exhibition", exhibition_handler)
     app.router.add_get("/markers/layout.json", layout_handler)
     app.router.add_get("/markers/{mid}.png", markers_handler)
 

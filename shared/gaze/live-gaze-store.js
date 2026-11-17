@@ -18,13 +18,17 @@
 // surfaces comment in neon_bridge.py. Nor does every image need a display:
 // screens draw from one queue, so two screens can show ten images in turn.
 // MAX_IMAGES is only what the tag family can label: four tags per screen out
-// of tag36h11's 587 ids (the bridge rejects any id outside 0..586).
+// of tag36h11's 587 ids (the bridge rejects any id outside 0..586), less the
+// four the overview monitor wears (MONITOR, below).
 (function () {
   const DB = "petrifeye-live-gaze";
   const STORE = "images";
   const META = "meta";
   const TAG_IDS = 587;                        // tag36h11
-  const MAX_IMAGES = Math.floor(TAG_IDS / 4); // 146
+  // The overview monitor's own tags: the last full set, which no image slot
+  // uses — slots stop just below it.
+  const MONITOR = { key: "monitor", ids: [580, 581, 582, 583] };
+  const MAX_IMAGES = MONITOR.ids[0] / 4;      // 145
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -91,41 +95,56 @@
   // size, or the image itself — so the sheet must be printed again after any
   // of those changes.
   const PAPERS = {                       // landscape, 0.1 mm
-    A4: [2970, 2100], A3: [4200, 2970], Letter: [2794, 2159],
+    A0: [11890, 8410], A3: [4200, 2970], A4: [2970, 2100], Letter: [2794, 2159],
   };
-  const PAPER_DEFAULT = { size: "A4", tagMm: 45 };
-  const PAPER_TAG_MM = [30, 45, 60, 80];
-  // Inset of the tags from the paper's edge: printers leave a few mm unprinted,
-  // and a tag clipped by even a little cannot be read.
-  const PAPER_MARGIN = 80;               // 8 mm
-  const PAPER_GAP = 30;                  // tags to image, 3 mm
+  const PAPER_DEFAULT = { size: "A4", tagMm: 45, colors: "painting" };
+  // Tags are read from about 20 times their own size away (45 mm from ~1 m);
+  // the big ones are for sheets looked at from across a room.
+  const PAPER_TAG_MM = [30, 45, 60, 80, 100, 120, 150];
+  // What each paper starts with when chosen: A0 is looked at from 1-2.5 m.
+  const PAPER_TAG_FOR = { A0: 120, A3: 60, A4: 45, Letter: 45 };
+  // Inset of the tags from the paper's edge, and the gap between tags and
+  // image. Printers leave a few mm unprinted, and a tag clipped by even a
+  // little cannot be read. A0 sheets stand on easels, whose ledge and clamps
+  // cover the edges, so their tags sit 4 cm in.
+  const PAPER_EDGE = {
+    A0: { margin: 400, gap: 120 },
+    other: { margin: 80, gap: 30 },      // 8 mm, 3 mm
+  };
+  // Tag colours: "painting" takes a dark and a light tone from the image
+  // itself (tonesOf), "bw" prints them black on white.
+  const PAPER_COLORS = ["painting", "bw"];
 
   function normPaper(p) {
     const size = p && PAPERS[p.size] ? p.size : PAPER_DEFAULT.size;
-    const tagMm = p && PAPER_TAG_MM.includes(Number(p.tagMm)) ? Number(p.tagMm) : PAPER_DEFAULT.tagMm;
-    return { size, tagMm };
+    const tagMm = p && PAPER_TAG_MM.includes(Number(p.tagMm)) ? Number(p.tagMm) : PAPER_TAG_FOR[size];
+    const colors = p && PAPER_COLORS.includes(p.colors) ? p.colors : PAPER_DEFAULT.colors;
+    return { size, tagMm, colors };
   }
 
   // The sheet for one image, in 0.1 mm. The print page draws exactly this and
-  // the image's tracking window registers exactly this, so they cannot differ.
+  // the overview registers exactly this, so they cannot differ — and once
+  // printed it is frozen in the saved exhibition (below), so a later change to
+  // this code cannot move the tags of sheets already on the wall either.
   function paperLayout(paper, imgW, imgH) {
     const pp = normPaper(paper);
     const [L, S] = PAPERS[pp.size];
     const landscape = !(imgH > imgW);
     const W = landscape ? L : S, H = landscape ? S : L;
-    const size = pp.tagMm * 10, margin = PAPER_MARGIN;
+    const edge = PAPER_EDGE[pp.size] || PAPER_EDGE.other;
+    const size = pp.tagMm * 10, margin = edge.margin;
     const aspect = imgW && imgH ? imgW / imgH : 1.5;
     // The screen's imageRect(), on paper: as tall as the page between the tag
     // columns, or as wide as it between the tag rows, whichever is bigger.
     const pad = margin;
-    const F = margin + size + PAPER_GAP;
+    const F = margin + size + edge.gap;
     const fullH = Math.min((W - 2 * pad) / aspect, H - 2 * pad);
     const betweenRows = Math.min((W - 2 * pad) / aspect, H - 2 * F);
     const betweenCols = Math.min((W - 2 * F) / aspect, H - 2 * pad);
     const h = Math.min(fullH, Math.max(betweenRows, betweenCols, 40));
     const w = h * aspect;
     return {
-      paper: pp, landscape, w: W, h: H, size, margin,
+      paper: pp, landscape, w: W, h: H, size, margin, gap: edge.gap,
       // Same order as the bridge's marker_verts: TL, TR, BR, BL.
       tags: [
         { x: margin, y: margin }, { x: W - margin - size, y: margin },
@@ -133,6 +152,148 @@
       ],
       image: { x: (W - w) / 2, y: (H - h) / 2, w, h },
     };
+  }
+
+  // ------------------------------------------------------------ tones
+  // The sheet's colours, taken from the painting: its passe-partout and the
+  // tags' light cells in a light tone of the image, the tags' dark cells in a
+  // dark one. The detector only sees grey levels, so what matters is the
+  // contrast between the two, not the hue: in a simulation of the Neon scene
+  // camera (120 mm tags, 1-4.5 m, straight on and at 40 degrees, dim light,
+  // video compression) tags in tones taken this way from Manet, Holbein,
+  // Degas and two cartoons were read as far as black-on-white ones, PROVIDED
+  // the dark tone is near black and the light one no darker than a light
+  // beige. So the tones keep the painting's hue but are pushed until they are.
+  const TONE_DARK_MAX = 0.03;     // relative luminance, 0..1
+  const TONE_LIGHT_MIN = 0.60;
+
+  const toLin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const toSrgb = (l) => {
+    l = Math.min(1, Math.max(0, l));
+    return 255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * l ** (1 / 2.4) - 0.055);
+  };
+  const lumOf = (lin) => 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  const hex = (rgb) => "#" + rgb.map((v) => Math.round(Math.min(255, Math.max(0, v)))
+    .toString(16).padStart(2, "0")).join("");
+
+  // The mean colour of the image's darkest 4 % and lightest 8 % of pixels,
+  // then the contrast rule above.
+  const tonesCache = new WeakMap();      // Blob -> Promise, per window
+  function tonesOf(blob) {
+    if (!tonesCache.has(blob)) tonesCache.set(blob, measureTones(blob));
+    return tonesCache.get(blob);
+  }
+
+  async function measureTones(blob) {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, 240 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    if (bmp.close) bmp.close();
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    const px = [];
+    for (let i = 0; i < d.length; i += 4) {
+      px.push([d[i], d[i + 1], d[i + 2], lumOf([toLin(d[i]), toLin(d[i + 1]), toLin(d[i + 2])])]);
+    }
+    px.sort((a, b) => a[3] - b[3]);
+    const mean = (list) => [0, 1, 2].map((j) => list.reduce((s, p) => s + p[j], 0) / list.length);
+    const n = px.length;
+    let dark = mean(px.slice(0, Math.max(1, Math.floor(n * 0.04)))).map(toLin);
+    let light = mean(px.slice(n - Math.max(1, Math.floor(n * 0.08)))).map(toLin);
+    // Darker: scale down (same hue). Lighter: mix towards white.
+    if (lumOf(dark) > TONE_DARK_MAX) dark = dark.map((v) => v * TONE_DARK_MAX / lumOf(dark));
+    if (lumOf(light) < TONE_LIGHT_MIN) {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 30; i++) {
+        const t = (lo + hi) / 2;
+        if (lumOf(light.map((v) => v * (1 - t) + t)) < TONE_LIGHT_MIN) lo = t; else hi = t;
+      }
+      light = light.map((v) => v * (1 - hi) + hi);
+    }
+    return { dark: hex(dark.map(toSrgb)), light: hex(light.map(toSrgb)) };
+  }
+
+  const BW = { dark: "#000000", light: "#ffffff" };
+
+  // An image's fingerprint: how the saved exhibition recognises a file.
+  async function sha256(blob) {
+    const buf = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // ------------------------------------------------------- exhibition
+  // The PRINTED sheets, frozen. Once a sheet is on paper its tags and layout
+  // must never change, so printing saves them — with each image's original
+  // file — into the project folder, exhibition/, through the bridge:
+  //
+  //   exhibition/exhibition.json   paper, and per sheet: slot, file, name,
+  //                                fingerprint, tags, bridge key, layout, tones
+  //   exhibition/<NN-name>.<ext>   the image, byte for byte
+  //
+  // The print page prints from there and the overview tracks from there, so
+  // the paper on the easel and what the glasses look for always agree —
+  // whatever is uploaded later, on this computer or another one with a copy
+  // of the project. Replacing it moves the old one to exhibition-archive/.
+  const EXHIBITION = "/exhibition/";
+
+  async function exhibition() {
+    try {
+      const r = await fetch(EXHIBITION + "exhibition.json", { cache: "no-store" });
+      if (!r.ok) return null;
+      const ex = await r.json();
+      return ex && Array.isArray(ex.sheets) ? ex : null;
+    } catch (_) { return null; }
+  }
+
+  // The exhibition the current choices would print: every printed image, its
+  // sheet laid out and coloured with the current paper settings.
+  async function buildExhibition(records, paper) {
+    const pp = normPaper(paper);
+    const sheets = [];
+    for (const r of records) {
+      if (r.medium !== "print") continue;
+      const info = slotInfo(r.slot);
+      const ext = ((r.name || "").match(/\.(jpe?g|png|webp)$/i) || [, (r.type || "").split("/")[1] || "jpg"])[1]
+        .toLowerCase().replace("jpeg", "jpg");
+      sheets.push({
+        slot: r.slot,
+        file: `${String(r.slot + 1).padStart(2, "0")}-${safeName(r.name)}.${ext}`,
+        name: r.name, type: r.type || "image/jpeg", w: r.w, h: r.h,
+        sha256: r.sha256 || await sha256(r.blob),
+        key: info.key, ids: info.ids,
+        layout: paperLayout(pp, r.w, r.h),
+        tones: pp.colors === "painting" ? await tonesOf(r.blob) : { ...BW },
+      });
+    }
+    return { version: 1, app: "live-gaze", paper: pp, monitor: { ...MONITOR }, sheets };
+  }
+
+  // Same exhibition? Everything that decides what is on paper.
+  function sameExhibition(a, b) {
+    if (!a || !b || a.sheets.length !== b.sheets.length) return false;
+    const pick = (ex) => JSON.stringify({
+      paper: ex.paper,
+      sheets: ex.sheets.map((s) => [s.slot, s.sha256, s.ids, s.key, s.layout, s.tones]),
+    });
+    return pick(a) === pick(b);
+  }
+
+  // Write it (bridge: POST /api/exhibition, from this Mac only). blobs:
+  // slot -> Blob of the original file.
+  async function saveExhibition(ex, blobs) {
+    const body = { ...ex, savedAt: new Date().toISOString(), files: [] };
+    for (const s of ex.sheets) {
+      body.files.push({ name: s.file, data: await blobToBase64(blobs.get(s.slot)) });
+    }
+    const r = await fetch("/api/exhibition", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.text().catch(() => "")) || `HTTP ${r.status}`);
+    return r.json();
   }
 
   function normProgress(p, m) {
@@ -201,11 +362,21 @@
 
   window.LiveGazeStore = {
     MAX_IMAGES,
+    MONITOR,
     CHANNEL: "live-gaze",          // every window, both directions
     slotInfo,
     PAPERS: Object.keys(PAPERS),
     PAPER_TAG_MM,
+    PAPER_TAG_FOR,
     paperLayout,
+    tonesOf,
+    sha256,
+    exhibition,
+    buildExhibition,
+    sameExhibition,
+    saveExhibition,
+    exhibitionUrl: (file) => EXHIBITION + encodeURIComponent(file),
+    sessionStamp,
 
     // The paper and tag size for printed images. Kept apart from the image
     // set, so changing it does not start the show over — but every sheet
@@ -242,6 +413,7 @@
           w: im.w,
           h: im.h,
           medium: im.medium === "print" ? "print" : "screen",
+          sha256: im.sha256 || null,
         });
       });
       // The generation is how a window that was already open notices the set
@@ -282,13 +454,12 @@
     // display's), otherwise the first unseen one. Returns its index, or null
     // when every image has been shown.
     //
-    // A PRINTED image is on its own sheet for the whole show: only its own
-    // display (the sheet's tracking window, display N for image N) can take
-    // it, and no screen is ever moved on to it.
+    // A PRINTED image is on its own sheet for the whole show, tracked by the
+    // overview: no screen ever takes it.
     async claim(display, preferred, boot = null) {
       return mutate((list, m) => {
         const media = m.media || [];
-        const takes = (i) => media[i] !== "print" || i === display;
+        const takes = (i) => media[i] !== "print";
         // No bridge to tell sessions apart (webcam-only): a window opened
         // after every image was closed starts the show over.
         if (boot == null && list.length && list.every((x) => x.status === "closed")) {
@@ -335,6 +506,12 @@
     async saveResults(index, imageName, files, stamp = null) {
       stamp = stamp || await this.runStamp();
       const folder = `${String(index + 1).padStart(2, "0")}-${safeName(imageName || "image")}`;
+      return this.saveFolder(stamp, folder, files);
+    },
+
+    // Same, into any folder of the run: the overview saves a whole session of
+    // every image at once, as <session>/<folder>/.
+    async saveFolder(stamp, folder, files) {
       try {
         const payload = { session: stamp, image: folder, files: [] };
         for (const f of files) {

@@ -8,8 +8,9 @@
   const $ = (id) => document.getElementById(id);
   const MAX = LiveGazeStore.MAX_IMAGES;
 
-  let picks = [];   // [{ name, type, blob, w, h, url, medium: "screen" | "print" }]
-  let paper = { size: "A4", tagMm: 45 };   // LiveGazeStore.paper()
+  let picks = [];   // [{ name, type, blob, w, h, url, medium: "screen" | "print", sha256 }]
+  let paper = { size: "A4", tagMm: 45, colors: "painting" };   // LiveGazeStore.paper()
+  let saved = null; // the exhibition saved in exhibition/ (LiveGazeStore.exhibition)
 
   // Printing needs the AprilTags: the purple frame is found by a lit screen's
   // edges, which paper does not have.
@@ -76,9 +77,11 @@
     return new Promise((resolve) => {
       const url = URL.createObjectURL(file);
       const el = new Image();
-      el.onload = () => resolve({
+      // The fingerprint is how a saved exhibition recognises the file later.
+      el.onload = async () => resolve({
         name: file.name, type: file.type, blob: file,
         w: el.naturalWidth, h: el.naturalHeight, url, medium: "screen",
+        sha256: await LiveGazeStore.sha256(file).catch(() => null),
       });
       el.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
       el.src = url;
@@ -212,8 +215,9 @@
 
   const screenUrl = (i) => `live-gaze-screen.html?slot=${i}`;
   const observerUrl = (i) => `live-gaze-observer.html?slot=${i}`;
-  // Every printed sheet at once (one per page), or one: ?slots=1,3
-  const printUrl = (list) => `live-gaze-print.html?slots=${list.join(",")}`;
+  const overviewUrl = "live-gaze-overview.html";
+  // Every printed sheet at once (one per page), or some: ?sheets=1,3
+  const printUrl = (list) => `live-gaze-print.html?sheets=${list.join(",")}`;
   const printed = () => picks.map((p, i) => (mediumOf(p) === "print" ? i : -1)).filter((i) => i >= 0);
 
   function renderScreens() {
@@ -225,16 +229,19 @@
       const off = one && i > 0 ? " disabled title=\"the purple frame finds one screen: this image follows on screen 1\"" : "";
       if (mediumOf(p) === "print") {
         const L = LiveGazeStore.paperLayout(paper, p.w, p.h);
+        const s = saved && saved.sheets.find((x) => x.slot === i);
+        const state = !s ? "not saved yet"
+          : s.sha256 !== p.sha256 ? "<span class=\"warn\">a different image is saved for this sheet</span>"
+          : "saved";
+        const dpi = Math.round(p.w / (L.image.w / 254));
         return `<div class="scr print">
           <div class="n">${i + 1}</div>
           <div>
             <div class="nm">${p.name} <span class="badge">printed</span></div>
-            <div class="sub">${L.paper.size} ${L.landscape ? "landscape" : "portrait"} · tags <b>${slot.ids.join(" ")}</b> at ${L.paper.tagMm} mm · bridge screen <b>${slot.key}</b></div>
+            <div class="sub">${L.paper.size} ${L.landscape ? "landscape" : "portrait"} · image ${Math.round(L.image.w / 10)} × ${Math.round(L.image.h / 10)} mm at ${dpi} dpi · tags <b>${slot.ids.join(" ")}</b> at ${L.paper.tagMm} mm · ${state}</div>
           </div>
           <div class="btns">
             <button data-print="${i}" title="the sheet: this image with its four tags, one page">print sheet</button>
-            <button data-screen="${i}" title="stays on this Mac: measures where people look on the printed sheet">tracking ${i + 1}</button>
-            <button data-obs="${i}">analysis ${i + 1}</button>
           </div>
         </div>`;
       }
@@ -261,7 +268,7 @@
       b.onclick = () => openWin(observerUrl(b.dataset.obs), `lg-obs-${b.dataset.obs}`, 1280, 800);
     });
     $("screens").querySelectorAll("[data-print]").forEach((b) => {
-      b.onclick = () => window.open(printUrl([b.dataset.print]), "lg-print");
+      b.onclick = () => printSheets([Number(b.dataset.print)]);
     });
     renderPaper();
   }
@@ -270,51 +277,163 @@
   function renderPaper() {
     const list = printed();
     $("paperBox").classList.toggle("hidden", !list.length);
+    $("monTags").textContent = LiveGazeStore.MONITOR.ids.join(" ");
     if (!list.length) return;
     $("paperSize").innerHTML = LiveGazeStore.PAPERS
       .map((s) => `<option value="${s}"${s === paper.size ? " selected" : ""}>${s}</option>`).join("");
     $("paperTag").innerHTML = LiveGazeStore.PAPER_TAG_MM
       .map((mm) => `<option value="${mm}"${mm === paper.tagMm ? " selected" : ""}>${mm} mm</option>`).join("");
+    $("paperColors").value = paper.colors;
     $("printAll").textContent = list.length === 1 ? "print the sheet" : `print all ${list.length} sheets`;
+    renderExStatus();
   }
 
-  async function changePaper() {
-    paper = { size: $("paperSize").value, tagMm: Number($("paperTag").value) };
+  // What is saved, and whether the current choices still match it.
+  let statusToken = 0;
+  async function renderExStatus() {
+    const token = ++statusToken;
+    const el = $("exStatus");
+    if (!saved) { el.innerHTML = "No exhibition saved yet — <b>printing saves it</b>."; return; }
+    const when = new Date(saved.savedAt).toLocaleString();
+    const desc = `${saved.sheets.length} sheet${saved.sheets.length === 1 ? "" : "s"}, ${saved.paper.size}, ` +
+      `${saved.paper.tagMm} mm tags, ${saved.paper.colors === "bw" ? "black & white" : "colours from the painting"}`;
+    el.innerHTML = `Saved exhibition: <b>${desc}</b> — ${when}. Checking…`;
+    const ex = await LiveGazeStore.buildExhibition(records(), paper);
+    if (token !== statusToken) return;
+    el.innerHTML = LiveGazeStore.sameExhibition(saved, ex)
+      ? `Saved exhibition: <b>${desc}</b> — ${when}. These are the sheets the overview tracks.`
+      : `Saved exhibition: <b>${desc}</b> — ${when}. <span class="warn">The choices above differ from it</span>: ` +
+        `printing saves them as the new exhibition (the old one is kept in exhibition-archive/).`;
+  }
+
+  function records() {
+    return picks.map((p, i) => ({ slot: i, name: p.name, type: p.type, blob: p.blob, w: p.w, h: p.h,
+                                  medium: mediumOf(p), sha256: p.sha256 }));
+  }
+
+  async function changePaper(e) {
+    const size = $("paperSize").value;
+    // A new paper starts with the tag size made for it (120 mm on A0).
+    const tagMm = e && e.target === $("paperSize") ? LiveGazeStore.PAPER_TAG_FOR[size] : Number($("paperTag").value);
+    paper = { size, tagMm, colors: $("paperColors").value };
     await LiveGazeStore.setPaper(paper);
     paper = await LiveGazeStore.paper();
     renderScreens();
-    // Tracking windows register the sheet's layout: they reload to follow.
-    if ("BroadcastChannel" in window) {
-      const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
-      bus.postMessage({ type: "paper-changed", slot: -1 });
-      bus.close();
-    }
-    err("paper changed — print the sheets again: ones printed before no longer match.");
   }
   $("paperSize").onchange = changePaper;
   $("paperTag").onchange = changePaper;
-  $("printAll").onclick = () => window.open(printUrl(printed()), "lg-print");
+  $("paperColors").onchange = changePaper;
+  $("printAll").onclick = () => printSheets(printed());
+
+  // Printing = saving the exhibition (if it changed), then the print page,
+  // which prints from the saved copy. The window is opened at once, inside
+  // the click, so the browser does not block it while the images upload.
+  let pending = null;
+  async function printSheets(slots) {
+    err("");
+    const ex = await LiveGazeStore.buildExhibition(records(), paper);
+    if (!ex.sheets.length) return;
+    if (saved && LiveGazeStore.sameExhibition(saved, ex)) { window.open(printUrl(slots), "lg-print"); return; }
+    if (saved) {
+      pending = { ex, slots };
+      $("exConfirmText").innerHTML = `This replaces the saved exhibition (${saved.sheets.length} sheets, ` +
+        `${new Date(saved.savedAt).toLocaleString()}). <b>Sheets already printed from it will no longer be ` +
+        `tracked</b>; a copy is kept in exhibition-archive/.`;
+      $("exConfirm").classList.remove("hidden");
+      return;
+    }
+    await saveAndPrint(ex, slots);
+  }
+
+  async function saveAndPrint(ex, slots) {
+    $("exConfirm").classList.add("hidden");
+    const win = window.open("", "lg-print");
+    if (win) win.document.body.innerHTML = "<p style='font:13px ui-monospace,monospace;padding:30px'>saving the exhibition…</p>";
+    $("exStatus").innerHTML = "Saving the exhibition into the project folder…";
+    try {
+      const blobs = new Map(picks.map((p, i) => [i, p.blob]));
+      await LiveGazeStore.saveExhibition(ex, blobs);
+      saved = await LiveGazeStore.exhibition();
+      $("useExhibition").classList.toggle("hidden", !saved);
+      renderScreens();
+      announce();          // an open overview reloads to track the new sheets
+      if (win) win.location.href = printUrl(slots);
+      else err("the print window was blocked — allow popups for this site, then press print again.");
+    } catch (e) {
+      if (win) win.close();
+      renderExStatus();
+      err(`the exhibition could not be saved (${e.message}) — is PetrifEye's bridge running? Nothing was printed.`);
+    }
+  }
+  $("exReplace").onclick = () => { if (pending) saveAndPrint(pending.ex, pending.slots); pending = null; };
+  $("exCancel").onclick = () => { pending = null; $("exConfirm").classList.add("hidden"); };
+
+  function announce() {
+    if (!("BroadcastChannel" in window)) return;
+    const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
+    bus.postMessage({ type: "images-changed", count: picks.length });
+    bus.close();
+  }
+
+  // The saved exhibition back into this session: its images, in their sheet
+  // order, printed, with its paper — on this computer after other images were
+  // used, or on another one with a copy of the project.
+  async function useExhibition() {
+    const ex = await LiveGazeStore.exhibition();
+    if (!ex) { err("no exhibition is saved in the project's exhibition/ folder."); return; }
+    const n = Math.max(...ex.sheets.map((s) => s.slot)) + 1;
+    const next = [];
+    for (let i = 0; i < n; i++) {
+      const s = ex.sheets.find((x) => x.slot === i);
+      if (!s) {
+        // A sheet's tags follow its position, so a gap must keep the image
+        // that was shown on screen there.
+        if (picks[i] && mediumOf(picks[i]) !== "print") { next.push(picks[i]); continue; }
+        err(`the saved exhibition leaves position ${i + 1} to an image on a screen — add one there first.`);
+        return;
+      }
+      const res = await fetch(LiveGazeStore.exhibitionUrl(s.file), { cache: "no-store" });
+      if (!res.ok) { err(`exhibition/${s.file} is missing.`); return; }
+      const blob = await res.blob();
+      const m = await measure(new File([blob], s.name, { type: s.type || blob.type }));
+      if (!m) { err(`exhibition/${s.file} is not an image.`); return; }
+      m.medium = "print";
+      next.push(m);
+    }
+    picks.forEach((p) => { if (!next.includes(p)) URL.revokeObjectURL(p.url); });
+    picks = next;
+    paper = ex.paper;
+    await LiveGazeStore.setPaper(paper);
+    paper = await LiveGazeStore.paper();
+    renderPicks();
+    await commit();
+    err("");
+  }
+
   LiveGazeStore.paper().then((p) => { paper = p; renderScreens(); }).catch(() => {});
+  LiveGazeStore.exhibition().then((ex) => {
+    saved = ex;
+    $("useExhibition").classList.toggle("hidden", !saved);
+    renderScreens();
+  });
+
+  $("openOverview").onclick = () => openWin(overviewUrl, "lg-overview", 1440, 900);
 
   $("openAll").onclick = async () => {
     // Opening every window starts the show over: all images unseen again.
     // Windows already open reload and pick their images afresh.
     await LiveGazeStore.resetProgress();
-    if ("BroadcastChannel" in window) {
-      const bus = new BroadcastChannel(LiveGazeStore.CHANNEL);
-      bus.postMessage({ type: "images-changed", count: picks.length });
-      bus.close();
-    }
+    announce();
     // Spaced out: a browser that allows several windows per gesture still
-    // drops some when they are opened in the same tick. A printed image's
-    // "screen" is its tracking window, opened like any other (it stays on
-    // this Mac); the sheet itself is printed from the button above.
+    // drops some when they are opened in the same tick. Printed images have
+    // no window of their own: the overview tracks them.
     let delay = 0;
-    picks.slice(0, frameMode() ? 1 : picks.length).forEach((_, i) => {
+    picks.slice(0, frameMode() ? 1 : picks.length).forEach((p, i) => {
+      if (mediumOf(p) === "print") return;
       setTimeout(() => openWin(screenUrl(i), `lg-screen-${i}`, 1280, 800), delay);
-      setTimeout(() => openWin(observerUrl(i), `lg-obs-${i}`, 1280, 800), delay + 220);
-      delay += 440;
+      delay += 300;
     });
+    setTimeout(() => openWin(overviewUrl, "lg-overview", 1440, 900), delay);
   };
 
   $("again").onclick = async () => {
@@ -329,6 +448,7 @@
   // --------------------------------------------------------------- events
   $("drop").onclick = () => $("file").click();
   $("useIncluded").onclick = () => useIncluded();
+  $("useExhibition").onclick = () => useExhibition();
   $("file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
 
   const drop = $("drop");
@@ -353,13 +473,15 @@
   // not mean re-picking the files with visitors waiting.
   (async () => {
     try {
-      const saved = await LiveGazeStore.all();
+      const stored = await LiveGazeStore.all();
       // Nothing picked yet on this computer: start from the included images.
-      if (!saved.length) { await useIncluded(true); return; }
-      picks = saved.map((r) => ({
+      if (!stored.length) { await useIncluded(true); return; }
+      picks = stored.map((r) => ({
         name: r.name, type: r.type, blob: r.blob, w: r.w, h: r.h,
-        url: URL.createObjectURL(r.blob), medium: r.medium || "screen",
+        url: URL.createObjectURL(r.blob), medium: r.medium || "screen", sha256: r.sha256 || null,
       }));
+      // Images stored before fingerprints existed get theirs now.
+      for (const p of picks) if (!p.sha256) p.sha256 = await LiveGazeStore.sha256(p.blob).catch(() => null);
       renderPicks();
       renderScreens();
       $("step1").classList.add("done");

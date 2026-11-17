@@ -21,11 +21,10 @@
 // Everything broadcast is in NORMALISED IMAGE COORDINATES (0..1 across the
 // image), so an analysis window can draw it at any size.
 //
-// A PRINTED IMAGE (chosen on the upload page) uses this same window as its
-// TRACKING window: the sheet carries the tags, so this window draws none — it
-// registers the sheet's layout (LiveGazeStore.paperLayout) with the bridges
-// instead of its own viewport, measures exactly as a screen does, in the
-// sheet's units, and shows the operator the sheet with live gaze on it.
+// A PRINTED IMAGE (chosen on the upload page) has no window of its own: the
+// overview (live-gaze-overview.js) tracks every printed sheet at once. The
+// window of a printed image's position refuses to run — it would draw the
+// very tags printed on that sheet.
 //
 // SCREEN AND IMAGE ARE SEPARATE. The window's `slot` (URL) is the DISPLAY: it
 // fixes the tags and the bridge registration, which must not change while the
@@ -35,8 +34,10 @@
 // data belongs to, `display` the window that sent it.
 (function () {
   const PLAYERS = [
-    { id: 0, label: "P1", port: 8443, color: "#ff5f5f" },
-    { id: 1, label: "P2", port: 8444, color: "#4ecdc4" },
+    // Orange and sky blue (Okabe & Ito): apart for every common colour-vision
+    // deficiency, and the same two the overview and the printouts use.
+    { id: 0, label: "P1", port: 8443, color: "#E69F00" },
+    { id: 1, label: "P2", port: 8444, color: "#56B4E9" },
   ];
   const CHANNEL = LiveGazeStore.CHANNEL;
   const TARGET_D = 44;                    // same marker as MEDUSA
@@ -50,9 +51,8 @@
   // Asked on the upload page (session-setup.js): AprilTags or the purple
   // frame, and whether closed images are saved.
   const SETUP = SessionSetup.remembered("live-gaze");
-  // Set when this display is a printed sheet: { layout } (see paperFor).
-  let PAPER = null;
-  let view = { k: 1, x: 0, y: 0 };   // sheet units -> this window, when PAPER
+  // This display's position holds a PRINTED image: the window stays idle.
+  let PRINTED = false;
 
   const $ = (id) => document.getElementById(id);
   const bus = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
@@ -135,7 +135,6 @@
   // it sits between the tag rows — take whichever is bigger. Shrinking the tags
   // from the gear therefore directly enlarges the image.
   function imageRect() {
-    if (PAPER) return { ...PAPER.layout.image };   // fixed by the printout
     const W = window.innerWidth, H = window.innerHeight;
     const aspect = state.image && state.image.w ? state.image.w / state.image.h : 1.5;
     // Inside the frame line when there is one (Frame mode), with the same
@@ -197,90 +196,13 @@
 
   function drawImageSharp(img) {
     const d = window.devicePixelRatio || 1;
-    const r = toView(rect);
+    const r = rect;
     const c = scaledImage(img, r.w, r.h);
     const ctx = drawingContext;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);    // device pixels: no resampling
     ctx.drawImage(c, Math.round(r.x * d), Math.round(r.y * d));
     ctx.restore();
-  }
-
-  // ------------------------------------------------------- printed sheet
-  // Whether this display is a printed image, and its sheet's layout. Printed
-  // only with the AprilTags (the frame cannot find paper — the upload page
-  // stores such images as screens anyway).
-  async function paperFor(slot) {
-    if (SETUP.surface === "frame") return null;
-    try {
-      const [session, rec, paper] = await Promise.all([
-        LiveGazeStore.session(), LiveGazeStore.get(slot), LiveGazeStore.paper(),
-      ]);
-      if (!rec || (session.media || [])[slot] !== "print") return null;
-      return { layout: LiveGazeStore.paperLayout(paper, rec.w, rec.h) };
-    } catch (_) { return null; }
-  }
-
-  // The sheet, scaled to fit this window. Gaze arrives in the sheet's units
-  // (0.1 mm); toView maps those to this window, toSheet the other way (the
-  // mouse stand-in moves in the window). Identity on a screen.
-  function fitView() {
-    const L = PAPER.layout, W = window.innerWidth, H = window.innerHeight;
-    const k = Math.max(0.01, Math.min((W - 48) / L.w, (H - 120) / L.h));
-    view = { k, x: (W - L.w * k) / 2, y: (H - L.h * k) / 2 };
-  }
-  const toView = (r) => (PAPER
-    ? { x: view.x + r.x * view.k, y: view.y + r.y * view.k, w: (r.w || 0) * view.k, h: (r.h || 0) * view.k }
-    : r);
-  const toSheet = (x, y) => ({ x: (x - view.x) / view.k, y: (y - view.y) / view.k });
-
-  function sheetPointer(p) {
-    if (/^player-/.test(p.id)) return p;   // the glasses: already in sheet units
-    const a = toSheet(p.x, p.y), b = toSheet(p.rawX ?? p.x, p.rawY ?? p.y);
-    return { ...p, x: a.x, y: a.y, rawX: b.x, rawY: b.y };
-  }
-
-  // The page as printed, for the operator. The tags are drawn as empty boxes,
-  // NEVER as tags: real codes on this screen would be found by the glasses and
-  // mapped as if they were the sheet.
-  function drawSheet() {
-    const L = PAPER.layout, ctx = drawingContext;
-    const page = toView({ x: 0, y: 0, w: L.w, h: L.h });
-    ctx.save();
-    ctx.fillStyle = "#e9e7e2";
-    ctx.fillRect(page.x, page.y, page.w, page.h);
-    ctx.strokeStyle = "#9a9894"; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
-    ctx.fillStyle = "#7a7874"; ctx.font = "11px ui-monospace, Menlo, monospace";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    L.tags.forEach((t, i) => {
-      const r = toView({ x: t.x, y: t.y, w: L.size, h: L.size });
-      ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
-      ctx.fillText(`tag ${INFO.ids[i]}`, r.x + r.w / 2, r.y + r.h / 2);
-    });
-    ctx.restore();
-  }
-
-  function enterPaperMode() {
-    if (window.Markers) Markers.hide();
-    document.title = `LIVE GAZE — printed sheet ${SLOT + 1}`;
-    const L = PAPER.layout;
-    // ssWhich is kept: updateTitle writes to it.
-    $("ssWhich").closest("p").innerHTML =
-      `This window measures the <b class="lg-slot" id="ssWhich">printed sheet</b> of image ${SLOT + 1} ` +
-      `(${L.paper.size} ${L.landscape ? "landscape" : "portrait"}, tags ${INFO.ids.join(" ")} at ${L.paper.tagMm} mm). ` +
-      `Keep it on this Mac: the <b style="color:#c98f8f">sheet carries the tags</b>, nothing here is for the glasses. ` +
-      `No five-eye calibration on paper — gaze is the glasses' own.<br />` +
-      `<button class="ss-btn ghost" id="ssObserverBoot2" style="margin:10px 0 0">open this image's analysis screen</button>`;
-    $("ssObserverBoot2").onclick = openObserver;
-    // What a screen has and a sheet does not.
-    for (const id of ["lgNext", "lgCalib", "lgCheck"]) {
-      $(id).disabled = true;
-      $(id).title = "not for a printed sheet";
-    }
-    for (const id of ["toggle-target", "toggle-markers", "slider-marker"]) {
-      const row = $(id).closest("label");
-      if (row) row.style.display = "none";
-    }
   }
 
   // p5 fixes the density when it is set; a window dragged from the laptop to
@@ -298,6 +220,10 @@
     const session = await LiveGazeStore.session();
     state.total = Math.max(1, session.count || 1);
     state.media = session.media || [];
+    // The position of a printed image: idle (see the start-up below). It must
+    // not take an image from the queue either — that one would be stuck as
+    // "showing" on a display that never shows it.
+    if (SETUP.surface !== "frame" && state.media[SLOT] === "print") { PRINTED = true; return; }
     if (!session.count) {
       $("ssSub").innerHTML = `no images — ` +
         `<a href="live-gaze.html" style="color:#c98f8f">upload images first</a>`;
@@ -342,8 +268,7 @@
     $("ssSub").innerHTML = state.image
       ? `image <b class="lg-slot">${n}</b> of ${state.total} — ${name}`
       : $("ssSub").innerHTML;
-    $("ssWhich").textContent = PAPER ? "printed sheet" : `screen ${SLOT + 1}`;
-    if (PAPER) $("lgTags").textContent += " · printed sheet";
+    $("ssWhich").textContent = `screen ${SLOT + 1}`;
   }
 
   function flushAll() {
@@ -361,7 +286,7 @@
     broadcastSnapshot();
     // A reset is how a new visitor starts — and a new visitor needs their own
     // calibration, not the previous wearer's.
-    if (state.started && !PAPER && (!state.simMode || CALIB_IN_SIM)) startCalibration("full");
+    if (state.started && (!state.simMode || CALIB_IN_SIM)) startCalibration("full");
   }
 
   // ------------------------------------------------------------ record
@@ -423,10 +348,7 @@
       if (m.type === "new-run" && m.display !== SLOT && state.started) { beginRun(false); return; }
       // A calibration done on another screen: a starting point for players
       // who have not calibrated on this one (see adopt()).
-      // The sheet changed (paper or tag size): register the new layout.
-      if (m.type === "paper-changed") { if (PAPER) location.reload(); return; }
-      // Not on a printed sheet: those offsets are pixels of another screen.
-      if (m.type === "calib" && m.display !== SLOT && Array.isArray(m.offsets) && !PAPER) {
+      if (m.type === "calib" && m.display !== SLOT && Array.isArray(m.offsets)) {
         for (const o of m.offsets) GazeTargetCalibration.adopt(o.id, o);
         renderCalibInfo();
         return;
@@ -455,7 +377,6 @@
     matchDensity();
     background(0);
     rect = imageRect();
-    if (PAPER) { fitView(); if (!state.done && state.img != null) drawSheet(); }
     const img = state.image;
     if (img && img.el) drawImageSharp(img);
     if (!state.started) return;
@@ -476,8 +397,7 @@
     // Corrected by this visitor's calibration — x/y AND rawX/rawY, since the
     // measurement below reads the raw position. The tracker's own reading
     // stays on each pointer as uncalX/uncalY.
-    let pointers = GazeTargetCalibration.apply(Tracking.update());
-    if (PAPER) pointers = pointers.map(sheetPointer);
+    const pointers = GazeTargetCalibration.apply(Tracking.update());
     const seen = new Set();
     const live = [];
 
@@ -516,10 +436,7 @@
       });
       // The participant-facing target keeps the smooth assisted position:
       // that one is for looking at, not for counting.
-      // On a printed sheet's window it is the operator's view: always shown.
-      if (PAPER) {
-        if (ptr.id !== "mouse") { const v = toView({ x: ptr.x, y: ptr.y }); drawTarget(v.x, v.y, pl.color); }
-      } else if (state.showTarget && ptr.id !== "mouse") drawTarget(ptr.x, ptr.y, pl.color);
+      if (state.showTarget && ptr.id !== "mouse") drawTarget(ptr.x, ptr.y, pl.color);
     }
 
     // A pointer that vanished (glasses off, looking at another screen, tracking
@@ -552,7 +469,6 @@
 
   function startCalibration(mode = "full") {
     if (!state.started) return;
-    if (PAPER) { note("a printed sheet has no calibration — gaze is the glasses' own"); return; }
     state.calibWaiting = false;
     rect = imageRect();
     flushAll();                // close fixations in progress: what follows isn't data
@@ -607,8 +523,7 @@
     ctx.font = "15px ui-monospace, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(232, 230, 226, 0.85)";
-    const top = PAPER ? view.y : rect.y;
-    const y = state.done || state.img == null ? height / 2 - 10 : Math.max(28, top - 14);
+    const y = state.done || state.img == null ? height / 2 - 10 : Math.max(28, rect.y - 14);
     ctx.fillText(text, width / 2, y + line * 26);
     ctx.restore();
   }
@@ -632,10 +547,9 @@
 
   function renderProgress() {
     const left = unseen();
-    $("lgNext").disabled = !!PAPER || state.done || state.img == null || left === 0;
+    $("lgNext").disabled = state.done || state.img == null || left === 0;
     $("lgClose").disabled = state.done || state.img == null;
     $("lgQueue").textContent = state.done ? "all done on this screen"
-      : PAPER ? "a printed sheet keeps its image — close it (x x) when the visitor is done"
       : left ? `${left} image${left === 1 ? "" : "s"} not yet seen` : "no unseen images left — close when done";
   }
 
@@ -650,7 +564,6 @@
 
   async function closeImage(goNext) {
     if (closing || state.img == null || state.calib) return;
-    if (goNext && PAPER) { note("a printed sheet always shows its own image — press x twice to close it"); return; }
     if (goNext && !unseen()) { note("no more images to show — press x to close this one"); return; }
     closing = true;
     try {
@@ -748,9 +661,7 @@
     const results = {
       image: { index: idx, name, w: W, h: H },
       display: SLOT, closedAt: new Date().toISOString(),
-      // Printed: the sheet it was on (paper, tag size, layout in 0.1 mm).
-      medium: PAPER ? "print" : "screen",
-      ...(PAPER ? { sheet: PAPER.layout } : {}),
+      medium: "screen",
       players, settings: { spreadPct: state.spreadPct, minDurationMs: state.minDurationMs },
       calibration: GazeTargetCalibration.all(),
       coordinates: "u,v are 0..1 across the image; x_px,y_px are in the image's own pixels",
@@ -840,9 +751,7 @@
     const webcamTaken = list.some((p) => p.source === "webcam");
     $("ssSrcs").innerHTML = list.map((p) => {
       let camOpt;
-      if (PAPER) {
-        camOpt = `<option value="webcam" disabled>webcam — cannot see paper</option>`;
-      } else if (SLOT !== 0) {
+      if (SLOT !== 0) {
         camOpt = `<option value="webcam" disabled>webcam — image 1 only</option>`;
       } else if (p.source === "webcam" || !webcamTaken) {
         camOpt = `<option value="webcam"${p.source === "webcam" ? " selected" : ""}>webcam (WebGazer)</option>`;
@@ -939,7 +848,7 @@
 
   function setTargetVisible(on) { state.showTarget = !!on; $("toggle-target").checked = !!on; }
   function setAssist(on) { if (window.GazeAssist) GazeAssist.setEnabled(on); $("toggle-assist").checked = !!on; }
-  function setMarkers(on) { if (window.Markers && !PAPER) (on ? Markers.show() : Markers.hide()); }
+  function setMarkers(on) { if (window.Markers && !PRINTED) (on ? Markers.show() : Markers.hide()); }
 
   const GEAR_IDLE_MS = 3000;
   let gearTimer = null;
@@ -1038,8 +947,7 @@
   function goFullscreen() {
     return new Promise((resolve) => {
       const settle = () => setTimeout(resolve, VIEWPORT_SETTLE_MS);
-      // A printed sheet's window is the operator's, on this Mac: no fullscreen.
-      if (PAPER || document.fullscreenElement || !document.documentElement.requestFullscreen) { resolve(); return; }
+      if (document.fullscreenElement || !document.documentElement.requestFullscreen) { resolve(); return; }
       let done = false;
       const once = () => { if (done) return; done = true; settle(); };
       document.addEventListener("fullscreenchange", once, { once: true });
@@ -1096,7 +1004,6 @@
   }
 
   function beginVisitors(viewportReady) {
-    if (PAPER) return;   // nothing to calibrate against on paper
     if (state.simMode && !CALIB_IN_SIM) return;
     state.calibWaiting = true;
     viewportReady.then(() => { if (state.calibWaiting && !state.calib) startCalibration("full"); });
@@ -1128,25 +1035,34 @@
   }
   // The screen registration travels with init: this window's own tags and its
   // own size, so the very first surface solve already belongs to this display.
-  // A printed sheet registers the sheet instead (its size and its own tag
-  // geometry), which is why this waits for the store.
+  //
+  // Not at the position of a PRINTED image: its sheet carries this display's
+  // very tags (they follow the position), and the overview tracks it. Running
+  // here would draw a second copy of those tags and register a second surface
+  // with them — the glasses could no longer tell the sheet from this screen.
   (async () => {
-    PAPER = await paperFor(SLOT);
-    if (PAPER) { enterPaperMode(); updateTitle(); }
-    const L = PAPER && PAPER.layout;
-    GazeAggregator.init({ players: PLAYERS, screen: {
-      key: INFO.key, ids: INFO.ids,
-      surface: L ? { w: L.w, h: L.h, marker: { size: L.size, margin: L.margin } } : null,
-    } });
+    const session = await LiveGazeStore.session().catch(() => ({}));
+    PRINTED = SETUP.surface !== "frame" && (session.media || [])[SLOT] === "print";
+    if (PRINTED) {
+      document.title = `LIVE GAZE — image ${SLOT + 1} is printed`;
+      $("ssWhich").closest("p").innerHTML =
+        `Image ${SLOT + 1} is <b>printed</b>: its sheet carries tags ${INFO.ids.join(" ")}, and the ` +
+        `<b>overview</b> window tracks it. This window stays idle so those tags are never on two ` +
+        `surfaces at once — close it, and open the overview from the upload page.`;
+      $("ssStart").disabled = true;
+      $("ssSim").disabled = true;
+      $("ssBootState").textContent = "";
+      return;
+    }
+    GazeAggregator.init({ players: PLAYERS, screen: { key: INFO.key, ids: INFO.ids } });
     renderProgress();
     // Tags drawn during the boot card: each scene camera must see them before
-    // any gaze can be mapped, so framing happens before START. Never on a
-    // printed sheet's window — the sheet has them.
-    if (window.Markers && !PAPER) Markers.show();
+    // any gaze can be mapped, so framing happens before START.
+    if (window.Markers) Markers.show();
     if (new URLSearchParams(location.search).has("sim")) start(true);
   })();
 
   // Exposed for testing and the console.
   window.LiveGazeScreen = { state, slot: SLOT, info: INFO, resetImage, imageRect: () => rect, detectors,
-                            startCalibration, closeImage, paper: () => PAPER, view: () => view };
+                            startCalibration, closeImage };
 })();

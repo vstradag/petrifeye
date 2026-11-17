@@ -68,6 +68,10 @@
   .paper select { font-family:var(--gaze-mono); font-size:11px; background:#11141a; color:#e8e6e2;
                   border:1px solid #2e3138; padding:6px 8px; }
   .paper p.note { margin:10px 0 0; }
+  .confirm { margin-top:10px; padding:10px 12px; border:1px solid #6a3a3a; background:rgba(255,59,59,.06);
+             display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; font-size:11.5px; color:#e8c9c9; line-height:1.6; }
+  .scr.overview { margin-top:12px; border-color:#2c3340; }
+  .scr.overview .n { font-size:20px; color:#5d6a80; }
   .scr .n { font-size:22px; font-weight:200; color:#3e424c; text-align:center; }
   .scr .nm { font-size:12.5px; color:#e8e6e2; }
   .scr .sub { font-size:10px; color:#6a6a6a; margin-top:4px; letter-spacing:.06em; }
@@ -100,9 +104,10 @@
     </p>
     <p class="note">
       Each image is shown <b>on a screen</b> or <b>printed</b>. A printed sheet
-      carries the same four tags the image's screen would, laid out the same
-      way, so the glasses find it like a display; a small tracking window on
-      this Mac measures it, and its analysis is shown on a screen as usual.
+      carries the same four tags the image's screen would, in a border around
+      it, so the glasses find it like a display — on an easel, A0, as in a
+      museum. The <b>overview</b> measures every printed sheet at once and
+      shows each image in its own quadrant on one monitor.
     </p>
     <div class="drop" id="drop">
       <div class="big">drop images here, or click to choose</div>
@@ -112,6 +117,7 @@
     <div class="picks" id="picks"></div>
     <div class="row-btns" style="margin-top:10px">
       <button class="mini" id="useIncluded" title="the paintings in images/live-gaze/">use the included images</button>
+      <button class="mini hidden" id="useExhibition" title="the printed sheets saved in exhibition/">use the saved exhibition</button>
     </div>
     <p class="note warn hidden" id="err"></p>
   </section>
@@ -135,20 +141,43 @@
         <span>printed images:</span>
         <label>paper <select id="paperSize"></select></label>
         <label>tags <select id="paperTag"></select></label>
+        <label>colours <select id="paperColors">
+          <option value="painting">from the painting</option>
+          <option value="bw">black &amp; white</option>
+        </select></label>
         <button class="mini" id="printAll">print all sheets</button>
       </div>
+      <p class="note" id="exStatus"></p>
+      <div class="confirm hidden" id="exConfirm">
+        <span id="exConfirmText"></span>
+        <button class="mini" id="exReplace">replace it and print</button>
+        <button class="mini" id="exCancel">cancel</button>
+      </div>
       <p class="note">
-        One image per page, each with <b>its own four tags</b> — print each
-        sheet from here so its tags match its tracking window. Any printer
-        scale works (gaze is mapped through the tags); only don't crop the
-        page. 45 mm tags are read from up to about a metre away — larger for a
-        sheet seen from further. Changing the paper or the tags means
-        <b>printing again</b>. Open each sheet's <b>tracking</b> window on this
-        Mac and press start there, as on a screen; there is no five-eye
-        calibration on paper.
+        One image per sheet, each with <b>its own four tags</b> in the border
+        around it. Printing first <b>saves the exhibition</b> into the
+        project's <b>exhibition/</b> folder — the images, their order, their
+        tags and the layout — and both the sheets and the overview are made
+        from that saved copy, so what is on the easels and what the glasses
+        look for never drift apart. Tags are read from about 20 times their
+        size away: 120 mm tags on A0, from about 2.5 m. <b>Colours from the
+        painting</b> print the border and the tags in a light and a dark tone
+        of the image itself, kept contrasted enough to be read as far as black
+        and white. Any printer scale works; don't crop the page, and mount the
+        sheets flat. There is no five-eye calibration on paper.
       </p>
     </div>
     <div class="screens" id="screens"></div>
+    <div class="scr overview" id="overviewRow">
+      <div class="n">▦</div>
+      <div>
+        <div class="nm">overview — every image in a quadrant, on one monitor</div>
+        <div class="sub">records the printed sheets, shows both visitors' scanpaths live, and has the
+          <b>finish dot</b> visitors look at to end their visit · wears tags
+          <b id="monTags"></b> · then asks what to print</div>
+      </div>
+      <div class="btns"><button id="openOverview">overview</button></div>
+    </div>
     <div class="hr"></div>
     <div class="row-btns">
       <button class="go" id="openAll">open every window</button>

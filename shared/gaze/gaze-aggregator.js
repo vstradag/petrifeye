@@ -28,6 +28,16 @@
   // null means "the only screen", which is every other experience.
   let screen = null;          // { key, ids }
 
+  // SEVERAL SURFACES FROM ONE WINDOW (LIVE GAZE's overview): the printed
+  // sheets on their easels plus the overview monitor itself. Each has its own
+  // tags and its own geometry, registered as it is; every mapped sample is
+  // handed to onSample(playerId, key, x, y) in that surface's units, and
+  // nothing goes through the shared pointer channel. Such a window never
+  // reports a viewport or the global tag size: everything it registers
+  // carries its own, so it cannot disturb another window's screen.
+  let multi = null;           // [{ key, ids, surface: { w, h, marker } }]
+  let onSample = null;
+
   // What locates the screen ("tags" | "frame"), once the experience's start-up
   // question has been answered. null: leave the bridges as they are.
   let surfaceSource = null;
@@ -51,6 +61,9 @@
         // Mapped gaze actually flowing.
         live: !!c.at && performance.now() - c.at < STALE_MS,
         x: c.x, y: c.y,
+        // Several surfaces: tags in view per surface, and the last one gazed on.
+        screens: c.screens || null,
+        on: c.on || null,
       };
     });
   }
@@ -77,6 +90,7 @@
   }
 
   function sendViewport() {
+    if (multi) { sendScreen(); return; }
     broadcast({
       type: "viewport",
       width: Math.round(window.innerWidth),
@@ -96,17 +110,22 @@
   // A screen with its own SURFACE (LIVE GAZE's printed sheets) registers that
   // instead of this window: the sheet's size and its tags' own size and inset,
   // in the sheet's units. The window is then only where the measuring runs.
-  function sendScreen() {
-    if (!screen) return;
-    const s = screen.surface;
-    broadcast({
+  function registration(sc) {
+    const s = sc.surface;
+    return {
       type: "screen",
-      key: screen.key,
-      ids: screen.ids,
+      key: sc.key,
+      ids: sc.ids,
       width: Math.round(s ? s.w : window.innerWidth),
       height: Math.round(s ? s.h : window.innerHeight),
       ...(s && s.marker ? { marker: { size: Math.round(s.marker.size), margin: Math.round(s.marker.margin) } } : {}),
-    });
+    };
+  }
+
+  function sendScreen() {
+    if (multi) { multi.forEach((sc) => broadcast(registration(sc))); return; }
+    if (!screen) return;
+    broadcast(registration(screen));
   }
 
   // Marker size is surface geometry, so EVERY bridge has to hear about a
@@ -227,7 +246,7 @@
       sendViewport();
       // Immediate, not debounced: a bridge that just connected has the
       // default size and must be corrected before it maps anything.
-      if (window.Markers) sendMarkerSizeNow(Markers.size);
+      if (window.Markers && !multi) sendMarkerSizeNow(Markers.size);
     };
 
     ws.onmessage = (e) => {
@@ -246,6 +265,8 @@
         } else if (msg.markersVisible != null) {
           c.markers = msg.markersVisible;
         }
+        // Several surfaces: tags in view per surface, for the status panel.
+        c.screens = msg.screens || null;
         emit();
         return;
       }
@@ -253,6 +274,13 @@
         // worn === false means the glasses are off the face; holding the last
         // position would leave a ghost pointer parked on a blob.
         if (msg.worn === false) return;
+        if (multi) {
+          if (!msg.screen || !multi.some((sc) => sc.key === msg.screen)) return;
+          c.at = performance.now();
+          c.on = msg.screen;
+          if (onSample) onSample(p.id, msg.screen, msg.x, msg.y);
+          return;
+        }
         // Another display's sample. Unlabelled gaze is always ours: an older
         // bridge, or the single-screen case.
         if (screen && msg.screen && msg.screen !== screen.key) return;
@@ -301,6 +329,10 @@
         screen = { key: config.screen.key, ids: config.screen.ids.slice(),
                    surface: config.screen.surface || null };
       }
+      if (Array.isArray(config.screens)) {
+        multi = config.screens.map((sc) => ({ key: sc.key, ids: sc.ids.slice(), surface: sc.surface }));
+        onSample = config.onSample || null;
+      }
       players = config.players.map((p, i) => ({
         source: "neon",     // "neon" (own bridge) | "webcam" (shared WebGazer)
         ...p,
@@ -319,6 +351,15 @@
     players: () => snapshot(),
     pointerIdFor: (id) => `player-${id}`,
     screen: () => (screen ? { ...screen } : null),
+
+    // Several surfaces (see `multi`): replace one (same key) or the set, and
+    // register again on every bridge — the overview monitor does this when
+    // its window changes size.
+    setScreens(list) {
+      if (!multi) return;
+      multi = list.map((sc) => ({ key: sc.key, ids: sc.ids.slice(), surface: sc.surface }));
+      sendScreen();
+    },
 
     // Resize the on-screen tags and keep every bridge's surface in step.
     // Single entry point on purpose: doing one without the other is the

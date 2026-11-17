@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
 <script src="../shared/stylesheets.js" defer></script>
 <style>
-  /* The page size is set by the script below (paper chosen on the upload page). */
+  /* The page size is set by the script below (the saved exhibition's paper). */
   html, body { margin: 0; background: #2a2c31; color: #e8e6e2; font-family: var(--gaze-mono); }
   .bar { position: sticky; top: 0; z-index: 2; background: #0b0d12; border-bottom: 1px solid #23252c;
          padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
@@ -17,29 +17,33 @@
   .bar p b { color: #c98f8f; font-weight: 600; }
   .bar button { font-family: var(--gaze-mono); font-size: 12px; letter-spacing: .1em; cursor: pointer;
                 border: 1px solid var(--gaze-red); background: rgba(255,59,59,.1); color: #fff; padding: 9px 16px; }
-  .err { color: #c98f8f; font-size: 12px; padding: 30px; }
+  .err { color: #c98f8f; font-size: 12px; padding: 30px; line-height: 1.8; }
+  .err a { color: #c98f8f; }
   .sheets { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
 
   /* One sheet = one page. Everything inside is positioned in millimetres from
-     the same layout the tracking window registers with the bridge
-     (LiveGazeStore.paperLayout), so what is printed is what is tracked. */
-  .sheet { position: relative; background: #fff; overflow: hidden; box-shadow: 0 6px 30px rgba(0,0,0,.5); }
+     the layout frozen in the saved exhibition — the one the overview registers
+     with the bridges — so what is printed is what is tracked. On screen the
+     sheets are shown scaled down (--view); printing uses their real size. */
+  .frame { width: calc(var(--pw) * var(--view)); height: calc(var(--ph) * var(--view)); }
+  .sheet { position: relative; overflow: hidden; box-shadow: 0 6px 30px rgba(0,0,0,.5);
+           transform: scale(var(--view)); transform-origin: 0 0; }
   .sheet .lay { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-  .sheet img { position: absolute; display: block; }
-  /* Tag cells must stay hard-edged: smoothing them blurs the very edges the
-     detector measures. */
-  .sheet img.tag { image-rendering: pixelated; }
-  .sheet .label { position: absolute; text-align: center; color: #888; white-space: nowrap;
+  .sheet img, .sheet svg { position: absolute; display: block; }
+  .sheet .label { position: absolute; text-align: center; white-space: nowrap;
                   overflow: hidden; text-overflow: ellipsis;
-                  font: 2.6mm/1 ui-monospace, Menlo, monospace; letter-spacing: .04em; }
-  .caption { font-size: 11px; color: #8d8b88; margin: -14px 0 0; text-align: center; }
+                  font-family: ui-monospace, Menlo, monospace; letter-spacing: .04em; line-height: 1; }
+  .caption { font-size: 11px; color: #8d8b88; margin: -14px 0 0; text-align: center; line-height: 1.7; }
+  .caption b { color: #d9c27a; font-weight: 600; }
 
   @media print {
     html, body { background: #fff; }
     .bar, .caption { display: none; }
     .sheets { padding: 0; gap: 0; display: block; }
-    .sheet { box-shadow: none; break-after: page; }
-    .sheet:last-child { break-after: auto; }
+    .frame { width: auto; height: auto; }
+    .sheet { box-shadow: none; break-after: page; transform: none;
+             -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .frame:last-of-type .sheet { break-after: auto; }
   }
 </style>
 <style id="pageSize"></style>
@@ -57,28 +61,40 @@
 (async function () {
   const $ = (id) => document.getElementById(id);
   const mm = (u) => `${u / 10}mm`;       // layout units are 0.1 mm
-  const PAGE_KEYWORD = { A4: "A4", A3: "A3", Letter: "letter" };
+  const PAGE_MM = { A0: [1189, 841], A3: [420, 297], A4: [297, 210], Letter: [279.4, 215.9] };
 
-  const want = (new URLSearchParams(location.search).get("slots") || "")
-    .split(",").map(Number).filter((n) => Number.isInteger(n) && n >= 0);
-  const [all, paper] = await Promise.all([LiveGazeStore.all(), LiveGazeStore.paper()]);
-  const recs = all.filter((r) => want.includes(r.slot) && r.medium === "print");
-  if (!recs.length) {
-    $("sheets").innerHTML = `<div class="err">No printed images to show — choose <b>printed</b> for an image on the
-      <a href="live-gaze.html" style="color:#c98f8f">upload page</a> first.</div>`;
+  const ex = await LiveGazeStore.exhibition();
+  if (!ex || !ex.sheets.length) {
+    $("sheets").innerHTML = `<div class="err">No printed exhibition is saved yet. On the
+      <a href="live-gaze.html">upload page</a>, choose <b>printed</b> for the images and press
+      <b>print</b> there: that saves the sheets into the project's <b>exhibition/</b> folder first,
+      and this page prints from it.</div>`;
     $("barNote").textContent = "";
     return;
   }
+  const want = (new URLSearchParams(location.search).get("sheets") || "")
+    .split(",").filter(Boolean).map(Number).filter((n) => Number.isInteger(n) && n >= 0);
+  const sheets = ex.sheets.filter((s) => !want.length || want.includes(s.slot));
 
   // Every page is the paper turned landscape; a portrait sheet is laid out
   // portrait and turned sideways onto it, which on paper is the same thing.
   // One page size for the whole job, because browsers print a single size.
-  const [L, S] = { A4: [297, 210], A3: [420, 297], Letter: [279.4, 215.9] }[paper.size];
-  $("pageSize").textContent = `@page { size: ${PAGE_KEYWORD[paper.size]} landscape; margin: 0; }`;
+  const [L, S] = PAGE_MM[ex.paper.size] || PAGE_MM.A4;
+  $("pageSize").textContent = `@page { size: ${L}mm ${S}mm; margin: 0; }`;
+  // On screen: as wide as the window allows (an A0 sheet is 4.5 m of CSS px).
+  const fitView = () => {
+    const pxPerMm = 96 / 25.4;
+    const k = Math.min(1, (window.innerWidth - 60) / (L * pxPerMm), 820 / (S * pxPerMm));
+    document.documentElement.style.setProperty("--view", String(Math.max(0.05, k)));
+  };
+  document.documentElement.style.setProperty("--pw", `${L}mm`);
+  document.documentElement.style.setProperty("--ph", `${S - 0.5}mm`);
+  fitView();
+  window.addEventListener("resize", fitView);
+  window.addEventListener("beforeprint", () => document.documentElement.style.setProperty("--view", "1"));
+  window.addEventListener("afterprint", fitView);
 
   const loads = [];
-  // Waits for an image to load — called once its src is set (decode() on an
-  // image without one fails at once, which reads as "did not load").
   const track = (img) => {
     loads.push(new Promise((resolve) => {
       if (img.complete) return resolve();
@@ -88,15 +104,79 @@
     return img;
   };
 
-  for (const r of recs) {
-    const info = LiveGazeStore.slotInfo(r.slot);
-    const lay = LiveGazeStore.paperLayout(paper, r.w, r.h);
+  // A tag as vector squares in the sheet's two tones. Its bits come from the
+  // bridge's own tag image (/markers/<id>.png: 10 x 10 cells of 60 px, the
+  // outer ring the light quiet zone), so the pattern is exactly what the
+  // detector looks for; drawing it as squares keeps every edge sharp at any
+  // size, which a scaled-up bitmap on an A0 sheet would not.
+  const bitsCache = new Map();
+  function tagBits(id) {
+    if (!bitsCache.has(id)) {
+      bitsCache.set(id, new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          const ctx = c.getContext("2d", { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0);
+          const cell = c.width / 10, d = ctx.getImageData(0, 0, c.width, c.height).data;
+          const bits = [];
+          for (let r = 0; r < 10; r++) {
+            const row = [];
+            for (let q = 0; q < 10; q++) {
+              const x = Math.floor((q + 0.5) * cell), y = Math.floor((r + 0.5) * cell);
+              row.push(d[(y * c.width + x) * 4] > 127);   // true = light
+            }
+            bits.push(row);
+          }
+          resolve(bits);
+        };
+        img.onerror = () => resolve(null);
+        img.src = `/markers/${id}.png`;
+      }));
+    }
+    return bitsCache.get(id);
+  }
+
+  function tagSvg(bits, tones) {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 10 10");
+    svg.setAttribute("shape-rendering", "crispEdges");
+    const rect = (x, y, w, h, fill) => {
+      const r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h);
+      r.setAttribute("fill", fill);
+      svg.appendChild(r);
+    };
+    rect(0, 0, 10, 10, tones.light);
+    for (let r = 0; r < 10; r++) {
+      for (let q = 0; q < 10;) {
+        if (bits[r][q]) { q++; continue; }
+        let e = q;
+        while (e < 10 && !bits[r][e]) e++;
+        // A hair of overlap so no seam of light shows between dark cells.
+        rect(q, r, e - q, 1.02, tones.dark);
+        q = e;
+      }
+    }
+    return svg;
+  }
+
+  let missingTags = false;
+  for (const s of sheets) {
+    const lay = s.layout;
+    const tones = s.tones || { dark: "#000000", light: "#ffffff" };
+    const frame = document.createElement("div");
+    frame.className = "frame";
     const sheet = document.createElement("div");
     sheet.className = "sheet";
     // A hair shorter than the page: an exactly page-tall box can spill a
     // blank page after it. Nothing is placed in the last millimetre.
     sheet.style.width = `${L}mm`;
     sheet.style.height = `${S - 0.5}mm`;
+    // The passe-partout: the whole page in the light tone (white for B/W).
+    sheet.style.background = tones.light;
 
     const box = document.createElement("div");
     box.className = "lay";
@@ -105,50 +185,66 @@
     if (!lay.landscape) box.style.transform = `translateY(${S}mm) rotate(-90deg)`;
 
     const img = new Image();
-    img.src = URL.createObjectURL(r.blob);      // the original file, full resolution
+    img.src = LiveGazeStore.exhibitionUrl(s.file);    // the original file, byte for byte
     track(img);
     Object.assign(img.style, { left: mm(lay.image.x), top: mm(lay.image.y),
                                width: mm(lay.image.w), height: mm(lay.image.h) });
     box.appendChild(img);
 
-    lay.tags.forEach((t, k) => {
-      const tag = new Image();
-      tag.className = "tag";
-      // Served by the bridge, the same bitmaps a screen draws.
-      tag.src = `/markers/${info.ids[k]}.png`;
-      track(tag);
-      Object.assign(tag.style, { left: mm(t.x), top: mm(t.y), width: mm(lay.size), height: mm(lay.size) });
-      box.appendChild(tag);
-    });
+    for (let k = 0; k < 4; k++) {
+      const bits = await tagBits(s.ids[k]);
+      if (!bits) { missingTags = true; continue; }
+      const svg = tagSvg(bits, tones);
+      const t = lay.tags[k];
+      Object.assign(svg.style, { left: mm(t.x), top: mm(t.y), width: mm(lay.size), height: mm(lay.size) });
+      box.appendChild(svg);
+    }
 
+    // The label: between the bottom tags, below the image when there is room,
+    // otherwise in the border under it.
+    const labelH = Math.max(26, Math.round(lay.h * 0.006));            // 0.1 mm
+    const imgBottom = lay.image.y + lay.image.h;
+    const top = imgBottom + labelH + 20 <= lay.h - lay.margin
+      ? lay.h - lay.margin - labelH - 10
+      : lay.h - lay.margin / 2 - labelH / 2;
     const label = document.createElement("div");
     label.className = "label";
-    label.style.top = mm(lay.h - lay.margin - 30);
-    // Between the bottom tags, never over them.
-    label.style.left = label.style.right = mm(lay.margin + lay.size + 30);
-    label.textContent = `LIVE GAZE · image ${r.slot + 1} · ${r.name} · tags ${info.ids.join(" ")} · ` +
-      `${lay.paper.size} · ${lay.paper.tagMm} mm`;
+    Object.assign(label.style, {
+      top: mm(top), left: mm(lay.margin + lay.size + lay.gap), right: mm(lay.margin + lay.size + lay.gap),
+      fontSize: mm(labelH), color: tones.dark, opacity: "0.6",
+    });
+    label.textContent = `LIVE GAZE · sheet ${s.slot + 1} · ${s.name} · tags ${s.ids.join(" ")} · ` +
+      `${ex.paper.size} · ${ex.paper.tagMm} mm · mount flat, keep the four corner squares uncovered`;
     box.appendChild(label);
 
     sheet.appendChild(box);
-    $("sheets").appendChild(sheet);
+    frame.appendChild(sheet);
+    $("sheets").appendChild(frame);
+    const dpi = Math.round(s.w / (lay.image.w / 254));
     const cap = document.createElement("p");
     cap.className = "caption";
-    cap.textContent = `image ${r.slot + 1} — ${r.name}` + (lay.landscape ? "" : " · portrait, printed sideways");
+    cap.innerHTML = `sheet ${s.slot + 1} — ${s.name}` + (lay.landscape ? "" : " · portrait, printed sideways") +
+      ` · image ${(lay.image.w / 10).toFixed(0)} × ${(lay.image.h / 10).toFixed(0)} mm at <b>${dpi} dpi</b>` +
+      (dpi < 100 ? " — soft up close; a larger original prints sharper" : "") +
+      ` · tags ${s.ids.join(" ")} in ${tones.dark} on ${tones.light}`;
     $("sheets").appendChild(cap);
   }
 
   await Promise.all(loads);
   const broken = [...document.querySelectorAll(".sheet img")].filter((i) => !i.naturalWidth);
-  if (broken.length) {
-    $("barNote").innerHTML = "<b>Some tags did not load</b> — this page must be opened from the running " +
-      "app (the bridge serves the tags). Start PetrifEye and open it again from the upload page.";
+  if (missingTags || broken.length) {
+    $("barNote").innerHTML = missingTags
+      ? "<b>The tags did not load</b> — this page must be opened from the running app (the bridge " +
+        "serves them). Start PetrifEye and open it again from the upload page."
+      : "<b>An image did not load</b> from the exhibition/ folder — save the exhibition again from the upload page.";
     return;
   }
+  const saved = ex.savedAt ? new Date(ex.savedAt).toLocaleString() : "";
   $("barNote").innerHTML =
-    `${recs.length} sheet${recs.length === 1 ? "" : "s"}, one per page, ${paper.size} landscape. ` +
-    "Any scale works — <b>don't crop</b> the page. Each sheet's tags are its own: hang it where its image " +
-    "belongs and open that image's <b>tracking</b> window on this Mac.";
+    `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}, one per page, ${ex.paper.size} landscape, ` +
+    `${ex.paper.tagMm} mm tags — the exhibition saved ${saved}. For a print shop, choose ` +
+    `<b>Save as PDF</b> in the print dialog. Any scale works — <b>don't crop</b> the page, and mount the ` +
+    `sheets <b>flat</b> (a bowed sheet bends the tracking with it).`;
   $("printBtn").disabled = false;
   $("printBtn").onclick = () => window.print();
   // Straight to the print dialog: that is what this page was opened for.
