@@ -263,6 +263,14 @@ tags and layout and the statistics), and the three pictures. Printing needs the
 AprilTags: with the purple frame every image is on screen. The screen window
 at a printed image's position stays idle — its tags are on the sheet.
 
+**Test prints** (`games/live-gaze-test-prints.html`, linked from the upload
+page and the home page) open every printable sheet filled with a made-up
+session of two visitors (`shared/gaze/live-gaze-mock.js`, seeded): the image
+sheets laid out for any paper, the saved exhibition, one image's analysis,
+and the overview's scanpaths, heatmaps and statistics — the same code as the
+real prints, each page marked TEST PRINT, nothing measured or saved. They use
+the session's images, else the saved exhibition's, else the included ones.
+
 **Every analysis can be printed.** The analysis windows stay on screens; when an
 image closes, its analysis window offers **print image N** (bottom left, or
 **p**): the four panels as they stood at closing — the same picture saved as

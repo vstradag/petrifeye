@@ -129,10 +129,11 @@
     const d = new Date(ses.startedAt || Date.now());
     ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
     ctx.fillStyle = INK; ctx.font = `600 60px ${FONT}`;
-    ctx.fillText(`LIVE GAZE · ${title}`, 140, 190);
+    ctx.fillText(`${ses.test ? "TEST PRINT · " : ""}LIVE GAZE · ${title}`, 140, 190);
     ctx.fillStyle = INK2; ctx.font = `34px ${FONT}`;
     ctx.fillText(`${d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })} · ` +
-      `${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` + (sub ? ` · ${sub}` : ""), 140, 250);
+      `${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` + (sub ? ` · ${sub}` : "") +
+      (ses.test ? " · made-up data, nothing was measured" : ""), 140, 250);
     // Legend: one swatch per visitor, the name in ink.
     let x = W - 140;
     ctx.textAlign = "right";

@@ -57,13 +57,33 @@
 <div class="sheets" id="sheets"></div>
 
 <script src="../shared/gaze/live-gaze-store.js"></script>
+<script src="../shared/gaze/live-gaze-mock.js"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
   const mm = (u) => `${u / 10}mm`;       // layout units are 0.1 mm
   const PAGE_MM = { A0: [1189, 841], A3: [420, 297], A4: [297, 210], Letter: [279.4, 215.9] };
 
-  const ex = await LiveGazeStore.exhibition();
+  // ?test: a TEST PRINT (from the test prints page). The sheets are laid out
+  // exactly as real ones, for the paper given (?paper=A4&tag=45&colors=painting),
+  // from the session's images (or the included ones) — but not saved, and not
+  // the exhibition: nothing tracks this layout.
+  const params = new URLSearchParams(location.search);
+  const TEST = params.has("test");
+  const blobs = new Map();
+  let ex, source = "";
+  if (TEST) {
+    const imgs = await LiveGazeMock.images();
+    source = { session: "the images of this session", exhibition: "the saved exhibition's images" }[imgs.source]
+      || "the included paintings";
+    const size = LiveGazeStore.PAPERS.includes(params.get("paper")) ? params.get("paper") : "A4";
+    const paper = { size, tagMm: Number(params.get("tag")) || LiveGazeStore.PAPER_TAG_FOR[size],
+                    colors: params.get("colors") === "bw" ? "bw" : "painting" };
+    imgs.forEach((im) => blobs.set(im.slot, im.blob));
+    ex = await LiveGazeStore.buildExhibition(imgs.map((im) => ({ ...im, medium: "print" })), paper);
+  } else {
+    ex = await LiveGazeStore.exhibition();
+  }
   if (!ex || !ex.sheets.length) {
     $("sheets").innerHTML = `<div class="err">No printed exhibition is saved yet. On the
       <a href="live-gaze.html">upload page</a>, choose <b>printed</b> for the images and press
@@ -185,7 +205,8 @@
     if (!lay.landscape) box.style.transform = `translateY(${S}mm) rotate(-90deg)`;
 
     const img = new Image();
-    img.src = LiveGazeStore.exhibitionUrl(s.file);    // the original file, byte for byte
+    // The original file, byte for byte (a test print: the image itself).
+    img.src = TEST ? URL.createObjectURL(blobs.get(s.slot)) : LiveGazeStore.exhibitionUrl(s.file);
     track(img);
     Object.assign(img.style, { left: mm(lay.image.x), top: mm(lay.image.y),
                                width: mm(lay.image.w), height: mm(lay.image.h) });
@@ -213,7 +234,7 @@
       top: mm(top), left: mm(lay.margin + lay.size + lay.gap), right: mm(lay.margin + lay.size + lay.gap),
       fontSize: mm(labelH), color: tones.dark, opacity: "0.6",
     });
-    label.textContent = `LIVE GAZE · sheet ${s.slot + 1} · ${s.name} · tags ${s.ids.join(" ")} · ` +
+    label.textContent = `${TEST ? "TEST PRINT · " : ""}LIVE GAZE · sheet ${s.slot + 1} · ${s.name} · tags ${s.ids.join(" ")} · ` +
       `${ex.paper.size} · ${ex.paper.tagMm} mm · mount flat, keep the four corner squares uncovered`;
     box.appendChild(label);
 
@@ -242,11 +263,15 @@
   const saved = ex.savedAt ? new Date(ex.savedAt).toLocaleString() : "";
   $("barNote").innerHTML =
     `${sheets.length} sheet${sheets.length === 1 ? "" : "s"}, one per page, ${ex.paper.size} landscape, ` +
-    `${ex.paper.tagMm} mm tags — the exhibition saved ${saved}. For a print shop, choose ` +
+    `${ex.paper.tagMm} mm tags — ` +
+    (TEST ? `<b>a test print</b> from ${source}, laid out like a real sheet but not saved and not tracked. `
+          : `the exhibition saved ${saved}. `) + `For a print shop, choose ` +
     `<b>Save as PDF</b> in the print dialog. Any scale works — <b>don't crop</b> the page, and mount the ` +
     `sheets <b>flat</b> (a bowed sheet bends the tracking with it).`;
   $("printBtn").disabled = false;
   $("printBtn").onclick = () => window.print();
+  // Everything is drawn: for a script making PDFs of the test prints.
+  document.documentElement.dataset.printReady = "1";
   // Straight to the print dialog: that is what this page was opened for.
   // (?preview shows the sheets without it.)
   if (!new URLSearchParams(location.search).has("preview")) setTimeout(() => window.print(), 300);

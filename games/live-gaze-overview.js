@@ -32,6 +32,9 @@
   const MON = LiveGazeStore.MONITOR;
   const SETUP = SessionSetup.remembered("live-gaze");
   const params = new URLSearchParams(location.search);
+  // ?mock: a TEST PRINT (from the test prints page) — a made-up finished
+  // session (live-gaze-mock.js), straight to the pop-up. No bridges, nothing saved.
+  const MOCK = params.has("mock");
 
   const FINISH_MS = 3000;     // gaze held on the dot
   const FINISH_GRACE_MS = 400; // a blink or a dropped sample does not reset it
@@ -381,6 +384,7 @@
     S.mon.clear();
     renderSide();
     openModal("scanpaths");
+    fillPrintSheet(["scanpaths"]).catch(() => {});
     if (SETUP.collect) {
       try {
         S.saved = await save();
@@ -394,6 +398,7 @@
 
   function newSession() {
     if (S.phase !== "ended") return;
+    if (MOCK) { location.reload(); return; }
     closeModal();
     S.phase = "idle";
     S.fix = [];
@@ -408,7 +413,7 @@
   function session() {
     return {
       images: S.images, players: PLAYERS, fix: S.fix, visitors: S.visitors,
-      startedAt: S.startedAt, endedAt: S.endedAt,
+      startedAt: S.startedAt, endedAt: S.endedAt, test: MOCK,
     };
   }
 
@@ -759,6 +764,7 @@
     let saved = "";
     if (S.saved && S.saved.where) saved = ` · saved to <b>${S.saved.where}</b>`;
     else if (S.saved && S.saved.error) saved = ` · <b style="color:#ff8a8a">not saved: ${S.saved.error}</b>`;
+    else if (MOCK) saved = " · <b>test print: made-up data, nothing saved</b>";
     else if (SETUP.collect) saved = " · saving…";
     $("mSum").innerHTML = `${shown.length} visitor${shown.length === 1 ? "" : "s"} · ${parts.join(" · ")} · ` +
       `${S.fix.length} fixations on ${S.images.length} images${saved}`;
@@ -771,7 +777,9 @@
   }
   function closeModal() { $("modal").classList.add("hidden"); }
 
-  async function printKinds(kinds) {
+  // What the print sheet holds — also what the browser's own Print (cmd+P)
+  // prints: the scanpaths once a session has ended, until a button says else.
+  async function fillPrintSheet(kinds) {
     const urls = [];
     for (const k of kinds) urls.push(await picture(k, k === "heatmaps" ? report.who : "all"));
     const sheet = $("printSheet");
@@ -782,6 +790,10 @@
       img.src = u;
       sheet.appendChild(img);
     })));
+  }
+
+  async function printKinds(kinds) {
+    await fillPrintSheet(kinds);
     window.print();
   }
 
@@ -898,7 +910,30 @@
   });
 
   // ------------------------------------------------------------- start
+  // The made-up session, finished: the pop-up, as after real visitors.
+  async function mockSession() {
+    const imgs = await LiveGazeMock.images();
+    S.images = imgs.map((im) => ({ slot: im.slot, name: im.name, w: im.w, h: im.h, medium: im.medium,
+                                   el: im.el, sheet: null, problem: null, cache: null }));
+    layout();
+    const ses = LiveGazeMock.session(S.images);
+    S.fix = ses.fix;
+    ses.visitors.forEach((v) => Object.assign(vis(v.id), v));
+    S.startedAt = ses.startedAt;
+    S.endedAt = ses.endedAt;
+    S.phase = "ended";
+    $("scTitle").textContent = "test print";
+    renderSide();
+    requestAnimationFrame(draw);
+    note("test print: a made-up session — nothing here was measured or saved", 6000);
+    openModal("scanpaths");
+    await fillPrintSheet(params.has("printall") ? ["scanpaths", "heatmaps", "stats"] : ["scanpaths"]);
+    document.documentElement.dataset.printReady = "1";     // for scripted PDFs
+    window.LiveGazeOverview = { state: S, layout: () => L };
+  }
+
   (async () => {
+    if (MOCK) { await mockSession(); return; }
     await load();
     layout();
     GazeAggregator.init({

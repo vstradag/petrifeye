@@ -35,6 +35,9 @@
     Number(new URLSearchParams(location.search).get("slot") || 0)));
   let MINE = DISPLAY;
   let displayDone = false;
+  // ?mock: a TEST PRINT (from the test prints page) — filled with the
+  // made-up session of live-gaze-mock.js instead of listening to screens.
+  const MOCK = new URLSearchParams(location.search).has("mock");
 
   const $ = (id) => document.getElementById(id);
   const bus = "BroadcastChannel" in window ? new BroadcastChannel(CHANNEL) : null;
@@ -528,14 +531,16 @@
     }
   }
 
-  if (bus) bus.onmessage = (e) => onMessage(e.data);
-  else $("waitingMsg").textContent = "This browser has no BroadcastChannel — use a current Chrome, Edge, Firefox or Safari.";
+  if (bus && !MOCK) bus.onmessage = (e) => onMessage(e.data);
+  else if (!bus) $("waitingMsg").textContent = "This browser has no BroadcastChannel — use a current Chrome, Edge, Firefox or Safari.";
 
   // Ask for the full state, and keep asking until the screens answer: a screen
   // window may be opened after this one, or reloaded while it is open.
   function hello() { if (bus) bus.postMessage({ type: "hello", slot: MINE, display: DISPLAY }); }
-  hello();
-  setInterval(() => { if (!mine().connected) hello(); }, 1000);
+  if (!MOCK) {
+    hello();
+    setInterval(() => { if (!mine().connected) hello(); }, 1000);
+  }
 
   // ------------------------------------------------------------- export
   // The analysis of a closed image, as one picture: the four panels as they
@@ -548,7 +553,7 @@
     if (!blob) return;
     // Acknowledged as soon as the picture exists, not after it is written: the
     // screen waits only 3 s before saving its own fallback picture.
-    if (bus) bus.postMessage({ type: "analysis-saved", slot: idx, display: DISPLAY });
+    if (bus && !MOCK) bus.postMessage({ type: "analysis-saved", slot: idx, display: DISPLAY });
     addPrintable(idx, rec(idx).name, blob);
     if (collect) await LiveGazeStore.saveResults(idx, rec(idx).name || `image ${idx + 1}`, [{ name: "analysis.png", blob }]);
   }
@@ -565,7 +570,7 @@
     ctx.fillStyle = "#0d0e12"; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = "#e8e6e2"; ctx.font = "600 22px ui-monospace, Menlo, monospace";
     ctx.textBaseline = "middle";
-    ctx.fillText(`LIVE GAZE · image ${idx + 1}/${S.total} · ${r.name || ""}`, 24, HEAD / 2);
+    ctx.fillText(`${MOCK ? "TEST PRINT, MADE-UP DATA · " : ""}LIVE GAZE · image ${idx + 1}/${S.total} · ${r.name || ""}`, 24, HEAD / 2);
     ctx.font = "14px ui-monospace, Menlo, monospace"; ctx.fillStyle = "#8a8c94"; ctx.textAlign = "right";
     ctx.fillText(new Date().toLocaleString(), W - 24, HEAD / 2);
     ctx.textAlign = "left";
@@ -629,6 +634,8 @@
     if (old >= 0) URL.revokeObjectURL(printable.splice(old, 1)[0].url);
     printable.unshift({ idx, name: name || `image ${idx + 1}`, url: URL.createObjectURL(blob) });
     while (printable.length > PRINT_KEEP) URL.revokeObjectURL(printable.pop().url);
+    // The browser's own Print (cmd+P) prints the newest one too.
+    $("printImg").src = printable[0].url;
     renderPrintBar();
   }
 
@@ -693,10 +700,37 @@
     requestAnimationFrame(frame);
   }
 
-  loadImages().catch(() => {});
-  // Late-opened screens, or a re-upload, land in the store after this window
-  // started; the snapshot tells us the metadata but not the pixels.
-  setInterval(() => loadImages().catch(() => {}), 4000);
+  // A test print: the made-up session on every image, this window's image
+  // closed at once, so its print button is there as after a real visitor.
+  async function mockFill() {
+    const imgs = await LiveGazeMock.images();
+    if (!imgs.length) return;
+    const ses = LiveGazeMock.session(imgs);
+    S.total = imgs.length;
+    MINE = Math.min(DISPLAY, imgs.length - 1);
+    for (const im of imgs) {
+      Object.assign(rec(im.slot), {
+        el: im.el, name: im.name, w: im.w, h: im.h, players: ses.players,
+        started: true, connected: true,
+        fixations: ses.fix.filter((f) => f.slot === im.slot).map(({ p, u, v, dur, start }) => ({ p, u, v, dur, start })),
+      });
+    }
+    $("q1Title").textContent = `${MINE + 1}/${S.total} · ${rec(MINE).name} · test print, made-up data`;
+    $("waiting").classList.add("hidden");
+    revealDirty = statsDirty = true;
+    await exportAnalysis(MINE, false);
+    try { await $("printImg").decode(); } catch (_) {}
+    document.documentElement.dataset.printReady = "1";     // for scripted PDFs
+  }
+
+  if (MOCK) {
+    mockFill().catch(() => {});
+  } else {
+    loadImages().catch(() => {});
+    // Late-opened screens, or a re-upload, land in the store after this window
+    // started; the snapshot tells us the metadata but not the pixels.
+    setInterval(() => loadImages().catch(() => {}), 4000);
+  }
   requestAnimationFrame(frame);
 
   window.LiveGazeObserver = {

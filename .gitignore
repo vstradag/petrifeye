@@ -26,3 +26,6 @@ games/magnetic-poetry/voice/_audition/
 # it to pin the printed sheets); these are its scratch copy and replaced versions.
 exhibition.tmp/
 exhibition-archive/
+
+# LIVE GAZE test prints rendered to PDF (games/live-gaze-test-prints.html)
+test-prints/

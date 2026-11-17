@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>LIVE GAZE — test prints</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../shared/style.css" />
+<link rel="stylesheet" href="../shared/gaze/gaze-ui.css" />
+<script src="../shared/stylesheets.js" defer></script>
+<style>
+  body { background:#07080c; min-height:100vh; color:#e8e6e2; font-family: var(--gaze-mono); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 46px 24px 80px; }
+  h1 { font-size: 30px; font-weight: 200; letter-spacing: .3em; margin: 0 0 8px; text-align:center; }
+  h1 span { color: var(--gaze-red); }
+  .lede { text-align:center; color:#6a6a6a; font-size:11px; letter-spacing:.34em; text-transform:uppercase; margin:0 0 30px; }
+  p.note { font-size:12px; line-height:1.85; color:#8d8b88; margin:0 0 12px; }
+  p.note b { color:#c98f8f; font-weight:600; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap:16px; margin-top:22px; }
+  .card { border:1px solid #23252c; background:#0b0d12; padding:20px 22px; display:flex; flex-direction:column; gap:10px; }
+  .card h2 { font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:#7a7876; margin:0; font-weight:500; }
+  .card h2 b { color:#e8e6e2; font-weight:600; }
+  .card p { font-size:12px; line-height:1.75; color:#8d8b88; margin:0; }
+  .card p b { color:#c9c7c3; font-weight:600; }
+  .line { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; font-size:11px; color:#8d8b88; }
+  select { font-family:var(--gaze-mono); font-size:11px; background:#11141a; color:#e8e6e2; border:1px solid #2e3138; padding:6px 8px; }
+  a.btn, button { font-family:var(--gaze-mono); font-size:12px; letter-spacing:.08em; cursor:pointer; text-decoration:none;
+                  border:1px solid var(--gaze-red); background:rgba(255,59,59,.1); color:#fff; padding:9px 14px; align-self:flex-start; }
+  a.btn:hover, button:hover { background:rgba(255,59,59,.2); }
+  a.btn.off { opacity:.35; pointer-events:none; border-color:#2e3138; background:#11141a; }
+  .kind { font-size:10px; color:#d9c27a; letter-spacing:.16em; text-transform:uppercase; }
+  .foot { margin-top:30px; text-align:center; font-size:11px; color:#4a4a4a; line-height:2; }
+  .foot a { color:#7a5555; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LIVE <span>GAZE</span></h1>
+  <p class="lede">test prints</p>
+
+  <p class="note">
+    Every sheet LIVE GAZE prints, filled with a <b>made-up session</b> — two
+    visitors walking between the images in their own order, coming back to
+    some — and made by the same code as the real thing, so a test print here
+    is what a real one will be. Each opens in its own tab, ready to print;
+    nothing is measured, saved or tracked, and every page says
+    <b>TEST PRINT</b>. Made from <b id="source">…</b>.
+  </p>
+  <p class="note">
+    In the print dialog: pick your printer, keep the scale at default (any
+    scale works for the image sheets, since gaze is mapped through their
+    tags — only don't crop), and set <b>Background graphics</b> on if your
+    browser asks. <b>Save as PDF</b> shows the result without using paper.
+  </p>
+
+  <div class="grid">
+    <section class="card">
+      <span class="kind">type 1 · the image sheet</span>
+      <h2><b>The image sheet</b> — an image with its four tags</h2>
+      <p>What goes on an easel: one image per page, its tags in the border.
+        Lay it out for <b>your printer's paper</b> to try the printing, the
+        colours and the sharpness of the tags; A0 is for a print shop (save it
+        as PDF). Every image of the session gets its sheet.</p>
+      <div class="line">
+        <label>paper <select id="paper"></select></label>
+        <label>tags <select id="tag"></select></label>
+        <label>colours <select id="colors">
+          <option value="painting">from the painting</option>
+          <option value="bw">black &amp; white</option>
+        </select></label>
+      </div>
+      <a class="btn" id="sheetLink" target="_blank">open the test sheets</a>
+    </section>
+
+    <section class="card">
+      <span class="kind">type 1 · as saved for the exhibition</span>
+      <h2><b>The saved exhibition</b> — the real A0 sheets</h2>
+      <p id="exNote">Checking for a saved exhibition…</p>
+      <a class="btn off" id="exLink" target="_blank">open the saved sheets</a>
+    </section>
+
+    <section class="card">
+      <span class="kind">type 2 · one image's analysis</span>
+      <h2><b>One image's analysis</b> — for images on screens</h2>
+      <p>The analysis window of one image as it stands when the image closes:
+        scanpaths, statistics, what the eyes uncovered, and the other images,
+        on one landscape page. Press <b>print image 1</b> at the bottom left
+        (or <b>p</b>). Dark like the screen it comes from, so it takes a lot of ink.</p>
+      <a class="btn" href="live-gaze-observer.html?slot=0&amp;mock" target="_blank">open the analysis window</a>
+    </section>
+
+    <section class="card">
+      <span class="kind">types 3, 4, 5 · scanpaths, heatmaps, statistics</span>
+      <h2><b>The end of a session</b> — from the overview</h2>
+      <p>The overview's pop-up as after two visitors finished: <b>the
+        scanpaths</b> on every image, and on request <b>heatmaps</b> (both
+        visitors or one) and <b>fixation statistics</b> — each with its print
+        button, or <b>print all three</b>. On white, in the colour-blind safe
+        orange and blue.</p>
+      <a class="btn" href="live-gaze-overview.html?mock" target="_blank">open the overview's prints</a>
+    </section>
+  </div>
+
+  <p class="foot"><a href="live-gaze.html">← LIVE GAZE</a> · <a href="../index.html">all experiences</a></p>
+</div>
+
+<script src="../shared/gaze/live-gaze-store.js"></script>
+<script src="../shared/gaze/live-gaze-mock.js"></script>
+<script>
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const S = LiveGazeStore;
+  $("paper").innerHTML = S.PAPERS.map((p) => `<option${p === "A4" ? " selected" : ""}>${p}</option>`).join("");
+  const tags = () => {
+    const want = S.PAPER_TAG_FOR[$("paper").value];
+    $("tag").innerHTML = S.PAPER_TAG_MM.map((mm) => `<option value="${mm}"${mm === want ? " selected" : ""}>${mm} mm</option>`).join("");
+  };
+  const link = () => {
+    $("sheetLink").href = `live-gaze-print.html?test&paper=${$("paper").value}&tag=${$("tag").value}` +
+      `&colors=${$("colors").value}&preview`;
+  };
+  $("paper").onchange = () => { tags(); link(); };
+  $("tag").onchange = link;
+  $("colors").onchange = link;
+  tags(); link();
+
+  const ex = await S.exhibition();
+  if (ex) {
+    $("exNote").innerHTML = `${ex.sheets.length} sheet${ex.sheets.length === 1 ? "" : "s"}, ${ex.paper.size}, ` +
+      `${ex.paper.tagMm} mm tags, saved ${new Date(ex.savedAt).toLocaleString()} — the sheets the overview ` +
+      `tracks, exactly as they will go to the print shop (save them as PDF). On a home printer, let the ` +
+      `print dialog fit them to your paper and check its preview: the colours and the layout show, smaller.`;
+    $("exLink").href = "live-gaze-print.html?preview";
+    $("exLink").classList.remove("off");
+  } else {
+    $("exNote").textContent = "None saved yet: printing sheets from the upload page saves one.";
+  }
+  const imgs = await LiveGazeMock.images();
+  $("source").textContent = imgs.source === "session"
+    ? `the ${imgs.length} image${imgs.length === 1 ? "" : "s"} of this session`
+    : imgs.source === "exhibition" ? "the saved exhibition's images"
+    : "the included paintings (no images chosen on this computer yet)";
+})();
+</script>
+</body>
+</html>
