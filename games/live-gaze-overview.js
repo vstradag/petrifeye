@@ -167,12 +167,25 @@
   function monitorScreen() {
     return { key: MON.key, ids: MON.ids, surface: { w: L.W, h: L.H, marker: { size: L.T, margin: L.M } } };
   }
+  // What a sheet registers with the bridges: the rectangle its four tags
+  // span (their outer corners), with the tags in its corners — the bridge's
+  // geometry. On a sheet with the tags on the image's corners that is the
+  // image itself; an older sheet (tags inset from the paper's corners) gives
+  // the paper less that inset. Gaze comes back in that rectangle's units.
+  function tagSpan(lay) {
+    const t = lay.tags;
+    const x0 = t[0].x, y0 = t[0].y;
+    return { x0, y0, w: t[2].x + lay.size - x0, h: t[2].y + lay.size - y0 };
+  }
+
   function sheetScreens() {
-    return S.images.filter((im) => im.sheet).map((im) => ({
-      key: im.sheet.key, ids: im.sheet.ids,
-      surface: { w: im.sheet.layout.w, h: im.sheet.layout.h,
-                 marker: { size: im.sheet.layout.size, margin: im.sheet.layout.margin } },
-    }));
+    return S.images.filter((im) => im.sheet).map((im) => {
+      const sp = tagSpan(im.sheet.layout);
+      return {
+        key: im.sheet.key, ids: im.sheet.ids,
+        surface: { w: sp.w, h: sp.h, marker: { size: im.sheet.layout.size, margin: 0 } },
+      };
+    });
   }
 
   // ------------------------------------------------------------ loading
@@ -299,8 +312,8 @@
     if (key === MON.key) { monitorSample(p, x, y); return; }
     const im = S.images.find((i) => i.sheet && i.sheet.key === key);
     if (!im) return;
-    const r = im.sheet.layout.image;
-    imageSample(p, im.slot, (x - r.x) / r.w, (y - r.y) / r.h);
+    const r = im.sheet.layout.image, sp = tagSpan(im.sheet.layout);
+    imageSample(p, im.slot, (x + sp.x0 - r.x) / r.w, (y + sp.y0 - r.y) / r.h);
   }
 
   // Images on screens: their screen windows measure, in image coordinates.

@@ -56,13 +56,20 @@
     <section class="card">
       <span class="kind">type 1 · the image sheet</span>
       <h2><b>The image sheet</b> — an image with its four tags</h2>
-      <p>What goes on an easel: one image per page, its tags in the border.
-        Lay it out for <b>your printer's paper</b> to try the printing, the
-        colours and the sharpness of the tags; A0 is for a print shop (save it
-        as PDF). Every image of the session gets its sheet.</p>
+      <p>What goes on an easel: one image per page, as big as the sheet allows,
+        its four tags touching it — <b>beside</b> it, so the whole image shows
+        and the tags reach the paper's edge, or <b>on</b> its corners, for a
+        bigger image. <b>A0</b> is the exhibition's size, for a print
+        shop (save it as PDF); a smaller paper tries your own printer, the
+        colours and the sharpness of the tags. Every image of the session gets
+        its sheet.</p>
       <div class="line">
         <label>paper <select id="paper"></select></label>
         <label>tags <select id="tag"></select></label>
+        <label><select id="place">
+          <option value="beside">beside the image (all of it shows)</option>
+          <option value="on">on its corners (a bigger image)</option>
+        </select></label>
         <label>colours <select id="colors">
           <option value="painting">from the painting</option>
           <option value="bw">black &amp; white</option>
@@ -121,18 +128,19 @@
 (async function () {
   const $ = (id) => document.getElementById(id);
   const S = LiveGazeStore;
-  $("paper").innerHTML = S.PAPERS.map((p) => `<option${p === "A4" ? " selected" : ""}>${p}</option>`).join("");
+  $("paper").innerHTML = S.PAPERS.map((p) => `<option${p === "A0" ? " selected" : ""}>${p}</option>`).join("");
   const tags = () => {
     const want = S.PAPER_TAG_FOR[$("paper").value];
     $("tag").innerHTML = S.PAPER_TAG_MM.map((mm) => `<option value="${mm}"${mm === want ? " selected" : ""}>${mm} mm</option>`).join("");
   };
   const link = () => {
     $("sheetLink").href = `live-gaze-print.html?test&paper=${$("paper").value}&tag=${$("tag").value}` +
-      `&colors=${$("colors").value}&preview`;
+      `&colors=${$("colors").value}&place=${$("place").value}&preview`;
   };
   $("paper").onchange = () => { tags(); link(); };
   $("tag").onchange = link;
   $("colors").onchange = link;
+  $("place").onchange = link;
   tags(); link();
 
   const ex = await S.exhibition();

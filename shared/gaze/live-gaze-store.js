@@ -97,20 +97,30 @@
   const PAPERS = {                       // landscape, 0.1 mm
     A0: [11890, 8410], A3: [4200, 2970], A4: [2970, 2100], Letter: [2794, 2159],
   };
-  const PAPER_DEFAULT = { size: "A4", tagMm: 45, colors: "painting" };
+  const PAPER_DEFAULT = { size: "A0", tagMm: 120, colors: "painting", place: "beside" };
   // Tags are read from about 20 times their own size away (45 mm from ~1 m);
   // the big ones are for sheets looked at from across a room.
   const PAPER_TAG_MM = [30, 45, 60, 80, 100, 120, 150];
   // What each paper starts with when chosen: A0 is looked at from 1-2.5 m.
   const PAPER_TAG_FOR = { A0: 120, A3: 60, A4: 45, Letter: 45 };
-  // Inset of the tags from the paper's edge, and the gap between tags and
-  // image. Printers leave a few mm unprinted, and a tag clipped by even a
-  // little cannot be read. A0 sheets stand on easels, whose ledge and clamps
-  // cover the edges, so their tags sit 4 cm in.
+  // Where the tags go, the image never further from them than nothing:
+  //   "beside" — the whole image shows; the tags touch its edges from outside
+  //              and sit out at the paper's edge.
+  //   "on"     — the image as big as the paper allows; the tags sit on its
+  //              corners and cover them.
+  const PAPER_PLACES = ["beside", "on"];
+  // With the tags ON the image, the paper left around it. Printers leave a
+  // few mm unprinted (large-format ones about 5 mm), and a tag clipped by even
+  // a little cannot be read, so on A0 the image stops 15 mm from the edge.
   const PAPER_EDGE = {
-    A0: { margin: 400, gap: 120 },
-    other: { margin: 80, gap: 30 },      // 8 mm, 3 mm
+    A0: { margin: 150 },                 // 15 mm
+    other: { margin: 80 },               // 8 mm
   };
+  // With the tags BESIDE it they go right to the paper's edge: a tag's square
+  // holds its light quiet zone (a tenth of it, 12 mm at 120 mm), and paper
+  // left unprinted there is just as light, so only the black border must stay
+  // printable — at least 8 mm in. A 120 mm tag needs no margin at all.
+  const BLACK_FROM_EDGE = 80;            // 0.1 mm
   // Tag colours: "painting" takes a dark and a light tone from the image
   // itself (tonesOf), "bw" prints them black on white.
   const PAPER_COLORS = ["painting", "bw"];
@@ -119,7 +129,8 @@
     const size = p && PAPERS[p.size] ? p.size : PAPER_DEFAULT.size;
     const tagMm = p && PAPER_TAG_MM.includes(Number(p.tagMm)) ? Number(p.tagMm) : PAPER_TAG_FOR[size];
     const colors = p && PAPER_COLORS.includes(p.colors) ? p.colors : PAPER_DEFAULT.colors;
-    return { size, tagMm, colors };
+    const place = p && PAPER_PLACES.includes(p.place) ? p.place : PAPER_DEFAULT.place;
+    return { size, tagMm, colors, place };
   }
 
   // The sheet for one image, in 0.1 mm. The print page draws exactly this and
@@ -131,27 +142,52 @@
     const [L, S] = PAPERS[pp.size];
     const landscape = !(imgH > imgW);
     const W = landscape ? L : S, H = landscape ? S : L;
-    const edge = PAPER_EDGE[pp.size] || PAPER_EDGE.other;
-    const size = pp.tagMm * 10, margin = edge.margin;
+    const size = pp.tagMm * 10;
     const aspect = imgW && imgH ? imgW / imgH : 1.5;
-    // The screen's imageRect(), on paper: as tall as the page between the tag
-    // columns, or as wide as it between the tag rows, whichever is bigger.
-    const pad = margin;
-    const F = margin + size + edge.gap;
-    const fullH = Math.min((W - 2 * pad) / aspect, H - 2 * pad);
-    const betweenRows = Math.min((W - 2 * pad) / aspect, H - 2 * F);
-    const betweenCols = Math.min((W - 2 * F) / aspect, H - 2 * pad);
-    const h = Math.min(fullH, Math.max(betweenRows, betweenCols, 40));
-    const w = h * aspect;
-    return {
-      paper: pp, landscape, w: W, h: H, size, margin, gap: edge.gap,
-      // Same order as the bridge's marker_verts: TL, TR, BR, BL.
-      tags: [
-        { x: margin, y: margin }, { x: W - margin - size, y: margin },
-        { x: W - margin - size, y: H - margin - size }, { x: margin, y: H - margin - size },
-      ],
-      image: { x: (W - w) / 2, y: (H - h) / 2, w, h },
-    };
+    // Tags are listed in the bridge's marker_verts order: TL, TR, BR, BL.
+    if (pp.place === "on") {
+      // The image as big as the paper allows inside the margin, and the tags
+      // on its four corners, flush with its edges. A tag's square holds its
+      // own light quiet zone (one cell of ten: 12 mm on a 120 mm tag), which
+      // parts its black border from the painting.
+      const margin = (PAPER_EDGE[pp.size] || PAPER_EDGE.other).margin;
+      const w = Math.round(Math.min(W - 2 * margin, (H - 2 * margin) * aspect));
+      const h = Math.round(w / aspect);
+      const x = Math.round((W - w) / 2), y = Math.round((H - h) / 2);
+      return {
+        paper: pp, landscape, w: W, h: H, size, margin,
+        tags: [
+          { x, y }, { x: x + w - size, y },
+          { x: x + w - size, y: y + h - size }, { x, y: y + h - size },
+        ],
+        image: { x, y, w, h },
+      };
+    }
+    // "beside": the whole image, the tags outside it touching its edges, and
+    // out at the paper's edge. Either a row of two tags above it and below it
+    // (the image as tall as the paper less two tags) or a column left and
+    // right of it — whichever lets the image be bigger. The tags then sit in
+    // the paper's corners and overlap the image's span, so each touches it.
+    const margin = Math.max(0, BLACK_FROM_EDGE - size * 0.1);
+    const Wi = W - 2 * margin, Hi = H - 2 * margin;
+    const rowsW = Math.min(Wi, (Hi - 2 * size) * aspect);
+    const colsW = Math.min(Wi - 2 * size, Hi * aspect);
+    const rows = rowsW >= colsW;
+    // Rounded down, so image and tags together never pass the paper's edge.
+    const w = Math.floor(Math.max(rowsW, colsW)), h = Math.floor(w / aspect);
+    const x = Math.floor((W - w) / 2), y = Math.floor((H - h) / 2);
+    // In the paper's corners while that still overlaps the image's span; when
+    // it would only meet the image's corner (the image inset a whole tag on
+    // every side), flush with the image's corners instead.
+    let tags;
+    if (rows) {
+      const out = x < margin + size && x + w > W - margin - size, L = out ? margin : x, R = out ? W - margin - size : x + w - size;
+      tags = [{ x: L, y: y - size }, { x: R, y: y - size }, { x: R, y: y + h }, { x: L, y: y + h }];
+    } else {
+      const out = y < margin + size && y + h > H - margin - size, T = out ? margin : y, B = out ? H - margin - size : y + h - size;
+      tags = [{ x: x - size, y: T }, { x: x + w, y: T }, { x: x + w, y: B }, { x: x - size, y: B }];
+    }
+    return { paper: pp, landscape, w: W, h: H, size, margin, tags, image: { x, y, w, h } };
   }
 
   // ------------------------------------------------------------ tones
@@ -368,6 +404,7 @@
     PAPERS: Object.keys(PAPERS),
     PAPER_TAG_MM,
     PAPER_TAG_FOR,
+    PAPER_PLACES,
     paperLayout,
     tonesOf,
     sha256,

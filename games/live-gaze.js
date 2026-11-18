@@ -9,7 +9,7 @@
   const MAX = LiveGazeStore.MAX_IMAGES;
 
   let picks = [];   // [{ name, type, blob, w, h, url, medium: "screen" | "print", sha256 }]
-  let paper = { size: "A4", tagMm: 45, colors: "painting" };   // LiveGazeStore.paper()
+  let paper = { size: "A0", tagMm: 120, colors: "painting", place: "beside" };  // LiveGazeStore.paper()
   let saved = null; // the exhibition saved in exhibition/ (LiveGazeStore.exhibition)
 
   // Printing needs the AprilTags: the purple frame is found by a lit screen's
@@ -284,6 +284,7 @@
     $("paperTag").innerHTML = LiveGazeStore.PAPER_TAG_MM
       .map((mm) => `<option value="${mm}"${mm === paper.tagMm ? " selected" : ""}>${mm} mm</option>`).join("");
     $("paperColors").value = paper.colors;
+    $("paperPlace").value = paper.place;
     $("printAll").textContent = list.length === 1 ? "print the sheet" : `print all ${list.length} sheets`;
     renderExStatus();
   }
@@ -296,7 +297,8 @@
     if (!saved) { el.innerHTML = "No exhibition saved yet — <b>printing saves it</b>."; return; }
     const when = new Date(saved.savedAt).toLocaleString();
     const desc = `${saved.sheets.length} sheet${saved.sheets.length === 1 ? "" : "s"}, ${saved.paper.size}, ` +
-      `${saved.paper.tagMm} mm tags, ${saved.paper.colors === "bw" ? "black & white" : "colours from the painting"}`;
+      `${saved.paper.tagMm} mm tags ${saved.paper.place === "on" ? "on the image's corners" : "beside the image"}, ` +
+      `${saved.paper.colors === "bw" ? "black & white" : "colours from the painting"}`;
     el.innerHTML = `Saved exhibition: <b>${desc}</b> — ${when}. Checking…`;
     const ex = await LiveGazeStore.buildExhibition(records(), paper);
     if (token !== statusToken) return;
@@ -315,7 +317,7 @@
     const size = $("paperSize").value;
     // A new paper starts with the tag size made for it (120 mm on A0).
     const tagMm = e && e.target === $("paperSize") ? LiveGazeStore.PAPER_TAG_FOR[size] : Number($("paperTag").value);
-    paper = { size, tagMm, colors: $("paperColors").value };
+    paper = { size, tagMm, colors: $("paperColors").value, place: $("paperPlace").value };
     await LiveGazeStore.setPaper(paper);
     paper = await LiveGazeStore.paper();
     renderScreens();
@@ -323,6 +325,7 @@
   $("paperSize").onchange = changePaper;
   $("paperTag").onchange = changePaper;
   $("paperColors").onchange = changePaper;
+  $("paperPlace").onchange = changePaper;
   $("printAll").onclick = () => printSheets(printed());
 
   // Printing = saving the exhibition (if it changed), then the print page,

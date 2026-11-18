@@ -220,8 +220,20 @@ the tags in a light and a dark tone of the image itself, **black & white** as
 plain tags. The tones keep the painting's hue but are pushed until the dark one
 is near black and the light one no darker than a light beige: in a simulation
 of the Neon scene camera (1–4.5 m, straight on and at 40°, dim light, video
-compression) such tags were read as far as black-and-white ones. On A0 the tags
-sit 4 cm in from the edge, clear of an easel's ledge and clamps. Any printer
+compression) such tags were read as far as black-and-white ones. The image is
+as big as the sheet allows and the tags touch it, with nothing between; where
+they go is a choice. **Beside the image** (the default): the whole image
+shows, a pair of tags above and below it (or left and right, whichever makes
+it bigger), out in the paper's corners — on A0 with no margin at all, since a
+tag's square holds its own light quiet zone (12 mm at 120 mm) and paper left
+unprinted there is just as light; smaller tags keep their black border 8 mm
+in. On A0 a 16:9 image is 1069 × 601 mm, a 3:2 one 949 × 633 mm. **On its
+corners**: the image fills the paper up to 15 mm from the edge and the tags
+cover its corners — 16:9 is 1159 × 652 mm, 3:2 1159 × 773 mm. Either way an
+easel's ledge or clamps must not cover a tag. The overview registers each
+sheet with the bridges as the rectangle its four tags span, so gaze maps
+through them whatever the placement; older saved sheets (tags inset from the
+paper's corners) still register as they were printed. Any printer
 scale works, since gaze is mapped through the tags; don't crop the page, and
 mount the sheets flat (on foam board) — a bowed sheet bends the mapping with it.
 
@@ -267,9 +279,12 @@ at a printed image's position stays idle — its tags are on the sheet.
 letter (the print dialog) and **instax WIDE**: the same three prints laid out
 again as 1260 × 800 cards for an INSTAX Link WIDE (99 × 62 mm on instax WIDE
 film, 12.5 dots/mm): the images as large as the card allows, numbered in a
-corner, no text under 24 dots (about 2 mm). The Link WIDE prints only from its
-phone app, so **save for the instax** downloads the card as a PNG; send it to
-the phone (AirDrop) and print it from the INSTAX Link WIDE app. The choice is
+corner, no text under 24 dots (about 2 mm). The app cuts about 5 % off every
+edge of what it prints (measured in its Simple Print preview), so each card is
+drawn at 91 % inside a white border. The Link WIDE prints only from its app
+(on the phone, or the Link WIDE app on an Apple-silicon Mac, which picks from
+Photos), so **save for the instax** downloads the card as a PNG; send it to
+the phone (AirDrop) or add it to Photos, and print it from the app. The choice is
 remembered, and a saved session also holds the cards (`instax-*.png`).
 
 **Test prints** (`games/live-gaze-test-prints.html`, linked from the upload

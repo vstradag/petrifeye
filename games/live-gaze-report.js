@@ -486,7 +486,13 @@
   // 12.5 to the millimetre. A page shrunk to that is unreadable, so each card
   // is laid out again: the images as big as the card allows, numbered in a
   // corner instead of captioned, and no text under 24 dots (about 2 mm).
-  const CARD = { W: 1260, H: 800, M: 40 };
+  //
+  // The app does not print all of the picture it is given: its Simple Print
+  // preview shows only x 64–1196 and y 48–752 of a 1260 × 800 card (about 5 %
+  // off every side). So a card is laid out on 1260 × 800 and then drawn at
+  // FIT of that size, centred, which keeps a margin of ~25 dots inside what
+  // the app shows; the rest of the picture is white, like the film's border.
+  const CARD = { W: 1260, H: 800, M: 40, FIT: 0.91 };
 
   function cardCanvas() {
     const c = document.createElement("canvas");
@@ -494,6 +500,8 @@
     const ctx = c.getContext("2d");
     ctx.fillStyle = PAGE; ctx.fillRect(0, 0, CARD.W, CARD.H);
     ctx.imageSmoothingQuality = "high";
+    const s = CARD.FIT;
+    ctx.setTransform(s, 0, 0, s, CARD.W * (1 - s) / 2, CARD.H * (1 - s) / 2);
     return { c, ctx, W: CARD.W, H: CARD.H, M: CARD.M };
   }
 
