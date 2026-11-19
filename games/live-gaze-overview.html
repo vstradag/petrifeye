@@ -79,6 +79,11 @@
   #modal .preview.instax { background: #2a2c31; padding: 18px 0; }
   #modal .preview.instax img { max-height: 46vh; background: #fbfaf6; padding: 14px 18px 46px;
                                box-shadow: 0 2px 10px rgba(0,0,0,.5); }
+  #mInstaxState { color: #e8e6e2; }
+  #mInstaxState.bad { color: #ff8a8a; }
+  #mInstax .hint { color: #6a6a6a; }
+  #mInstax button.mini { font-size: 11px; padding: 2px 8px; margin-left: 8px; }
+  #modal button:disabled { opacity: .45; cursor: default; }
   #modal .tabs .push { margin-left: auto; }
   #modal .ask { font-size: 14px; letter-spacing: .04em; margin-right: auto; }
   #modal .who { display: flex; gap: 6px; align-items: center; font-size: 11px; color: #8d8b88; }
@@ -134,10 +139,10 @@
       <button data-printer="instax">instax WIDE</button>
     </div>
     <div class="preview" id="mPreviewBox"><img id="mPreview" alt="" /></div>
-    <div class="sum hidden" id="mInstax">For the <b>INSTAX Link WIDE</b>, which prints from its phone app:
-      the card is a picture for the phone (99 × 62 mm). <b>Save</b> puts it in Downloads. Send it to the phone
-      (AirDrop on an iPhone), then in the INSTAX Link WIDE app choose it and print. One film per card.
-      With data collection on, each session's cards are also saved with its results.</div>
+    <div class="sum hidden" id="mInstax"><span id="mInstaxState">INSTAX Link WIDE: checking the printer…</span>
+      <button class="mini" id="mInstaxCheck">check again</button>
+      <div class="hint">The card goes straight to the printer over Bluetooth, one film per card. Keep the
+        printer on and near this computer, with the INSTAX app closed here and on any phone.</div></div>
     <div class="row">
       <div class="ask" id="mAsk">Is this the print you want?</div>
       <div class="who hidden" id="mWho">visitors

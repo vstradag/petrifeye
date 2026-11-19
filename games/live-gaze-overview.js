@@ -773,18 +773,110 @@
   const cardName = (kind, who) =>
     kind === "stats" ? "statistics" : kind === "heatmaps" && who !== "all" ? `heatmaps-p${who + 1}` : kind;
 
-  // The instax cards, downloaded: the phone app prints pictures, not pages.
-  async function saveCards(kinds) {
-    const stamp = MOCK ? "test" : LiveGazeStore.sessionStamp(S.startedAt);
-    for (const k of kinds) {
-      const who = k === "heatmaps" ? report.who : "all";
-      const a = document.createElement("a");
-      a.href = await picture(k, who, "instax");
-      a.download = `live-gaze-${stamp}-instax-${cardName(k, who)}.png`;
-      document.body.appendChild(a); a.click(); a.remove();
+  // ------------------------------------------------------- the instax
+  // The cards go to the INSTAX Link WIDE through the bridge, which talks to
+  // the printer over Bluetooth (bridge/instax.py): POST the card, then follow
+  // the job in GET /api/instax until it is on film. No app, no phone.
+  const instax = { printing: false, checkedAt: 0, last: null };
+
+  function instaxLine(snap) {
+    const p = snap && snap.printer;
+    if (snap && snap.error) return { text: `INSTAX Link WIDE: ${snap.error}`, bad: true };
+    if (!p) return { text: "INSTAX Link WIDE: not checked yet", bad: false };
+    const film = p.film === 1 ? "1 film left" : `${p.film} films left`;
+    const bat = p.battery != null ? ` · battery ${p.battery} %${p.charging ? " (charging)" : ""}` : "";
+    return { text: `${p.name || "INSTAX Link WIDE"} · ${film}${bat}`, bad: p.film === 0 || p.cover_open };
+  }
+
+  function showInstax(text, bad = false) {
+    const el = $("mInstaxState");
+    el.textContent = text;
+    el.classList.toggle("bad", !!bad);
+  }
+
+  async function instaxApi(path, opts) {
+    let r;
+    try { r = await fetch(path, { cache: "no-store", ...opts }); }
+    catch (_) { throw new Error("the bridge is not running: start the launcher (bridge/start_multiplayer.py)"); }
+    if (r.status === 404) throw new Error("this page is not served by the bridge: open it from the launcher's address");
+    if (!r.ok) throw new Error((await r.text()) || `the bridge answered ${r.status}`);
+    return r.json();
+  }
+
+  async function checkInstax(force) {
+    if (instax.printing || (!force && Date.now() - instax.checkedAt < 20000)) {
+      if (instax.last) { const l = instaxLine(instax.last); showInstax(l.text, l.bad); }
+      return;
     }
-    note(`${kinds.length === 1 ? "the card is" : `${kinds.length} cards are`} in Downloads: ` +
-      "send to the phone, print from the INSTAX Link WIDE app", 7000);
+    instax.checkedAt = Date.now();
+    showInstax("INSTAX Link WIDE: checking the printer…");
+    $("mInstaxCheck").disabled = true;
+    try {
+      instax.last = await instaxApi("/api/instax?check=1");
+      const l = instaxLine(instax.last);
+      if (!instax.printing) showInstax(l.text, l.bad);
+    } catch (e) {
+      showInstax(`INSTAX Link WIDE: ${e.message}`, true);
+    } finally {
+      $("mInstaxCheck").disabled = false;
+    }
+  }
+
+  const STAGE = { queued: "waiting", connecting: "connecting to the printer", sending: "sending",
+                  printing: "printing", done: "printed", failed: "failed" };
+
+  async function printCards(kinds) {
+    if (instax.printing) return;
+    instax.printing = true;
+    for (const b of [$("mPrint"), $("mAll")]) b.disabled = true;
+    const jobs = [];
+    try {
+      for (const k of kinds) {
+        const who = k === "heatmaps" ? report.who : "all";
+        const blob = await (await fetch(await picture(k, who, "instax"))).blob();
+        const name = cardName(k, who);
+        const res = await instaxApi(`/api/instax/print?name=${encodeURIComponent(name)}` +
+                                    (params.has("instaxDry") ? "&dry=1" : ""),
+                                    { method: "POST", headers: { "Content-Type": "image/png" }, body: blob });
+        jobs.push({ id: res.job, name });
+      }
+      showInstax(`INSTAX Link WIDE: ${jobs.length === 1 ? "the card is" : `${jobs.length} cards are`} on the way…`);
+      // Follow the jobs until each one is on film (or failed).
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 800));
+        const snap = await instaxApi("/api/instax");
+        instax.last = snap;
+        const mine = jobs.map((j) => snap.jobs.find((s) => s.id === j.id) || { state: "failed", error: "lost" });
+        const now = mine.findIndex((s) => s.state !== "done" && s.state !== "failed");
+        const failed = mine.find((s) => s.state === "failed");
+        if (failed) {
+          showInstax(`INSTAX Link WIDE: ${failed.name || "the card"} not printed — ${failed.error}`, true);
+          note(`not printed: ${failed.error}`, 9000);
+          break;
+        }
+        if (now < 0) {
+          const film = mine[mine.length - 1].film;
+          const dry = mine.some((s) => s.dry_run);
+          showInstax(`INSTAX Link WIDE: ${dry ? "sent (dry run, nothing printed)" :
+            jobs.length === 1 ? "printed" : `${jobs.length} cards printed`}` +
+            (film != null ? ` · ${film === 1 ? "1 film" : `${film} films`} left` : ""), film === 0);
+          note(dry ? "dry run: sent to the printer, nothing printed" :
+               jobs.length === 1 ? "printed — the card develops in a few minutes" :
+               `${jobs.length} cards printed`, 6000);
+          break;
+        }
+        const s = mine[now];
+        const pct = s.state === "sending" ? ` ${Math.round(s.progress * 100)} %` : "";
+        const eta = s.state === "printing" && s.detail ? ` (about ${s.detail} s)` : "";
+        showInstax(`INSTAX Link WIDE: ${jobs[now].name}${jobs.length > 1 ? ` (${now + 1} of ${jobs.length})` : ""}` +
+                   ` · ${STAGE[s.state] || s.state}${pct}${eta}…`);
+      }
+    } catch (e) {
+      showInstax(`INSTAX Link WIDE: ${e.message}`, true);
+    } finally {
+      instax.printing = false;
+      for (const b of [$("mPrint"), $("mAll")]) b.disabled = false;
+    }
   }
 
   function setPrinter(p) {
@@ -807,9 +899,10 @@
     document.querySelectorAll("#mWho button").forEach((b) => b.classList.toggle("on", b.dataset.who === String(report.who)));
     $("mWho").classList.toggle("hidden", kind !== "heatmaps");
     $("mAsk").textContent = ASK[kind];
-    $("mPrint").textContent = instax ? "save for the instax" : "print";
-    $("mAll").textContent = instax ? "save all three for the instax" : "print all three";
+    $("mPrint").textContent = instax ? "print on the instax" : "print";
+    $("mAll").textContent = instax ? "print all three on the instax" : "print all three";
     $("mInstax").classList.toggle("hidden", !instax);
+    if (instax) checkInstax(false);
     $("mPreviewBox").classList.toggle("instax", instax);
     $("mPreview").style.opacity = "0.35";
     const url = await picture(kind, kind === "heatmaps" ? report.who : "all", printer);
@@ -867,8 +960,9 @@
     report.who = b.dataset.who === "all" ? "all" : Number(b.dataset.who);
     showKind("heatmaps");
   });
-  $("mPrint").onclick = () => (report.printer === "instax" ? saveCards : printKinds)([report.kind]);
-  $("mAll").onclick = () => (report.printer === "instax" ? saveCards : printKinds)(["scanpaths", "heatmaps", "stats"]);
+  $("mPrint").onclick = () => (report.printer === "instax" ? printCards : printKinds)([report.kind]);
+  $("mAll").onclick = () => (report.printer === "instax" ? printCards : printKinds)(["scanpaths", "heatmaps", "stats"]);
+  $("mInstaxCheck").onclick = () => checkInstax(true);
   $("mClose").onclick = closeModal;
   $("mNew").onclick = newSession;
   $("startBtn").onclick = startSession;

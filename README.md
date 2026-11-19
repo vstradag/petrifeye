@@ -277,15 +277,43 @@ at a printed image's position stays idle — its tags are on the sheet.
 
 **On an instax WIDE.** The pop-up's **printer** choice switches between A4 /
 letter (the print dialog) and **instax WIDE**: the same three prints laid out
-again as 1260 × 800 cards for an INSTAX Link WIDE (99 × 62 mm on instax WIDE
-film, 12.5 dots/mm): the images as large as the card allows, numbered in a
-corner, no text under 24 dots (about 2 mm). The app cuts about 5 % off every
-edge of what it prints (measured in its Simple Print preview), so each card is
-drawn at 91 % inside a white border. The Link WIDE prints only from its app
-(on the phone, or the Link WIDE app on an Apple-silicon Mac, which picks from
-Photos), so **save for the instax** downloads the card as a PNG; send it to
-the phone (AirDrop) or add it to Photos, and print it from the app. The choice is
-remembered, and a saved session also holds the cards (`instax-*.png`).
+again as cards for an INSTAX Link WIDE (99 × 62 mm on instax WIDE film): the
+images as large as the card allows, numbered in a corner, no text under 24
+dots (about 2 mm). **print on the instax** sends the card straight to the
+printer: the page hands it to the bridge, and the bridge talks to the printer
+over Bluetooth LE (`bridge/instax.py`), so neither the INSTAX app nor a phone
+is involved. The status line shows the printer, the film left and the battery,
+then the card's progress: about 40 s to send, 15 s to print. A card is exactly
+the 1260 × 840 dots the printer takes; the film's frame hides about 12 dots at
+the sides and 32 at the top and bottom, so the layout is drawn at 96 % in the
+middle. The choice is remembered, and a saved session also holds the cards
+(`instax-*.png`, the pictures that were sent).
+
+For it to work:
+
+- **The printer** is on (it turns itself off when idle) and near the computer.
+- **The INSTAX app is closed**, on the Mac and on any phone: the printer
+  takes one connection at a time, and while the app holds it the bridge can't
+  find the printer.
+- **The launcher runs in Terminal.** macOS lets a program use Bluetooth only
+  for an app that says it needs it, and kills the program otherwise. Terminal
+  says so (macOS asks once to allow it; see System Settings › Privacy &
+  Security › Bluetooth). Each print runs in its own helper process, so a
+  refusal fails the print with a reason instead of stopping the bridge.
+- **The venv has bleak** (`pip install -r bridge/requirements.txt`).
+
+From a terminal, without the page (`--dry-run` sends the card but doesn't print,
+so it uses no film):
+
+```bash
+~/dev/medusa-bridge-venv/bin/python bridge/instax.py status
+~/dev/medusa-bridge-venv/bin/python bridge/instax.py print card.png --dry-run
+```
+
+The protocol was worked out from the community's notes
+([javl/InstaxBLE](https://github.com/javl/InstaxBLE),
+[paorin/InstaxLink](https://github.com/paorin/InstaxLink)); no code from them
+is used.
 
 **Test prints** (`games/live-gaze-test-prints.html`, linked from the upload
 page and the home page) open every printable sheet filled with a made-up

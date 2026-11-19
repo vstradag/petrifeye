@@ -4,7 +4,7 @@
 //   render("scanpaths" | "heatmaps" | "stats", session, { who, scale })
 //     -> a landscape page (A-series proportions, 300 dpi at A4 when scale 1)
 //   card(same kinds, session, { who })
-//     -> the same print as a 1260 × 800 card for an INSTAX Link WIDE
+//     -> the same print as a 1260 × 840 card for an INSTAX Link WIDE
 //   stats(session) -> the numbers, also written to results.json
 //
 // session: { images: [{ slot, name, w, h, el }], players: [{ id, label, color, name }],
@@ -481,27 +481,27 @@
   }
 
   // ------------------------------------------------- instax WIDE cards
-  // The same three prints for an INSTAX Link WIDE, which prints from its
-  // phone app onto instax WIDE film: a 99 × 62 mm picture of 1260 × 800 dots,
-  // 12.5 to the millimetre. A page shrunk to that is unreadable, so each card
+  // The same three prints for an INSTAX Link WIDE, sent to it by the bridge
+  // over Bluetooth (bridge/instax.py): a picture of exactly 1260 × 840 dots,
+  // 12.7 to the millimetre. A page shrunk to that is unreadable, so each card
   // is laid out again: the images as big as the card allows, numbered in a
   // corner instead of captioned, and no text under 24 dots (about 2 mm).
   //
-  // The app does not print all of the picture it is given: its Simple Print
-  // preview shows only x 64–1196 and y 48–752 of a 1260 × 800 card (about 5 %
-  // off every side). So a card is laid out on 1260 × 800 and then drawn at
-  // FIT of that size, centred, which keeps a margin of ~25 dots inside what
-  // the app shows; the rest of the picture is white, like the film's border.
-  const CARD = { W: 1260, H: 800, M: 40, FIT: 0.91 };
+  // The film's frame hides a little of what is printed: about 12 dots at the
+  // left and right and 32 at the top and bottom, leaving x 12–1248, y 32–808
+  // (measured on the WIDE by paorin/InstaxLink). So a card is laid out on
+  // 1260 × 800 and drawn at FIT of that, centred on the 1260 × 840 picture,
+  // which keeps every mark at least ~35 dots inside the visible window.
+  const CARD = { W: 1260, H: 800, M: 40, OUT_W: 1260, OUT_H: 840, FIT: 0.96 };
 
   function cardCanvas() {
     const c = document.createElement("canvas");
-    c.width = CARD.W; c.height = CARD.H;
+    c.width = CARD.OUT_W; c.height = CARD.OUT_H;
     const ctx = c.getContext("2d");
-    ctx.fillStyle = PAGE; ctx.fillRect(0, 0, CARD.W, CARD.H);
+    ctx.fillStyle = PAGE; ctx.fillRect(0, 0, CARD.OUT_W, CARD.OUT_H);
     ctx.imageSmoothingQuality = "high";
     const s = CARD.FIT;
-    ctx.setTransform(s, 0, 0, s, CARD.W * (1 - s) / 2, CARD.H * (1 - s) / 2);
+    ctx.setTransform(s, 0, 0, s, (CARD.OUT_W - CARD.W * s) / 2, (CARD.OUT_H - CARD.H * s) / 2);
     return { c, ctx, W: CARD.W, H: CARD.H, M: CARD.M };
   }
 
@@ -690,7 +690,7 @@
     return c;
   }
 
-  // card("scanpaths" | "heatmaps" | "stats", session, { who }) -> 1260 × 800
+  // card("scanpaths" | "heatmaps" | "stats", session, { who }) -> a 1260 × 840 canvas
   async function card(kind, ses, opts = {}) {
     if (kind === "heatmaps") return heatmapsCard(ses, opts.who == null ? "all" : opts.who);
     if (kind === "stats") return statsCard(ses);

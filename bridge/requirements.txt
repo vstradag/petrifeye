@@ -41,3 +41,7 @@ aiohttp>=3.9
 # Marker PNG generation for /markers/<id>.png
 pillow>=10.0
 numpy>=1.24
+
+# The INSTAX Link WIDE prints over Bluetooth LE straight from the bridge
+# (bridge/instax.py); bleak is the Bluetooth LE library (CoreBluetooth on macOS).
+bleak>=0.22

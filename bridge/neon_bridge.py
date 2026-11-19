@@ -1482,6 +1482,59 @@ async def exhibition_handler(request):
     return web.json_response({"ok": True, "path": str(EXHIBITION_DIR), "archived": archived})
 
 
+INSTAX = None          # the print queue, made on first use (bridge/instax.py)
+INSTAX_MAX_BYTES = 16 * 1024 * 1024
+
+
+def instax_queue():
+    global INSTAX
+    if INSTAX is None:
+        from instax import InstaxQueue
+        INSTAX = InstaxQueue()
+    return INSTAX
+
+
+def from_this_mac(request):
+    peer = request.remote or ""
+    return peer in ("127.0.0.1", "::1", "localhost") or peer.startswith("::ffff:127.")
+
+
+async def instax_status_handler(request):
+    """GET /api/instax[?check=1] -> the printer (film, battery) and the jobs.
+
+    check=1 asks the printer itself (a few seconds over Bluetooth) unless a
+    print is under way; without it the answer is what was last known."""
+    if not from_this_mac(request):
+        raise web.HTTPForbidden(text="the printer is only for this computer")
+    q = instax_queue()
+    if request.query.get("check") and not q.snapshot()["busy"]:
+        return web.json_response(await q.status())
+    return web.json_response(q.snapshot())
+
+
+async def instax_print_handler(request):
+    """POST /api/instax/print?name=<card>[&dry=1], the card (PNG or JPEG) as
+    the body -> {ok, job}. Queued and printed one at a time on the INSTAX
+    Link WIDE over Bluetooth; GET /api/instax follows its progress. dry=1
+    sends the picture but not the print command (no film used)."""
+    import re
+    if not from_this_mac(request):
+        raise web.HTTPForbidden(text="the printer is only for this computer")
+    name = request.query.get("name", "card")
+    if not re.fullmatch(r"[A-Za-z0-9._ -]{1,60}", name):
+        raise web.HTTPBadRequest(text="refused card name")
+    data = bytearray()
+    async for chunk in request.content.iter_chunked(1 << 20):
+        data.extend(chunk)
+        if len(data) > INSTAX_MAX_BYTES:
+            raise web.HTTPRequestEntityTooLarge(max_size=INSTAX_MAX_BYTES, actual_size=len(data))
+    if not (data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8")):
+        raise web.HTTPBadRequest(text="expected a PNG or JPEG")
+    q = instax_queue()
+    job = q.add(bytes(data), name, dry_run=bool(request.query.get("dry")))
+    return web.json_response({"ok": True, "job": job, **q.snapshot()})
+
+
 def build_app():
     # client_max_size: an analysis PNG is a few MB once base64-encoded, past
     # aiohttp's 1 MB default.
@@ -1489,6 +1542,8 @@ def build_app():
     app.router.add_get("/gaze", ws_handler)
     app.router.add_post("/api/save-analysis", save_analysis_handler)
     app.router.add_post("/api/exhibition", exhibition_handler)
+    app.router.add_get("/api/instax", instax_status_handler)
+    app.router.add_post("/api/instax/print", instax_print_handler)
     app.router.add_get("/markers/layout.json", layout_handler)
     app.router.add_get("/markers/{mid}.png", markers_handler)
 
