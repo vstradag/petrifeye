@@ -34,8 +34,11 @@ folder is the same script):
    nor Apple's developer tools are needed (a git checkout already there is
    updated with `git pull`).
 3. **The eye-tracker bridge** — its Python environment in
-   `~/dev/medusa-bridge-venv` and its packages, then checked by actually
-   importing them; and the Desktop shortcut.
+   `~/dev/medusa-bridge-venv` and every package in `bridge/requirements.txt`
+   (the eye tracking, and Bluetooth for the instax printer), then checked by
+   actually importing them; and the Desktop shortcut. macOS asks once whether
+   **Terminal may use Bluetooth** — click **Allow** (only the instax printing
+   needs it).
 4. **Google Chrome**, offered if it is missing — the piece is set up and tested
    in Chrome, and the launcher opens it when it is there.
 
@@ -55,7 +58,10 @@ it (`MEDUSA_NO_SHORTCUT=1` to do without).
 **To update:** run the same line again, or double-click
 **`Update PetrifEye.command`** in the `petrifeye` folder. It fetches the latest
 version and installs only what is new; the environment and the local
-certificate are kept.
+certificate are kept. A package added since the computer was set up is added
+to the environment it has — and if nobody updates, the Desktop shortcut adds it
+by itself the next time it starts (when there is internet; without, the piece
+starts anyway and only the new part waits).
 
 *Options*, for the rare case: put them before `bash`, e.g.
 `curl -fsSL …/install.sh | PETRIFEYE_DIR=~/Art/petrifeye bash` to install
@@ -300,7 +306,9 @@ For it to work:
   says so (macOS asks once to allow it; see System Settings › Privacy &
   Security › Bluetooth). Each print runs in its own helper process, so a
   refusal fails the print with a reason instead of stopping the bridge.
-- **The venv has bleak** (`pip install -r bridge/requirements.txt`).
+- **The environment has bleak**, the Bluetooth library. Setup installs it,
+  and an installation from before it was needed gets it with the next update
+  or start.
 
 From a terminal, without the page (`--dry-run` sends the card but doesn't print,
 so it uses no film):

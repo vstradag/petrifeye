@@ -400,6 +400,13 @@ def preflight():
             f"  {sys.executable} -m pip install --upgrade pip\n"
             f"  {sys.executable} -m pip install -r bridge/requirements.txt\n"
         )
+    # Only the instax printing needs Bluetooth: say so, and start anyway.
+    try:
+        __import__("bleak")
+    except ImportError:
+        print("\nNote: printing on the instax is unavailable — bleak is not installed.\n"
+              "  Run \"Setup PetrifEye.command\" (or Update) to add it, or:\n"
+              f"  {sys.executable} -m pip install -r bridge/requirements.txt\n", file=sys.stderr)
 
 
 def main():

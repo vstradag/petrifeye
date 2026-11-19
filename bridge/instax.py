@@ -462,7 +462,8 @@ async def _cli():
     import sys
     ap = argparse.ArgumentParser(description="INSTAX Link WIDE over Bluetooth LE")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, help_ in (("status", "film left, battery, state"), ("print", "print a PNG or JPEG")):
+    for name, help_ in (("status", "film left, battery, state"), ("print", "print a PNG or JPEG"),
+                        ("bluetooth", "is Bluetooth on and allowed? (asks macOS the first time)")):
         s = sub.add_parser(name, help=help_)
         if name == "print":
             s.add_argument("image")
@@ -471,6 +472,29 @@ async def _cli():
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S",
                         stream=sys.stderr)
+
+    if args.cmd == "bluetooth":
+        # Setup runs this once, so macOS asks for Bluetooth while someone is
+        # setting up rather than in the middle of an exhibition. The first
+        # time, the scan waits for that answer.
+        try:
+            from bleak import BleakScanner
+        except ImportError:
+            print("bleak is not installed: run Setup PetrifEye.command again")
+            sys.exit(1)
+        try:
+            async def scan():
+                async with BleakScanner():
+                    await asyncio.sleep(2.0)
+            await asyncio.wait_for(scan(), 90)
+        except asyncio.TimeoutError:
+            print("Bluetooth did not answer: allow it in System Settings > Privacy & Security > Bluetooth")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Bluetooth is not available: {e}")
+            sys.exit(1)
+        print("Bluetooth is on and allowed")
+        return
 
     def emit(event, **kw):
         if args.events:

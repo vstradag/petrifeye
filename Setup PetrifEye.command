@@ -82,6 +82,73 @@ unquarantine() {
   fi
 }
 
+# What the bridge needs, proved by importing it — the one list that decides
+# whether an environment is complete, and checks a fresh one. A package added
+# to requirements.txt goes here too, or a computer set up before it was added
+# counts as "already set up" and never gets it (bleak, for the instax printer,
+# was the first to slip through that way).
+# CORE is what the eye tracking needs; the rest only the instax printing.
+CORE='
+import sys
+assert sys.version_info >= (3, 10)
+import aiohttp, numpy, cv2
+from pupil_labs.realtime_api import Device, receive_gaze_data, receive_video_frames
+from pupil_labs.real_time_screen_gaze.gaze_mapper import GazeMapper
+'
+NEEDS="$CORE
+import PIL, bleak, bleak.backends.corebluetooth.scanner
+"
+works() { "$1" -c "$NEEDS" 2>/dev/null; }
+
+# Offline first, when bridge/wheels/ was brought along (the Releases zip,
+# built by bridge/fetch_wheels.sh): the exact versions of a known-good
+# environment, with pip barred from the network. The zip carries its own copy
+# of the lock file, so wheels and versions can't drift apart even if the
+# repo's lock has moved on since. Wheels are per Python version and chip, and
+# an older zip may lack a newer package, so this can fall short — then the
+# normal online install, rather than giving up.
+LOCK="bridge/wheels/requirements.lock.txt"
+[ -f "$LOCK" ] || LOCK="bridge/requirements.lock.txt"
+install_reqs() {
+  if ls bridge/wheels/*.whl >/dev/null 2>&1; then
+    say "found bridge/wheels — installing offline…"
+    if "$VENV/bin/python" -m pip install --quiet --no-index \
+         --find-links bridge/wheels -r "$LOCK" && works "$VENV/bin/python"; then
+      return 0
+    fi
+    say ""
+    say "The offline packages don't cover this Mac/Python — trying online instead."
+    say ""
+  fi
+  # pip itself first: the pip bundled with an older interpreter can fail to
+  # resolve current wheels at all.
+  "$VENV/bin/python" -m pip install --quiet --upgrade pip || true
+  "$VENV/bin/python" -m pip install -r "$REQS"
+}
+
+# The instax printer prints over Bluetooth, and macOS asks once whether the
+# app running the piece (Terminal) may use it. Asked here, while someone is
+# setting up, rather than in the middle of an exhibition. Never fatal: only
+# the instax printing needs it.
+bluetooth_check() {
+  [ -z "${MEDUSA_NO_BLUETOOTH:-}" ] || return 0
+  say ""
+  say "The instax printer prints over Bluetooth. Checking that macOS allows it —"
+  say "if macOS asks whether Terminal may use Bluetooth, click Allow."
+  local out rc
+  out="$("$VENV/bin/python" -I bridge/instax.py bluetooth 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    say "  $out"
+  elif [ "$rc" -eq 134 ] || [ "$rc" -eq 6 ]; then
+    say "  macOS does not let the app running this setup use Bluetooth."
+    say "  Start the piece from Terminal (the Desktop shortcut does) and allow it there."
+  else
+    say "  ${out:-the Bluetooth check failed}"
+    say "  Only printing on the instax needs Bluetooth; everything else works without it."
+  fi
+}
+
 say ""
 say "PetrifEye setup"
 rule
@@ -118,15 +185,9 @@ esac
 
 # --- is it already set up? ------------------------------------------------
 if [ -x "$VENV/bin/python" ]; then
-  if "$VENV/bin/python" - <<'PY' 2>/dev/null
-import sys
-assert sys.version_info >= (3, 10)
-import aiohttp, numpy, cv2
-from pupil_labs.realtime_api import Device
-from pupil_labs.real_time_screen_gaze.gaze_mapper import GazeMapper
-PY
-  then
+  if works "$VENV/bin/python"; then
     say "Already set up — $("$VENV/bin/python" --version 2>&1) with everything it needs."
+    bluetooth_check
     say ""
     say "Start the piece with:"
     say "  \"$(pwd)/Start PetrifEye.command\""
@@ -136,7 +197,32 @@ PY
     desktop_shortcut
     exit 0
   fi
-  say "An environment exists but is incomplete or too old — rebuilding it."
+  # A working environment that only lacks what was added since it was made
+  # (an update) gets just that, in a minute, instead of a rebuild.
+  if "$VENV/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    say "The environment is missing packages added since it was made — adding them…"
+    say ""
+    if install_reqs && works "$VENV/bin/python"; then
+      say ""
+      say "Added — $("$VENV/bin/python" --version 2>&1) with everything it needs."
+      bluetooth_check
+      say ""
+      desktop_shortcut
+      exit 0
+    fi
+    # Never throw away an environment that still runs the piece: offline, a
+    # rebuild could not be reinstalled, and the venue would be left with none.
+    if "$VENV/bin/python" -c "$CORE" 2>/dev/null; then
+      say ""
+      say "Could not add them (no internet?). The environment is kept as it is:"
+      say "everything works except printing on the instax. Run this again online."
+      exit 1
+    fi
+    say ""
+    say "Adding them did not work, and the environment is broken — rebuilding it."
+  else
+    say "An environment exists but is too old — rebuilding it."
+  fi
   say ""
 fi
 
@@ -185,31 +271,7 @@ mkdir -p "$(dirname "$VENV")" || exit 1
 
 say "installing dependencies (a few minutes the first time)…"
 say ""
-# Offline first, when bridge/wheels/ was brought along (the Releases zip,
-# built by bridge/fetch_wheels.sh): the exact versions of a known-good
-# environment, with pip barred from the network. The zip carries its own copy
-# of the lock file, so wheels and versions can't drift apart even if the
-# repo's lock has moved on since. Wheels are per Python version and chip, so
-# this can miss on a Mac unlike the one that fetched them — then fall through
-# to the normal online install rather than give up.
-INSTALLED=""
-LOCK="bridge/wheels/requirements.lock.txt"
-[ -f "$LOCK" ] || LOCK="bridge/requirements.lock.txt"
-if ls bridge/wheels/*.whl >/dev/null 2>&1; then
-  say "found bridge/wheels — installing offline…"
-  if "$VENV/bin/python" -m pip install --quiet --no-index \
-       --find-links bridge/wheels -r "$LOCK"; then
-    INSTALLED=1
-  else
-    say ""
-    say "The offline packages don't fit this Mac/Python — trying online instead."
-    say ""
-  fi
-fi
-# pip itself first: the pip bundled with an older interpreter can fail to
-# resolve current wheels at all.
-[ -n "$INSTALLED" ] || "$VENV/bin/python" -m pip install --quiet --upgrade pip || true
-if [ -z "$INSTALLED" ] && ! "$VENV/bin/python" -m pip install -r "$REQS"; then
+if ! install_reqs; then
   say ""
   rule
   say "The dependency install FAILED — read the error above."
@@ -220,17 +282,14 @@ fi
 # --- prove it, rather than assume ----------------------------------------
 say ""
 say "checking the imports the bridge actually needs…"
-if ! "$VENV/bin/python" - <<'PY'
-import aiohttp, numpy, cv2
-from pupil_labs.realtime_api import Device, receive_gaze_data, receive_video_frames
-from pupil_labs.real_time_screen_gaze.gaze_mapper import GazeMapper
-print("  all good:", "aiohttp", aiohttp.__version__, "| cv2", cv2.__version__)
-PY
+if ! "$VENV/bin/python" -c "$NEEDS
+print('  all good:', 'aiohttp', aiohttp.__version__, '| cv2', cv2.__version__, '| bleak', __import__('importlib.metadata').metadata.version('bleak'))"
 then
   say ""
   say "Installed, but the imports failed — the bridge will not run. Error above."
   exit 1
 fi
+bluetooth_check
 
 rule
 say "Done."

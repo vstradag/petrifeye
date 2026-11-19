@@ -88,6 +88,23 @@ if [ -z "$PY" ]; then
   fi
 fi
 
+# --- anything added since this computer was set up? ----------------------
+# The probe above only proves the environment runs. A package added later —
+# bleak, for printing on the instax — would otherwise be missing until
+# someone thought to rerun Setup, so Setup tops it up here (a minute, once;
+# Setup also asks macOS for Bluetooth). If that fails — no internet at the
+# venue — the piece still starts; only the new part is unavailable.
+if [ "$PY" = "$VENV/bin/python" ] && ! "$PY" -c 'import bleak, PIL' >/dev/null 2>&1; then
+  echo
+  echo "Adding what the piece needs since this computer was set up…"
+  echo
+  if ! MEDUSA_VENV="$VENV" MEDUSA_NO_SHORTCUT=1 bash "$CODE/Setup PetrifEye.command"; then
+    echo
+    echo "Could not add it (no internet?). Starting anyway: everything works except"
+    echo "printing on the instax. Run \"Update PetrifEye.command\" when online."
+  fi
+fi
+
 echo
 export MEDUSA_PYTHON="$PY"
 

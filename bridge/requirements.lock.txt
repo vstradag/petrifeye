@@ -1,7 +1,8 @@
-# Exact versions of the working bridge environment (pip freeze, 2026-10-06,
-# Python 3.12, macOS arm64). Used ONLY for the offline install: Setup
-# PetrifEye.command installs these from bridge/wheels/ when that folder
-# exists. The normal online install still uses requirements.txt.
+# Exact versions of the working bridge environment (pip freeze, 2026-11-19,
+# Python 3.12, macOS arm64; bleak and its pyobjc packages added for the
+# instax printer). Used ONLY for the offline install: Setup PetrifEye.command
+# installs these from bridge/wheels/ when that folder exists. The normal
+# online install still uses requirements.txt.
 #
 # Regenerate both together after changing the environment:
 #   ~/dev/medusa-bridge-venv/bin/pip freeze > bridge/requirements.lock.txt
@@ -16,6 +17,7 @@ attrs==26.1.0
 av==18.1.0
 backports.zstd==1.7.0
 beaupy==3.12.0
+bleak==3.1.0
 brotli==1.2.0
 certifi==2026.7.22
 cffi==2.1.1
@@ -48,6 +50,10 @@ pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
 Pygments==2.21.0
+pyobjc-core==13.0
+pyobjc-framework-Cocoa==13.0
+pyobjc-framework-CoreBluetooth==13.0
+pyobjc-framework-libdispatch==13.0
 python-dateutil==2.9.0.post0
 python-yakh==0.4.1
 questo==0.4.2
