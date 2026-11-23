@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "app": "live-gaze",
+  "paper": {
+    "size": "A0",
+    "tagMm": 120,
+    "colors": "painting",
+    "place": "beside"
+  },
+  "monitor": {
+    "key": "monitor",
+    "ids": [
+      580,
+      581,
+      582,
+      583
+    ]
+  },
+  "sheets": [
+    {
+      "slot": 0,
+      "file": "01-01_The Grand Project State_.jpg",
+      "name": "01(The Grand Project State).jpg",
+      "type": "image/jpeg",
+      "w": 3838,
+      "h": 2159,
+      "sha256": "e05d68a53880761edcf09d4acfcca46ebc3ff5630b7cf0df3116437075a78b2a",
+      "key": "main",
+      "ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "layout": {
+        "paper": {
+          "size": "A0",
+          "tagMm": 120,
+          "colors": "painting",
+          "place": "beside"
+        },
+        "landscape": true,
+        "w": 11890,
+        "h": 8410,
+        "size": 1200,
+        "margin": 0,
+        "tags": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 7209
+          },
+          {
+            "x": 0,
+            "y": 7209
+          }
+        ],
+        "image": {
+          "x": 603,
+          "y": 1200,
+          "w": 10683,
+          "h": 6009
+        }
+      },
+      "tones": {
+        "dark": "#2e3130",
+        "light": "#e5efaa"
+      }
+    },
+    {
+      "slot": 1,
+      "file": "02-02 Platform Science.jpg",
+      "name": "02 Platform Science.jpg",
+      "type": "image/jpeg",
+      "w": 3838,
+      "h": 2159,
+      "sha256": "c8dfaf187663dd2f28f3eb5920965c993945df91df34a82cae079c24e09d8ff3",
+      "key": "screen-2",
+      "ids": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "layout": {
+        "paper": {
+          "size": "A0",
+          "tagMm": 120,
+          "colors": "painting",
+          "place": "beside"
+        },
+        "landscape": true,
+        "w": 11890,
+        "h": 8410,
+        "size": 1200,
+        "margin": 0,
+        "tags": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 7209
+          },
+          {
+            "x": 0,
+            "y": 7209
+          }
+        ],
+        "image": {
+          "x": 603,
+          "y": 1200,
+          "w": 10683,
+          "h": 6009
+        }
+      },
+      "tones": {
+        "dark": "#2b2926",
+        "light": "#f5f7e9"
+      }
+    },
+    {
+      "slot": 2,
+      "file": "03-03 _The Commons Network_.jpg",
+      "name": "03 (The Commons Network).jpg",
+      "type": "image/jpeg",
+      "w": 3838,
+      "h": 2159,
+      "sha256": "baebdd9b5163033d8bbcda1d94af8aa100fcad60dedd91192951082c7d2a1831",
+      "key": "screen-3",
+      "ids": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "layout": {
+        "paper": {
+          "size": "A0",
+          "tagMm": 120,
+          "colors": "painting",
+          "place": "beside"
+        },
+        "landscape": true,
+        "w": 11890,
+        "h": 8410,
+        "size": 1200,
+        "margin": 0,
+        "tags": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 7209
+          },
+          {
+            "x": 0,
+            "y": 7209
+          }
+        ],
+        "image": {
+          "x": 603,
+          "y": 1200,
+          "w": 10683,
+          "h": 6009
+        }
+      },
+      "tones": {
+        "dark": "#382e2e",
+        "light": "#eef0e4"
+      }
+    },
+    {
+      "slot": 3,
+      "file": "04-04 _The Frontier Archipelago_.jpg",
+      "name": "04 (The Frontier Archipelago).jpg",
+      "type": "image/jpeg",
+      "w": 3838,
+      "h": 2159,
+      "sha256": "48116c533edc81aacf4bb588aa64f8ffd992e9ae4ae1f43c9b380dc140711667",
+      "key": "screen-4",
+      "ids": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "layout": {
+        "paper": {
+          "size": "A0",
+          "tagMm": 120,
+          "colors": "painting",
+          "place": "beside"
+        },
+        "landscape": true,
+        "w": 11890,
+        "h": 8410,
+        "size": 1200,
+        "margin": 0,
+        "tags": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 0
+          },
+          {
+            "x": 10690,
+            "y": 7209
+          },
+          {
+            "x": 0,
+            "y": 7209
+          }
+        ],
+        "image": {
+          "x": 603,
+          "y": 1200,
+          "w": 10683,
+          "h": 6009
+        }
+      },
+      "tones": {
+        "dark": "#3d2c30",
+        "light": "#f4f7dd"
+      }
+    }
+  ],
+  "savedAt": "2026-11-18T11:57:20.696Z"
+}
