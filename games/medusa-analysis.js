@@ -233,7 +233,12 @@
     c.width = Math.round(src.width * scale); c.height = Math.round(src.height * scale);
     const ctx = c.getContext("2d");
     if (withFur) ctx.drawImage(src, 0, 0, c.width, c.height);
-    else { ctx.fillStyle = "rgb(8,10,16)"; ctx.fillRect(0, 0, c.width, c.height); }
+    else {
+      // The game's own background colour: the line look's is pure black.
+      const line = window.PetrifEyeShow && PetrifEyeShow.look === "line";
+      ctx.fillStyle = line ? "#000" : "rgb(8,10,16)";
+      ctx.fillRect(0, 0, c.width, c.height);
+    }
     post({ type: "background", url: c.toDataURL("image/jpeg", 0.82), w: width, h: height });
     lastSnapshot = performance.now();
   }

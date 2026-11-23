@@ -152,9 +152,38 @@ const Show = (window.PetrifEyeShow = Object.assign(
     // flat black and it reads as an empty screen rather than a work. Off by
     // default only because it was originally a debug toggle.
     fur: false,
+    // How the piece looks, and nothing else: "classic" (lit eyeballs, fur,
+    // stone photos) or "line" (white line drawing on black, drawn by
+    // games/medusa-line.js). The game underneath is the same either way.
+    look: "classic",
   },
   window.PetrifEyeShow || {}
 ));
+
+// The line look, when it is chosen and its renderer is on the page.
+function lineLook() {
+  return Show.look === "line" && !!window.MedusaLine;
+}
+
+// Applied from draw(), not when the look is chosen: the choice can arrive
+// (from the start-up pop-up, or ?look= in the URL) before p5 has a canvas.
+let appliedLook = null;
+function applyLook() {
+  const look = lineLook() ? "line" : "classic";
+  if (look === appliedLook) return;
+  appliedLook = look;
+  // Fine lines need every pixel a retina screen has; the classic stays at 1,
+  // which is what the fur's cost was measured at.
+  const density = look === "line" ? Math.min(2, displayDensity()) : 1;
+  if (pixelDensity() !== density) pixelDensity(density);
+  // No fur under the line drawing. Through setFurEnabled, so the analysis
+  // screen's background snapshot knows to send a plain one.
+  setFurEnabled(look === "line" ? false : Show.fur);
+  // The line look draws the mouse's own mark (P1's circle), so the arrow
+  // would only sit on top of it.
+  drawingContext.canvas.style.cursor = look === "line" ? "none" : "";
+  document.body.classList.toggle("look-line", look === "line");
+}
 
 // The rules, set the same way as Show and read every frame, so a page can
 // change them after this loads (the multiplayer page does, from its start-up
@@ -251,7 +280,9 @@ function windowResized() {
 }
 
 function draw() {
-  background(8, 10, 16);
+  applyLook();
+  if (lineLook()) background(0);
+  else background(8, 10, 16);
   const dt = deltaTime / 1000;
   // Already filtered and lead-corrected inside Tracking.update(), so every
   // consumer sees the same settled pointer. Filtering again here would stack
@@ -347,7 +378,14 @@ function draw() {
   // "growing into the fur" instead of a clean disc or a buried one.
   if (furEnabled) fur.displayOverlap(holes);
 
-  drawPointerMarkers(assisted);
+  if (lineLook()) {
+    if (Show.pointerMarker) {
+      MedusaLine.drawPointers(drawingContext, assisted,
+        { size: Show.markerDiameter, height, playerOf: Rules.playerOf });
+    }
+  } else {
+    drawPointerMarkers(assisted);
+  }
   drawHUD(assisted);
 }
 
@@ -444,7 +482,8 @@ function drawPointerMarkers(pointers) {
 
 function keyPressed() {
   if (key === "r" || key === "R") blobs.forEach((b) => b.unpetrify());
-  if (key === "f" || key === "F") setFurEnabled(!furEnabled);
+  // The fur belongs to the classic look; the line look has none.
+  if ((key === "f" || key === "F") && !lineLook()) setFurEnabled(!furEnabled);
   if (key === "s" || key === "S") toggleSettingsPanel();
   // Shift-C forgets what it has learned and starts again — for handing the
   // glasses to the next visitor, whose offset is their own.
@@ -738,6 +777,10 @@ class Blob {
     }));
     if (fur) fur.ruffle(this.pos.x, this.pos.y);
 
+    // The line look cuts its own stone (games/medusa-line.js) when it draws
+    // this one; the classic's masked photo would only be thrown away.
+    if (lineLook()) return;
+
     const tex = random(stoneImages);
     const d = ceil(this.radius * 2.2);
     const pts = this.blobShapePoints(this.noiseTime);
@@ -770,6 +813,23 @@ class Blob {
   }
 
   display(pointers) {
+    if (lineLook()) {
+      // The same state the classic shows below — the stare's progress, the
+      // eye a player is locked on to, cooperative MEDUSA's mark — drawn as
+      // lines instead.
+      const coop = Rules.lookersNeeded > 1;
+      MedusaLine.drawBlob(drawingContext, this, pointers, {
+        prog: this.petrified ? 0 : coop ? this.together / DWELL_SECONDS : this.dwell.maxProgress(),
+        locked: this.petrified ? null : pointers.find((ptr) => focus.get(ptr.id) === this.id) || null,
+        waiting: coop && !this.petrified
+          ? { on: this.lookers, needed: Rules.lookersNeeded, playerOf: Rules.playerOf, players: Rules.players }
+          : null,
+        textures: stoneImages,
+        dt: deltaTime / 1000,
+        height,
+      });
+      return;
+    }
     push();
     translate(this.pos.x, this.pos.y);
 

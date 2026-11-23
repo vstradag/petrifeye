@@ -352,7 +352,18 @@ panels as they stood at closing. Without an analysis window open, a plainer
 The bridge writes them, and only for requests from this computer; in
 webcam-only mode (no bridge) they are downloaded instead.
 
-**MEDUSA can be competitive or cooperative**, chosen on its first start-up
+**MEDUSA has two looks**, chosen on its very first start-up pop-up:
+*Classic* (lit eyeballs drifting over the fur, a petrified eye becomes a photo
+of stone) and *Line* (white line drawing on black: almond eyes that blink and
+watch the nearest gaze, an iris that fills white as the stare builds, stones
+as rough outlines filled with the same stone photos). Only the look differs —
+the same eyes, movement, dwell, gaze assist, cooperative marks, scores and
+recordings (`results.json` notes which, as `appearance`). In *Line* P1's gaze
+is a circle and P2's a square, matching the scoreboard, and there is no fur.
+`?look=classic` or `?look=line` answers the pop-up in the URL; the line look
+is drawn by `games/medusa-line.js`.
+
+**MEDUSA can be competitive or cooperative**, chosen on the next start-up
 pop-up. *Competitive* is MEDUSA as it always was: one player's stare petrifies
 an eye and that player scores. *Cooperative* petrifies an eye only while both
 players look at it at the same time, for the dwell time in settings. One player
@@ -435,8 +446,8 @@ trying it alone. `?sim` plays with the mouse as P1 and the arrow keys as P2.
 ### At the start of every experience: two questions
 
 Before the start card, every experience (MEDUSA, POLITICAL VISION, LIVE GAZE,
-DUCK HUNT, DUET, MAGNETIC POETRY) asks, as two pop-ups (MEDUSA first asks a
-third: competitive or cooperative — see above):
+DUCK HUNT, DUET, MAGNETIC POETRY) asks, as two pop-ups (MEDUSA first asks two
+more: classic or line look, then competitive or cooperative — see above):
 
 1. **How should the eye trackers find the screen?** — **AprilTags** (four
    black-and-white codes in the corners: reliable in any light, and the only

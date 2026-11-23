@@ -147,6 +147,22 @@
   .ma-mini { flex:1; font-family:var(--gaze-mono); font-size:10px; letter-spacing:.06em; color:#d9d7d3;
              background:#14161c; border:1px solid #2f3139; padding:7px 4px; cursor:pointer; }
   .ma-mini:hover { border-color:var(--gaze-red); color:#fff; }
+
+  /* The look pop-up's two icons: a lit eyeball, and an eye drawn in line. */
+  .psu-ico-classic { width:14px; height:14px; border-radius:50%; flex:none; position:relative;
+                     background:radial-gradient(circle at 35% 30%, #fcf8f2, #d6cec4 55%, #84786c); }
+  .psu-ico-classic::after { content:""; position:absolute; left:4px; top:4px; width:6px; height:6px;
+                            border-radius:50%; background:#111; }
+  .psu-ico-line { width:22px; height:12px; flex:none; background:no-repeat center / contain
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 12'%3E%3Cpath d='M1 6Q11 -3 21 6Q11 15 1 6Z' fill='none' stroke='%23fff' stroke-width='1.2'/%3E%3Ccircle cx='11' cy='6' r='3' fill='none' stroke='%23fff' stroke-width='1.2'/%3E%3Ccircle cx='11' cy='6' r='.9' fill='%23fff'/%3E%3C/svg%3E"); }
+
+  /* The line look (games/medusa-line.js): the scoreboard drawn in line too,
+     each player's mark the shape of their gaze mark on screen (P1 a circle,
+     P2 a square) in their colour. No fur under the drawing, so no fur switch. */
+  .look-line .mp-panel { background:#000; border-color:rgba(255,255,255,.5); }
+  .look-line .mp-dot { background:none !important; border:1.5px solid currentColor; box-sizing:border-box; }
+  .look-line .mp-dot.sq { border-radius:0; }
+  .look-line .fur-row { display:none; }
 </style>
 </head>
 <body>
@@ -200,7 +216,7 @@
     <input type="checkbox" id="toggle-autocal" checked />
     <span>auto-calibration (c)</span>
   </label>
-  <label class="tuning-checkbox">
+  <label class="tuning-checkbox fur-row">
     <input type="checkbox" id="toggle-fur" />
     <span>fur background (f)</span>
   </label>
@@ -312,6 +328,27 @@ const MODE_QUESTION = {
         "and every eye petrified counts once, for both — one shared score. It needs both players: " +
         "one alone can only mark eyes.",
 };
+
+// ----------------------------------------------------------- appearance
+// The very first pop-up: how MEDUSA looks. Only the look — sketch.js plays
+// the same game under both, and games/medusa-line.js draws the line one.
+const LOOK_QUESTION = {
+  key: "look",
+  eyebrow: "appearance",
+  question: "How should MEDUSA look?",
+  options: [
+    { value: "classic", name: "Classic", icon: "classic",
+      desc: "Lit eyeballs drifting over the fur; a petrified eye becomes a photo of stone. MEDUSA as it has always looked." },
+    { value: "line", name: "Line", icon: "line",
+      desc: "White line drawing on black: almond eyes that blink and watch you, an iris that fills white as you stare, and rough outlined stones." },
+  ],
+  note: "Only the <b>look</b> changes. Both play the same game: the same eyes, movement, dwell, " +
+        "gaze assist, cooperative marks, scores and recordings. In <b>line</b>, P1's gaze is a circle and P2's a square.",
+};
+
+function setLook(look) {
+  window.PetrifEyeShow.look = look === "line" ? "line" : "classic";
+}
 
 function setMode(mode) {
   coop = mode === "coop";
@@ -483,7 +520,7 @@ function renderPanel(list) {
         : "disconnected";
       const lead = scores[p.id] === best && best > 0 ? " mp-lead" : "";
       return `<div class="mp-row">
-        <div class="mp-dot" style="background:${p.color}"></div>
+        <div class="mp-dot${p.id % 2 === 1 ? " sq" : ""}" style="background:${p.color};color:${p.color}"></div>
         <div class="mp-name" style="color:${p.color}">${p.label}</div>
         <div class="mp-state ${cls}">${txt}</div>
         ${coop ? "" : `<div class="mp-score${lead}">${scores[p.id]}</div>`}
@@ -701,23 +738,29 @@ document.getElementById("mpSim").onclick = () => start(true);
 renderBootCmd();
 GazeAggregator.init({ players: PLAYERS });
 
-// The start-up questions (competitive or cooperative; AprilTags or the purple
-// frame; collect data or not), as pop-ups over the boot card. Recorded per
-// round: the analysis screen's "new round" starts the next part.
+// The start-up questions (classic or line look; competitive or cooperative;
+// AprilTags or the purple frame; collect data or not), as pop-ups over the
+// boot card. Recorded per round: the analysis screen's "new round" starts
+// the next part.
 DataCollection.init({
   app: "medusa",
   title: "MEDUSA (+2 players)",
   players: PLAYERS,
   playerOf: (pid) => byPointer[pid] || null,
   extra: () => ({
+    appearance: window.PetrifEyeShow.look || "classic",
     mode: coop ? "cooperative" : "competitive",
     scores: { ...scores },
     ...(coop ? { together: teamScore } : {}),
   }),
   partLabel: "round",
 });
-// The game mode first, then AprilTags or the frame, then collect or not.
-SessionSetup.ask({ app: "medusa", questions: [MODE_QUESTION] }).then((c) => setMode(c.mode));
+// The look first, then the game mode, then AprilTags or the frame, then
+// collect or not.
+SessionSetup.ask({ app: "medusa", questions: [LOOK_QUESTION, MODE_QUESTION] }).then((c) => {
+  setLook(c.look);
+  setMode(c.mode);
+});
 
 // Draw the tags DURING the boot card, not after starting. Each player's
 // scene camera has to see them before any gaze can be mapped, so the boot
@@ -729,6 +772,7 @@ if (window.Markers) Markers.show();
 if (new URLSearchParams(location.search).has("sim")) start(true);
 </script>
 
+<script src="medusa-line.js"></script>
 <script src="../sketch.js"></script>
 <script src="../shared/gaze/fixations.js"></script>
 <script src="medusa-analysis.js"></script>
