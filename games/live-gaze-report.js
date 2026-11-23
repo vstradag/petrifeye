@@ -1,11 +1,14 @@
 // LIVE GAZE — the printouts of a finished session (and the shared scanpath
 // drawing the overview uses live).
 //
-//   render("scanpaths" | "heatmaps" | "stats", session, { who, scale })
+//   render("scanpaths" | "heatmaps" | "stats" | "shared", session, { who, scale })
 //     -> a landscape page (A-series proportions, 300 dpi at A4 when scale 1)
+//     ("shared": the regions both visitors looked at, a pie per image, and
+//     how similarly they looked at it)
 //   card(same kinds, session, { who })
 //     -> the same print as a 1260 × 840 card for an INSTAX Link WIDE
 //   stats(session) -> the numbers, also written to results.json
+//   shared(session) -> the shared regions and similarities (also in stats)
 //
 // session: { images: [{ slot, name, w, h, el }], players: [{ id, label, color, name }],
 //            fix: [{ p, slot, u, v, dur, start, visit }], visitors: [{ id, in, finishedAt }],
@@ -113,7 +116,308 @@
         visits, sequence: visits.map((x) => x.slot + 1), images,
       };
     });
-    return { visitors };
+    return { visitors, shared: shared(ses) };
+  }
+
+  // ------------------------------------------------------ shared regions
+  // Each image is cut into a coarse 3 × 3 grid of regions, A to I, read like
+  // a page. For each visitor, the share of their time on that image spent in
+  // each region; a region counts as visited when it holds a fixation. Where
+  // both visited it, the smaller of the two shares is what they had IN
+  // COMMON there; added up over the regions, that is the similarity (the
+  // overlap of the two distributions, 100 % when both spread their looking
+  // over the regions in exactly the same way, 0 % when no region was shared).
+  const ROI_N = 3;
+  const ROI_NAMES = ["top left", "top", "top right", "left", "centre", "right",
+                     "bottom left", "bottom", "bottom right"];
+  const ROI_LETTERS = "ABCDEFGHI";
+  const regionOf = (u, v) =>
+    Math.min(ROI_N - 1, Math.max(0, Math.floor(v * ROI_N))) * ROI_N +
+    Math.min(ROI_N - 1, Math.max(0, Math.floor(u * ROI_N)));
+
+  function shared(ses) {
+    const V = ses.visitors.filter((v) => v.in).slice(0, 2).map((v) => v.id);
+    const out = { grid: `${ROI_N} × ${ROI_N}`, visitors: V, images: [], similarity: null };
+    if (V.length < 2) return out;
+    const time = (p, slot) => {
+      const t = new Array(ROI_N * ROI_N).fill(0);
+      for (const f of ses.fix) if (f.p === p && f.slot === slot) t[regionOf(f.u, f.v)] += f.dur;
+      return t;
+    };
+    const all = V.map((p) => ses.fix.filter((f) => f.p === p).reduce((s, f) => s + f.dur, 0));
+    let overall = 0;
+    out.images = ses.images.map((im) => {
+      const t = V.map((p) => time(p, im.slot));
+      const tot = t.map((x) => x.reduce((a, b) => a + b, 0));
+      const regions = t[0].map((_, r) => {
+        const share = [0, 1].map((k) => (tot[k] ? t[k][r] / tot[k] : 0));
+        const common = t[0][r] && t[1][r] ? Math.min(share[0], share[1]) : 0;
+        if (all[0] && all[1]) overall += Math.min(t[0][r] / all[0], t[1][r] / all[1]);
+        return { index: r, letter: ROI_LETTERS[r], name: ROI_NAMES[r], share, common };
+      });
+      const both = tot[0] > 0 && tot[1] > 0;
+      return {
+        slot: im.slot, name: im.name, looked: tot.map((x) => x > 0),
+        similarity: both ? regions.reduce((s, r) => s + r.common, 0) : null,
+        regions,
+      };
+    });
+    out.similarity = all[0] && all[1] ? overall : null;
+    return out;
+  }
+
+  // Whole percentages that add up to exactly 100 (largest remainder).
+  function percents(values) {
+    const raw = values.map((v) => v * 100);
+    const out = raw.map(Math.floor);
+    let left = 100 - out.reduce((a, b) => a + b, 0);
+    raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0])
+      .forEach(([, i]) => { if (left > 0) { out[i]++; left--; } });
+    return out;
+  }
+  const pctText = (n, v) => (n === 0 && v > 0 ? "<1 %" : `${n} %`);
+
+  // An image's slices, largest first: the regions in common (past five, the
+  // smallest fold into one), then what was not in common. Their whole
+  // percentages add up to 100, and the shared ones to the similarity.
+  function slicesOf(im) {
+    const common = im.regions.filter((r) => r.common > 0).sort((a, b) => b.common - a.common);
+    let named = common;
+    if (common.length > 6) {
+      const rest = common.slice(5);
+      named = [...common.slice(0, 5), {
+        letter: rest.map((r) => r.letter).join(""), name: "other regions",
+        common: rest.reduce((s, r) => s + r.common, 0), folded: rest.map((r) => r.index),
+      }];
+    }
+    const list = named.map((r) => ({ ...r, value: r.common }));
+    const rest = Math.max(0, 1 - im.similarity);
+    if (rest > 1e-6) list.push({ letter: "", name: "not in common", value: rest, apart: true });
+    const ints = percents(list.map((s) => s.value));
+    list.forEach((s, i) => { s.pct = ints[i]; });
+    const similar = list.filter((s) => !s.apart).reduce((a, s) => a + s.pct, 0);
+    return { list, similar };
+  }
+
+  // One violet, light to dark with the share in common: apart from the
+  // visitors' orange and blue, and the same on the pie and on the image.
+  const VIOLET = [[196, 188, 240], [59, 44, 153]];
+  function violet(t) {
+    t = Math.max(0, Math.min(1, t));
+    const [a, b] = VIOLET;
+    return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+  }
+  const inkOn = (t) => (t > 0.42 ? "#fff" : INK);
+  const APART = "#e6e3de";
+
+  // The image with its grid: regions not shared turn grey, each shared
+  // one carries its letter and share in a badge of its slice's colour.
+  function drawRegions(ctx, im, r, sh, maxCommon, k, withPct) {
+    drawImageHQ(ctx, im.el, r);
+    const cw = r.w / ROI_N, ch = r.h / ROI_N;
+    const shownPct = new Map();
+    if (sh.similarity != null) slicesOf(sh).list.forEach((s) => { if (!s.apart && !s.folded) shownPct.set(s.letter, s); });
+    // Regions not shared go grey and darker: colour is what both looked at.
+    const apart = sh.regions.filter((g) => !g.common);
+    if (apart.length) {
+      ctx.save();
+      ctx.beginPath();
+      for (const g of apart) ctx.rect(r.x + (g.index % ROI_N) * cw, r.y + Math.floor(g.index / ROI_N) * ch, cw, ch);
+      ctx.clip();
+      drawImageHQ(ctx, im.el, r, "grayscale(1) brightness(0.62) contrast(0.9)");
+      ctx.restore();
+    }
+    // The grid: white lines with a dark edge, so they show on any image.
+    ctx.lineCap = "butt";
+    for (const [w, c] of [[5 * k, "rgba(0,0,0,.55)"], [2 * k, "rgba(255,255,255,.9)"]]) {
+      ctx.lineWidth = w; ctx.strokeStyle = c;
+      ctx.beginPath();
+      for (let i = 1; i < ROI_N; i++) {
+        ctx.moveTo(r.x + i * cw, r.y); ctx.lineTo(r.x + i * cw, r.y + r.h);
+        ctx.moveTo(r.x, r.y + i * ch); ctx.lineTo(r.x + r.w, r.y + i * ch);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = RULE; ctx.lineWidth = 2; ctx.strokeRect(r.x, r.y, r.w, r.h);
+    sh.regions.forEach((g) => {
+      if (!g.common) return;
+      const t = g.common / maxCommon;
+      const s = shownPct.get(g.letter);
+      const size = Math.round(Math.max(24, 26 * k));
+      ctx.font = `700 ${size}px ${FONT}`;
+      const label = withPct && s ? `${g.letter} ${pctText(s.pct, s.value)}` : g.letter;
+      const fit = ctx.measureText(label).width + size * 0.8 < cw * 0.94;
+      const text = fit ? label : g.letter;
+      const bw = ctx.measureText(text).width + size * 0.8, bh = size * 1.45;
+      const cx = r.x + (g.index % ROI_N + 0.5) * cw, cy = r.y + (Math.floor(g.index / ROI_N) + 0.5) * ch;
+      ctx.fillStyle = violet(t);
+      roundRect(ctx, cx - bw / 2, cy - bh / 2, bw, bh, bh * 0.22);
+      ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.stroke();
+      ctx.fillStyle = inkOn(t); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(text, cx, cy + 1);
+    });
+  }
+
+  function roundRect(ctx, x, y, w, h, rr) {
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y); ctx.arcTo(x + w, y, x + w, y + h, rr); ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr); ctx.arcTo(x, y, x + w, y, rr); ctx.closePath();
+  }
+
+  // The pie: clockwise from twelve o'clock, largest first, a 2-dot gap of
+  // paper between slices; the letter and share on every slice with room.
+  function drawPie(ctx, cx, cy, R, slices, maxCommon, font, withPct) {
+    let a = -Math.PI / 2;
+    const total = slices.reduce((s, x) => s + x.value, 0) || 1;
+    const placed = [];
+    for (const s of slices) {
+      const da = (s.value / total) * Math.PI * 2;
+      const t = s.apart ? 0 : s.value / maxCommon;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, R, a, a + da); ctx.closePath();
+      ctx.fillStyle = s.apart ? APART : violet(t); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = PAGE; ctx.lineJoin = "round"; ctx.stroke();
+      placed.push({ s, mid: a + da / 2, da, t });
+      a += da;
+    }
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (const { s, mid, da, t } of placed) {
+      const lines = withPct ? [s.letter, pctText(s.pct, s.value)].filter(Boolean) : [s.letter].filter(Boolean);
+      if (!lines.length) continue;
+      ctx.font = `700 ${font}px ${FONT}`;
+      const w = Math.max(...lines.map((l) => ctx.measureText(l).width));
+      const rr = da > Math.PI ? R * 0.42 : R * 0.62;
+      const chord = 2 * rr * Math.sin(Math.min(Math.PI / 2, da / 2));
+      if (chord < w + font * 0.4 || (lines.length > 1 && da < 0.55)) continue;
+      const x = cx + Math.cos(mid) * rr, y = cy + Math.sin(mid) * rr;
+      ctx.fillStyle = s.apart ? INK2 : inkOn(t);
+      lines.forEach((l, i) => ctx.fillText(l, x, y + (i - (lines.length - 1) / 2) * font * 1.1));
+    }
+  }
+
+  // Where the two cannot be compared: the pie's place, empty.
+  function emptyPie(ctx, cx, cy, R, font) {
+    ctx.save();
+    ctx.setLineDash([font * 0.4, font * 0.4]); ctx.lineWidth = 3; ctx.strokeStyle = RULE;
+    ctx.beginPath(); ctx.arc(cx, cy, R - 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = MUTED; ctx.font = `${font}px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("no pie", cx, cy);
+  }
+
+  const sentence = (sh, sim, ses) => {
+    if (sh.similarity != null)
+      return `Based on the regions you both looked at, you looked at this image with ${sim} % similarity.`;
+    const who = sh.looked.map((l, k) => (l ? ses.players.find((p) => p.id === ses.shared.visitors[k]).label : null)).filter(Boolean);
+    return who.length ? `Only ${who[0]} looked at this image: nothing to compare.` : "Neither of you looked at this image.";
+  };
+
+  function sharedPage(ses, scale) {
+    const { c, ctx, W, H } = page(scale);
+    const sh = shared(ses);
+    const overall = sh.similarity;
+    header(ctx, W, ses, "shared regions", overall == null ? "two visitors needed"
+      : `across all ${ses.images.length} images, ${Math.round(overall * 100)} % similar`);
+    if (sh.visitors.length < 2) {
+      ctx.fillStyle = INK2; ctx.font = `40px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText("Shared regions compare two visitors; this session had " +
+        `${sh.visitors.length === 1 ? "one" : "none"}.`, 140, 460);
+      return c;
+    }
+    const ctxSes = { ...ses, shared: sh };
+    const maxCommon = Math.max(1e-9, ...sh.images.flatMap((i) => i.regions.map((g) => g.common)));
+    const PANEL = 0.74;                 // the pie's panel, in image heights
+    const geo = grid(ses.images.map((im) => ({ w: (im.w / im.h || 1.5) + PANEL, h: 1 })),
+                     { x: 140, y: 340, w: W - 280, h: H - 340 - 190 }, 80, 140);
+    ses.images.forEach((im, i) => {
+      const b = geo[i].img, h = b.h, a = im.w / im.h || 1.5;
+      const ir = { x: b.x, y: b.y, w: h * a, h };
+      const k = Math.max(1, ir.w / 900) * 1.4;
+      const si = sh.images[i];
+      drawRegions(ctx, im, ir, si, maxCommon, k, true);
+      const px = ir.x + ir.w + h * 0.07, pw = h * (PANEL - 0.07);
+      let sim = null;
+      if (si.similarity != null) {
+        const { list, similar } = slicesOf(si);
+        sim = similar;
+        const D = Math.min(pw, h * 0.56), R = D / 2;
+        const font = Math.round(Math.max(24, Math.min(34, h * 0.042)));
+        drawPie(ctx, px + pw / 2, b.y + R, R, list, maxCommon, font, true);
+        // The legend: every slice, by name, with its share.
+        const top = b.y + D + h * 0.06;
+        const rowH = Math.min(font * 1.6, (b.y + h - top) / Math.max(1, list.length));
+        const f2 = Math.round(Math.max(22, Math.min(font, rowH * 0.66)));
+        list.forEach((s, j) => {
+          const y = top + j * rowH + rowH / 2;
+          ctx.fillStyle = s.apart ? APART : violet(s.value / maxCommon);
+          roundRect(ctx, px, y - f2 * 0.5, f2, f2, 4); ctx.fill();
+          if (s.apart) { ctx.lineWidth = 1.5; ctx.strokeStyle = MUTED; ctx.stroke(); }
+          ctx.textBaseline = "middle"; ctx.font = `${f2}px ${FONT}`;
+          ctx.fillStyle = INK; ctx.textAlign = "right";
+          const pt = pctText(s.pct, s.value);
+          ctx.fillText(pt, px + pw, y + 1);
+          ctx.textAlign = "left"; ctx.fillStyle = s.apart ? INK2 : INK;
+          const pw2 = ctx.measureText(pt).width;
+          fitText(ctx, s.apart ? s.name : `${s.letter} ${s.name}`, px + f2 + f2 * 0.5, y + 1, pw - f2 * 1.5 - pw2 - 12);
+        });
+      } else {
+        const D = Math.min(pw, h * 0.56);
+        emptyPie(ctx, px + pw / 2, b.y + D / 2, D / 2, 30);
+      }
+      // Caption: the image, then the sentence.
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      ctx.fillStyle = INK; ctx.font = `600 34px ${FONT}`;
+      fitText(ctx, `${im.slot + 1} · ${shortName(im.name)}`, b.x, b.y + h + 22, b.w);
+      ctx.font = `30px ${FONT}`; ctx.fillStyle = INK2;
+      fitText(ctx, sentence(si, sim, ctxSes), b.x, b.y + h + 70, b.w);
+    });
+    footer(ctx, W, H, "each image in 3 × 3 regions, A to I · a slice: the smaller of your two shares of time on " +
+      "the image in that region · the slices add up to the similarity · grey: not looked at by both");
+    return c;
+  }
+
+  function sharedCard(ses) {
+    const { c, ctx, W, H, M } = cardCanvas();
+    const sh = shared(ses);
+    const overall = sh.similarity;
+    cardHeader(ctx, ses, "shared regions", overall == null ? "two visitors needed"
+      : `all images: ${Math.round(overall * 100)} % similar`);
+    if (sh.visitors.length < 2) {
+      ctx.fillStyle = INK2; ctx.font = `28px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText("Shared regions compare two visitors.", M, 220);
+      return c;
+    }
+    const maxCommon = Math.max(1e-9, ...sh.images.flatMap((i) => i.regions.map((g) => g.common)));
+    const PANEL = 0.8;
+    const cap = 40;
+    const geo = grid(ses.images.map((im) => ({ w: (im.w / im.h || 1.5) + PANEL, h: 1 })),
+                     { x: M, y: 146, w: W - 2 * M, h: H - 146 - 64 }, 24, cap);
+    ses.images.forEach((im, i) => {
+      const { cell, img: b0 } = geo[i];
+      const b = { ...b0, y: cell.y + (cell.h - cap - b0.h) / 2 };
+      const h = b.h, a = im.w / im.h || 1.5;
+      const ir = { x: b.x, y: b.y, w: h * a, h };
+      const si = sh.images[i];
+      drawRegions(ctx, im, ir, si, maxCommon, 0.9, ir.w / ROI_N > 110);
+      const px = ir.x + ir.w + h * 0.06, pw = h * (PANEL - 0.06);
+      const D = Math.min(pw, h), R = D / 2;
+      ctx.textBaseline = "top"; ctx.textAlign = "left";
+      if (si.similarity != null) {
+        const { list, similar } = slicesOf(si);
+        drawPie(ctx, px + pw / 2, b.y + h / 2, R, list, maxCommon, 24, false);
+        ctx.textBaseline = "top"; ctx.textAlign = "left";
+        ctx.fillStyle = INK; ctx.font = `600 26px ${FONT}`;
+        fitText(ctx, `${im.slot + 1} · ${similar} % similar`, b.x, b.y + h + 8, b.w);
+      } else {
+        emptyPie(ctx, px + pw / 2, b.y + h / 2, R, 24);
+        ctx.textBaseline = "top"; ctx.textAlign = "left";
+        ctx.fillStyle = INK2; ctx.font = `25px ${FONT}`;
+        fitText(ctx, `${im.slot + 1} · ${si.looked.some(Boolean) ? "one of you only" : "not looked at"}`, b.x, b.y + h + 8, b.w);
+      }
+    });
+    cardFooter(ctx, "in colour: regions you both looked at · % = time in common · grey: not shared");
+    return c;
   }
 
   // ------------------------------------------------------------- pages
@@ -477,6 +781,7 @@
     const scale = opts.scale || 1;
     if (kind === "heatmaps") return heatmapsPage(ses, scale, opts.who == null ? "all" : opts.who);
     if (kind === "stats") return statsPage(ses, scale);
+    if (kind === "shared") return sharedPage(ses, scale);
     return scanpathsPage(ses, scale);
   }
 
@@ -690,12 +995,13 @@
     return c;
   }
 
-  // card("scanpaths" | "heatmaps" | "stats", session, { who }) -> a 1260 × 840 canvas
+  // card("scanpaths" | "heatmaps" | "stats" | "shared", session, { who }) -> a 1260 × 840 canvas
   async function card(kind, ses, opts = {}) {
     if (kind === "heatmaps") return heatmapsCard(ses, opts.who == null ? "all" : opts.who);
     if (kind === "stats") return statsCard(ses);
+    if (kind === "shared") return sharedCard(ses);
     return scanpathsCard(ses);
   }
 
-  window.LiveGazeReport = { render, card, CARD, stats, drawScanpath, radius, rgba };
+  window.LiveGazeReport = { render, card, CARD, stats, shared, drawScanpath, radius, rgba };
 })();

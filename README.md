@@ -269,20 +269,30 @@ the monitor itself: **a visitor finishes by looking at the dot on the right for
 glance does nothing. The operator can also finish a visitor (**1 1** / **2 2**)
 or everyone (**e e**). When both have finished, the quadrants freeze and a
 pop-up asks whether to print the **scanpaths**; **heatmaps** (both visitors or
-one, one shared viridis scale) and **fixation statistics** (time, share,
+one, one shared viridis scale), **fixation statistics** (time, share,
 fixations, mean duration, first look and visits per image and visitor, a bar
-chart, and each visitor's visits in order over time) are made when asked for,
-or all three at once. **n n** starts a new session. A visit is a run of
-fixations on one image; looking at another image ends it. There is no five-eye
-calibration on paper. With data collection on, the session is saved to
+chart, and each visitor's visits in order over time) and **shared regions** are
+made when asked for, or all four at once. Shared regions cuts each image into a
+coarse 3 × 3 grid (A to I) and shows, per image, the regions both visitors
+looked at, in colour on the image and as a pie, and the sentence *"Based on the
+regions you both looked at, you looked at this image with xx % similarity"*.
+For each region it takes the smaller of the two visitors' shares of their time
+on that image; the slices are those, they add up to the similarity, and grey is
+what was not in common (100 %: both spread their looking over the regions in
+exactly the same way; 0 %: no region shared). The heading gives the same figure
+across all the images, which also counts how each split their time between
+them. **n n** starts a new session. A visit is a run of fixations on one
+image; looking at another image ends it. There is no five-eye calibration on
+paper. With data collection on, the session is saved to
 `~/petrifeye-recordings/live-gaze/<date-time>/overview/`: `fixations.csv` (with
 the image, visit and order on the image), `results.json` (with the sheets'
-tags and layout and the statistics), and the three pictures. Printing needs the
-AprilTags: with the purple frame every image is on screen. The screen window
-at a printed image's position stays idle — its tags are on the sheet.
+tags and layout, the statistics and the shared regions), and the four
+pictures. Printing needs the AprilTags: with the purple frame every image is on
+screen. The screen window at a printed image's position stays idle — its tags
+are on the sheet.
 
 **On an instax WIDE.** The pop-up's **printer** choice switches between A4 /
-letter (the print dialog) and **instax WIDE**: the same three prints laid out
+letter (the print dialog) and **instax WIDE**: the same four prints laid out
 again as cards for an INSTAX Link WIDE (99 × 62 mm on instax WIDE film): the
 images as large as the card allows, numbered in a corner, no text under 24
 dots (about 2 mm). **print on the instax** sends the card straight to the
@@ -327,7 +337,7 @@ is used.
 page and the home page) open every printable sheet filled with a made-up
 session of two visitors (`shared/gaze/live-gaze-mock.js`, seeded): the image
 sheets laid out for any paper, the saved exhibition, one image's analysis,
-and the overview's scanpaths, heatmaps and statistics, on paper or as instax
+and the overview's scanpaths, heatmaps, statistics and shared regions, on paper or as instax
 WIDE cards — the same code as the
 real prints, each page marked TEST PRINT, nothing measured or saved. They use
 the session's images, else the saved exhibition's, else the included ones.

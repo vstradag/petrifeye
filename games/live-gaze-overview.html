@@ -73,11 +73,11 @@
   #modal .tabs, #modal .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   #modal .tabs span { font-size: 11px; color: #6a6a6a; letter-spacing: .1em; margin: 0 4px 0 10px; }
   #modal .preview { flex: 1 1 auto; min-height: 0; background: #fff; display: flex; align-items: center;
-                    justify-content: center; border: 1px solid #23252c; }
+                    justify-content: center; border: 1px solid #23252c; overflow: hidden; }
   #modal .preview img { max-width: 100%; max-height: 58vh; display: block; }
   /* An instax WIDE print: the picture on its film, the wide border at the bottom. */
   #modal .preview.instax { background: #2a2c31; padding: 18px 0; }
-  #modal .preview.instax img { max-height: 46vh; background: #fbfaf6; padding: 14px 18px 46px;
+  #modal .preview.instax img { box-sizing: border-box; max-height: 46vh; background: #fbfaf6; padding: 14px 18px 46px;
                                box-shadow: 0 2px 10px rgba(0,0,0,.5); }
   #mInstaxState { color: #e8e6e2; }
   #mInstaxState.bad { color: #ff8a8a; }
@@ -134,6 +134,7 @@
       <span>also available</span>
       <button data-kind="heatmaps">heatmaps</button>
       <button data-kind="stats">fixation statistics</button>
+      <button data-kind="shared">shared regions</button>
       <span class="push">printer</span>
       <button data-printer="paper">A4 / letter</button>
       <button data-printer="instax">instax WIDE</button>
@@ -151,7 +152,7 @@
       <button class="go" id="mPrint">print</button>
     </div>
     <div class="row">
-      <button id="mAll">print all three</button>
+      <button id="mAll">print all four</button>
       <button id="mClose">close (the scanpaths stay on screen)</button>
       <button id="mNew">new session</button>
     </div>

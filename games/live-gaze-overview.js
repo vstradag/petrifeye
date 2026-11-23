@@ -16,8 +16,9 @@
 //     while the gaze stays on it. The operator can also finish a visitor
 //     (1 1 / 2 2) or the whole session (e e).
 //   - When every visitor has finished, the quadrants freeze and a pop-up asks
-//     whether to print the scanpaths; heatmaps and fixation statistics are
-//     produced when asked for (live-gaze-report.js).
+//     whether to print the scanpaths; heatmaps, fixation statistics and the
+//     shared regions (how similarly both looked) are produced when asked for
+//     (live-gaze-report.js).
 //
 // Images shown ON SCREENS (the other medium) still have their own screen
 // windows; their gaze reaches this window over the BroadcastChannel, already
@@ -465,13 +466,13 @@
       { name: "fixations.csv", blob: new Blob([rows.join("\n") + "\n"], { type: "text/csv" }) },
       { name: "results.json", blob: new Blob([JSON.stringify(results, null, 2)], { type: "application/json" }) },
     ];
-    for (const kind of ["scanpaths", "heatmaps", "stats"]) {
+    for (const kind of ["scanpaths", "heatmaps", "stats", "shared"]) {
       const c = await LiveGazeReport.render(kind, ses, { who: "all", scale: 0.5 });
-      files.push({ name: `${kind === "stats" ? "statistics" : kind}.png`,
+      files.push({ name: `${cardName(kind, "all")}.png`,
                    blob: await new Promise((r) => c.toBlob(r, "image/png")) });
     }
     // The same three as INSTAX Link WIDE cards, ready for the phone app.
-    for (const kind of ["scanpaths", "heatmaps", "stats"]) {
+    for (const kind of ["scanpaths", "heatmaps", "stats", "shared"]) {
       const c = await LiveGazeReport.card(kind, ses, { who: "all" });
       files.push({ name: `instax-${cardName(kind, "all")}.png`,
                    blob: await new Promise((r) => c.toBlob(r, "image/png")) });
@@ -771,7 +772,8 @@
   }
 
   const cardName = (kind, who) =>
-    kind === "stats" ? "statistics" : kind === "heatmaps" && who !== "all" ? `heatmaps-p${who + 1}` : kind;
+    kind === "stats" ? "statistics" : kind === "shared" ? "shared-regions"
+      : kind === "heatmaps" && who !== "all" ? `heatmaps-p${who + 1}` : kind;
 
   // ------------------------------------------------------- the instax
   // The cards go to the INSTAX Link WIDE through the bridge, which talks to
@@ -889,6 +891,7 @@
     scanpaths: "Is this the print you want? The scanpaths",
     heatmaps: "Heatmaps — where the looking was densest",
     stats: "Fixation statistics",
+    shared: "Shared regions — how similarly you both looked",
   };
 
   async function showKind(kind) {
@@ -900,7 +903,7 @@
     $("mWho").classList.toggle("hidden", kind !== "heatmaps");
     $("mAsk").textContent = ASK[kind];
     $("mPrint").textContent = instax ? "print on the instax" : "print";
-    $("mAll").textContent = instax ? "print all three on the instax" : "print all three";
+    $("mAll").textContent = instax ? "print all four on the instax" : "print all four";
     $("mInstax").classList.toggle("hidden", !instax);
     if (instax) checkInstax(false);
     $("mPreviewBox").classList.toggle("instax", instax);
@@ -961,7 +964,7 @@
     showKind("heatmaps");
   });
   $("mPrint").onclick = () => (report.printer === "instax" ? printCards : printKinds)([report.kind]);
-  $("mAll").onclick = () => (report.printer === "instax" ? printCards : printKinds)(["scanpaths", "heatmaps", "stats"]);
+  $("mAll").onclick = () => (report.printer === "instax" ? printCards : printKinds)(["scanpaths", "heatmaps", "stats", "shared"]);
   $("mInstaxCheck").onclick = () => checkInstax(true);
   $("mClose").onclick = closeModal;
   $("mNew").onclick = newSession;
@@ -1084,7 +1087,7 @@
     requestAnimationFrame(draw);
     note("test print: a made-up session — nothing here was measured or saved", 6000);
     openModal("scanpaths");
-    await fillPrintSheet(params.has("printall") ? ["scanpaths", "heatmaps", "stats"] : ["scanpaths"]);
+    await fillPrintSheet(params.has("printall") ? ["scanpaths", "heatmaps", "stats", "shared"] : ["scanpaths"]);
     document.documentElement.dataset.printReady = "1";     // for scripted PDFs
     window.LiveGazeOverview = { state: S, layout: () => L };
   }
