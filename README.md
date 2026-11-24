@@ -266,9 +266,11 @@ common colour-vision deficiency. Images on screens show there too, from their
 screen windows. It wears its own four tags (580–583), so the glasses can find
 the monitor itself: **a visitor finishes by looking at the dot on the right for
 3 seconds** — a ring fills while the gaze stays on it, a chime confirms, and a
-glance does nothing. The operator can also finish a visitor (**1 1** / **2 2**)
-or everyone (**e e**). When both have finished, the quadrants freeze and a
-pop-up asks whether to print the **scanpaths**; **heatmaps** (both visitors or
+glance does nothing. The operator can also finish a visitor from the computer:
+click **finish P1** or **finish P2** under the dot, then click again within 3
+seconds to confirm (or press **1 1** / **2 2**); **end for everyone** (or
+**e e**) ends the session for both. When both have finished, the quadrants
+freeze and a pop-up asks whether to print the **scanpaths**; **heatmaps** (both visitors or
 one, one shared viridis scale), **fixation statistics** (time, share,
 fixations, mean duration, first look and visits per image and visitor, a bar
 chart, and each visitor's visits in order over time) and **shared regions** are

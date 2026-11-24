@@ -14,7 +14,9 @@
 //     find this monitor too: a visitor finishes by looking at the dot on the
 //     right for 3 seconds. Glancing at it does nothing; the ring fills only
 //     while the gaze stays on it. The operator can also finish a visitor
-//     (1 1 / 2 2) or the whole session (e e).
+//     from this computer: a click on "finish P1" / "finish P2" under the dot,
+//     then a second click to confirm, or the keys 1 1 / 2 2; and the whole
+//     session with "end for everyone" or e e.
 //   - When every visitor has finished, the quadrants freeze and a pop-up asks
 //     whether to print the scanpaths; heatmaps, fixation statistics and the
 //     shared regions (how similarly both looked) are produced when asked for
@@ -712,8 +714,9 @@
     }).join("");
     $("doneList").innerHTML = PLAYERS.filter((pl) => vis(pl.id).finishedAt != null)
       .map((pl) => `<div><span style="color:${pl.color}">●</span> ${pl.label} finished ✓</div>`).join("");
+    renderFinishButtons();
     $("keys").innerHTML = S.phase === "running"
-      ? "1 1 / 2 2 finish a visitor · e e end · f fullscreen"
+      ? "1 1 / 2 2 or click finish · e e end · f fullscreen"
       : S.phase === "ended" ? "p print · n n new session · f fullscreen"
       : "space start · m mouse stand-in · f fullscreen";
   }
@@ -999,6 +1002,49 @@
     noteTimer = setTimeout(() => el.classList.remove("show"), ms);
   }
 
+  // The same from the mouse: under the dot, a button per visitor still
+  // looking (and one for everyone while two are). Like the keys, it takes a
+  // second click within 3 s, so a stray click ends nobody's visit. Drawn
+  // again only when what it shows changes: the side text redraws every
+  // second, and a button replaced under the pointer loses its click.
+  const CLICK_MS = 3000;
+  const clickArmed = new Map();     // "0" | "1" | "all" -> when first clicked
+  let finBtnsShown = "";
+  function renderFinishButtons() {
+    const t = now();
+    for (const [k, at] of clickArmed) if (t - at > CLICK_MS) clickArmed.delete(k);
+    const open = S.phase === "running"
+      ? PLAYERS.filter((pl) => vis(pl.id).in && vis(pl.id).finishedAt == null) : [];
+    const items = open.map((pl) => ({
+      k: String(pl.id), c: pl.color,
+      text: clickArmed.has(String(pl.id)) ? `click again to finish ${pl.label}` : `finish ${pl.label} · ${pl.name}`,
+    }));
+    if (open.length > 1) items.push({ k: "all", c: null,
+      text: clickArmed.has("all") ? "click again to end for everyone" : "end for everyone" });
+    const shown = JSON.stringify(items);
+    if (shown === finBtnsShown) return;
+    finBtnsShown = shown;
+    $("finBtns").innerHTML = items.map((b) =>
+      `<button data-k="${b.k}" class="${b.k === "all" ? "all" : ""}${clickArmed.has(b.k) ? " armed" : ""}"` +
+      `${b.c ? ` style="--c:${b.c}"` : ""}>${b.text}</button>`).join("");
+  }
+  $("finBtns").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || S.phase !== "running") return;
+    const k = b.dataset.k, t = now();
+    if (clickArmed.has(k) && t - clickArmed.get(k) <= CLICK_MS) {
+      clickArmed.delete(k);
+      if (k === "all") endSession();
+      else finishVisitor(Number(k), "finished by the operator (click)");
+    } else {
+      clickArmed.set(k, t);
+      note(k === "all" ? "click again to end the session for everyone"
+                       : `click again to finish ${PLAYERS[Number(k)].label} (${PLAYERS[Number(k)].name})`, CLICK_MS);
+      setTimeout(renderFinishButtons, CLICK_MS + 50);
+    }
+    renderFinishButtons();
+  });
+
   // ------------------------------------------------------------- input
   // Twice within 1.5 s: a single stray key never ends anybody's visit.
   const armed = new Map();
@@ -1042,13 +1088,16 @@
 
   // The mouse stand-in: a steady 60 Hz stream from where the mouse rests,
   // like glasses would send, over an image or over the finish dot.
-  const mouse = { x: 0, y: 0, shift: false, inside: false };
-  window.addEventListener("pointermove", (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.shift = e.shiftKey; mouse.inside = true; });
+  const mouse = { x: 0, y: 0, shift: false, inside: false, onButton: false };
+  window.addEventListener("pointermove", (e) => {
+    mouse.x = e.clientX; mouse.y = e.clientY; mouse.shift = e.shiftKey; mouse.inside = true;
+    mouse.onButton = !!(e.target.closest && e.target.closest("button"));
+  });
   document.addEventListener("mouseout", (e) => { if (!e.relatedTarget) mouse.inside = false; });
   window.addEventListener("keydown", (e) => { if (e.key === "Shift") mouse.shift = true; });
   window.addEventListener("keyup", (e) => { if (e.key === "Shift") mouse.shift = false; });
   setInterval(() => {
-    if (!S.sim || !mouse.inside || S.phase !== "running" || !L) return;
+    if (!S.sim || !mouse.inside || mouse.onButton || S.phase !== "running" || !L) return;
     if (!$("modal").classList.contains("hidden")) return;
     const p = mouse.shift ? 1 : 0;
     const f = L.finish;
